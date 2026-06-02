@@ -1,0 +1,12 @@
+{
+  "name": "@taxigreen/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "echo \"(e2e) Playwright se ejecuta con 'pnpm e2e' desde la raíz; no entra al pipeline turbo de Sprint 0\"",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.2"
+  }
+}

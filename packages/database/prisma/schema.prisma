@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Rol {
+  admin_tenant
+  despachador
+  supervisor
+  conductor
+  pasajero_invitado
+}
+
+enum CanalOrigen {
+  whatsapp_oficial
+  whatsapp_manual
+  web_landing
+  counter
+  llamada
+  hotel
+}
+
+enum TipoViaje {
+  recojo_aeropuerto
+  traslado_aeropuerto
+  city
+}
+
+enum TipoPago {
+  efectivo
+  voucher_hotel
+  factura_empresa
+  app_pago
+}
+
+enum EstadoReserva {
+  ingesta_pendiente
+  necesita_revision
+  confirmada
+  asignada
+  en_curso
+  finalizada
+  por_liquidar
+  cancelada
+}
+
+enum EstadoViaje {
+  asignado
+  en_camino
+  en_punto
+  a_bordo
+  finalizado
+  cancelado
+}
+
+enum TipoComprobante {
+  boleta
+  factura
+  ticket
+}
+
+enum EstadoComprobante {
+  emitido
+  anulado
+  pendiente
+}
+
+enum TipologiaIncidencia {
+  objeto_olvidado
+  queja
+  seguridad
+  otro
+}
+
+enum SeveridadIncidencia {
+  baja
+  media
+  alta
+  critica
+}
+
+enum EstadoIncidencia {
+  abierta
+  en_resolucion
+  resuelta
+  escalada
+  cerrada
+}
+
+enum TipoVehiculo {
+  sedan
+  camioneta
+  van
+  minivan
+}
+
+model tenants {
+  id         String   @id @default(uuid())
+  nombre     String   @unique
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  usuarios             usuarios[]
+  conductores          conductores[]
+  vehiculos            vehiculos[]
+  reservas             reservas[]
+  viajes               viajes[]
+  posiciones_conductor posiciones_conductor[]
+  comprobantes         comprobantes[]
+  incidencias          incidencias[]
+  auditoria            auditoria[]
+}
+
+model usuarios {
+  id            String    @id @default(uuid())
+  tenant_id     String
+  tenant        tenants   @relation(fields: [tenant_id], references: [id])
+  rol           Rol
+  email         String?   @unique
+  password_hash Bytes?
+  pin_hash      Bytes?
+  fcm_token     String?
+  nombre        String
+  telefono      String?
+  activo        Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  deleted_at    DateTime?
+
+  conductor conductores?
+
+  @@index([tenant_id, rol])
+}
+
+model conductores {
+  id                   String     @id @default(uuid())
+  tenant_id            String
+  tenant               tenants    @relation(fields: [tenant_id], references: [id])
+  usuario_id           String     @unique
+  usuario              usuarios   @relation(fields: [usuario_id], references: [id])
+  licencia             String
+  rating               Float      @default(5.0)
+  foto_url             String?
+  total_viajes         Int        @default(0)
+  tiempo_en_cola_desde DateTime?
+  vehiculo_id          String?
+  vehiculo             vehiculos? @relation(fields: [vehiculo_id], references: [id])
+  created_at           DateTime   @default(now())
+  updated_at           DateTime   @updatedAt
+
+  posiciones posiciones_conductor[]
+  reservas   reservas[]
+  viajes     viajes[]
+
+  @@index([tenant_id])
+}
+
+model vehiculos {
+  id         String       @id @default(uuid())
+  tenant_id  String
+  tenant     tenants      @relation(fields: [tenant_id], references: [id])
+  placa      String       @unique
+  marca      String
+  modelo     String
+  tipo       TipoVehiculo
+  capacidad  Int
+  foto_url   String?
+  color      String?
+  anio       Int?
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+
+  conductores conductores[]
+
+  @@index([tenant_id])
+}
+
+model reservas {
+  id                   String        @id @default(uuid())
+  tenant_id            String
+  tenant               tenants       @relation(fields: [tenant_id], references: [id])
+  canal_origen         CanalOrigen
+  tipo_viaje           TipoViaje
+  solicitante_tipo     String?
+  solicitante_nombre   String?
+  solicitante_contacto String?
+  pasajero_nombre      String
+  pasajero_telefono    String
+  pasajero_email       String?
+  pasajero_dni         String?
+  pasajero_ruc         String?
+  origen_texto         String
+  origen_lat           Float?
+  origen_lng           Float?
+  destino_texto        String
+  destino_lat          Float?
+  destino_lng          Float?
+  punto_encuentro      String?
+  fecha_hora_servicio  DateTime
+  vuelo_codigo         String?
+  tipo_pago            TipoPago
+  estado               EstadoReserva
+  token_pasajero       String        @unique
+  voucher_codigo       String        @unique
+  voucher_qr_payload   String
+  voucher_emitido_en   DateTime?
+  raw_ingesta          Json?
+  sugerencia_copiloto  Json?
+  calificacion         Json?
+  empresa_nombre       String?
+  hotel_nombre         String?
+  conductor_id         String?
+  conductor            conductores?  @relation(fields: [conductor_id], references: [id])
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  deleted_at           DateTime?
+
+  viajes       viajes[]
+  comprobantes comprobantes[]
+  incidencias  incidencias[]
+
+  @@index([tenant_id, estado])
+  @@index([tenant_id, canal_origen])
+  @@index([tenant_id, tipo_viaje])
+}
+
+model viajes {
+  id               String      @id @default(uuid())
+  tenant_id        String
+  tenant           tenants     @relation(fields: [tenant_id], references: [id])
+  reserva_id       String
+  reserva          reservas    @relation(fields: [reserva_id], references: [id])
+  conductor_id     String
+  conductor        conductores @relation(fields: [conductor_id], references: [id])
+  estado           EstadoViaje
+  inicio_en_camino DateTime?
+  llegada_punto    DateTime?
+  pasajero_a_bordo DateTime?
+  finalizado_en    DateTime?
+  created_at       DateTime    @default(now())
+  updated_at       DateTime    @updatedAt
+  deleted_at       DateTime?
+
+  @@index([tenant_id])
+  @@index([reserva_id])
+  @@index([conductor_id, estado])
+}
+
+model posiciones_conductor {
+  id           String                                 @id @default(uuid())
+  tenant_id    String
+  tenant       tenants                                @relation(fields: [tenant_id], references: [id])
+  conductor_id String
+  conductor    conductores                            @relation(fields: [conductor_id], references: [id])
+  lat          Float
+  lng          Float
+  geom         Unsupported("geography(Point, 4326)")?
+  velocidad    Float?
+  ts           DateTime                               @default(now())
+
+  @@index([conductor_id, ts(sort: Desc)])
+}
+
+model comprobantes {
+  id          String            @id @default(uuid())
+  tenant_id   String
+  tenant      tenants           @relation(fields: [tenant_id], references: [id])
+  reserva_id  String
+  reserva     reservas          @relation(fields: [reserva_id], references: [id])
+  tipo        TipoComprobante
+  serie       String
+  correlativo Int
+  monto       Decimal           @db.Decimal(10, 2)
+  pdf_url     String?
+  estado      EstadoComprobante
+  created_at  DateTime          @default(now())
+  updated_at  DateTime          @updatedAt
+
+  @@unique([tipo, serie, correlativo])
+  @@index([tenant_id])
+}
+
+model incidencias {
+  id          String              @id @default(uuid())
+  tenant_id   String
+  tenant      tenants             @relation(fields: [tenant_id], references: [id])
+  reserva_id  String
+  reserva     reservas            @relation(fields: [reserva_id], references: [id])
+  tipologia   TipologiaIncidencia
+  severidad   SeveridadIncidencia
+  estado      EstadoIncidencia
+  descripcion String
+  timeline    Json                @default("[]")
+  tpr_seg     Int?
+  tr_seg      Int?
+  created_at  DateTime            @default(now())
+  updated_at  DateTime            @updatedAt
+  closed_at   DateTime?
+  deleted_at  DateTime?
+
+  @@index([tenant_id, estado])
+  @@index([reserva_id])
+}
+
+model auditoria {
+  id              String   @id @default(uuid())
+  tenant_id       String?
+  tenant          tenants? @relation(fields: [tenant_id], references: [id])
+  actor_tipo      String
+  actor_id        String?
+  action          String
+  target_table    String?
+  target_id       String?
+  payload         Json?
+  fuente_decision Json?
+  ip              String?
+  user_agent      String?
+  ts              DateTime @default(now())
+
+  @@index([tenant_id, action, ts(sort: Desc)])
+}

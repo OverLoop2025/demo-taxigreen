@@ -1,0 +1,42 @@
+name: Deploy web (Railway)
+
+# Despliegue de apps/web a Railway. Requiere credenciales del usuario en Secrets:
+#   RAILWAY_TOKEN  (y el servicio enlazado en Railway).
+# Hasta que existan, el job queda como manual (workflow_dispatch) y no bloquea CI.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Railway up (apps/web)
+    runs-on: ubuntu-latest
+    # El contexto `secrets` NO existe en un `if` a nivel de job (GitHub lanza
+    # "Unrecognized named-value: 'secrets'"). Se pasa el token a `env` de job
+    # (ahí `secrets` sí está disponible) y se condiciona el step de deploy con
+    # el contexto `env`, que sí es válido en `if` de step.
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Sin `version`: action-setup@v4 lee `packageManager` (pnpm@10.33.0).
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Railway CLI
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        run: npm i -g @railway/cli
+
+      - name: Deploy
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        run: railway up --service web --detach

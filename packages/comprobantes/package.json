@@ -1,0 +1,24 @@
+{
+  "name": "@taxigreen/comprobantes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --config ../../eslint.config.mjs",
+    "test": "echo \"(pkg/comprobantes) sin tests aún (Sprint 0)\"",
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@sparticuz/chromium-min": "^149.0.0",
+    "puppeteer-core": "^25.1.0"
+  }
+}

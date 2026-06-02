@@ -1,0 +1,81 @@
+export const colors = {
+  // Chrome del producto: azul como sistema principal.
+  product: {
+    50: '#EAF4FF',
+    100: '#D7EAFE',
+    200: '#B8D9FC',
+    300: '#84BDF7',
+    400: '#4B9DF0',
+    500: '#227FDE',
+    600: '#1B65B2',
+    700: '#164F8B',
+    800: '#0F3668',
+    900: '#0B0952',
+    DEFAULT: '#227FDE',
+    deep: '#0B0952',
+    fg: '#FFFFFF',
+    muted: '#E8F1FC',
+  },
+  // Marca Taxi Green: verde reservado a logo y chip de tenant.
+  brand: {
+    tenant: '#0B7A3B',
+    tenantDeep: '#075A2B',
+    tenantSoft: '#E6F4EC',
+    tenantFg: '#FFFFFF',
+  },
+  care: {
+    50: '#F5F3FF',
+    100: '#EDE9FE',
+    200: '#DDD6FE',
+    300: '#C4B5FD',
+    400: '#A78BFA',
+    500: '#6D28D9',
+    600: '#5B21B6',
+    700: '#4C1D95',
+    DEFAULT: '#6D28D9',
+    soft: '#EDE9FE',
+    fg: '#FFFFFF',
+  },
+  semantic: {
+    success: {
+      DEFAULT: '#16A34A',
+      soft: '#DCFCE7',
+      fg: '#052E16',
+    },
+    warning: {
+      DEFAULT: '#D97706',
+      soft: '#FEF3C7',
+      fg: '#451A03',
+    },
+    danger: {
+      DEFAULT: '#DC2626',
+      soft: '#FEE2E2',
+      fg: '#450A0A',
+    },
+    info: {
+      DEFAULT: '#227FDE',
+      soft: '#E8F1FC',
+      fg: '#0B0952',
+    },
+  },
+  neutral: {
+    0: '#FFFFFF',
+    50: '#F9FAFB',
+    100: '#F3F4F6',
+    200: '#E5E7EB',
+    300: '#D1D5DB',
+    400: '#9CA3AF',
+    500: '#6B7280',
+    600: '#4B5563',
+    700: '#374151',
+    800: '#1F2937',
+    900: '#111827',
+    950: '#030712',
+    background: '#F9FAFB',
+    surface: '#FFFFFF',
+    border: '#E5E7EB',
+    text: '#1F2937',
+  },
+} as const;
+
+export type ColorTokens = typeof colors;

@@ -1,0 +1,33 @@
+export { ExtractorDeterminista, extraerReservaDeterminista } from './extractor';
+export {
+  canalOrigenSchema,
+  extractorInputSchema,
+  extraccionReservaResultadoSchema,
+  fuenteDecisionSchema,
+  reservaExtraidaSchema,
+  solicitanteTipoSchema,
+  tipoPagoSchema,
+  tipoViajeSchema,
+  type CanalOrigen,
+  type DireccionNormalizada,
+  type ExtractorInput,
+  type ExtraccionReservaResultado,
+  type FuenteDecision,
+  type ReservaExtraida,
+  type SolicitanteTipo,
+  type TipoPago,
+  type TipoViaje,
+} from './types';
+export {
+  detectarAeropuerto,
+  detectarTipoPago,
+  extraerDni,
+  extraerFechaHoraServicio,
+  extraerPuntoEncuentro,
+  extraerRuc,
+  extraerTelefono,
+  extraerVuelo,
+  normalizarDireccion,
+  normalizarTexto,
+  validarRuc,
+} from './post-procesamiento';

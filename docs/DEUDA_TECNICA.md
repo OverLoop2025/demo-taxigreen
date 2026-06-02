@@ -1,0 +1,84 @@
+# Deuda técnica — Taxi Green Demo
+
+> Registro vivo. Distingue **deuda intencional** (decisión consciente de demo, sin riesgo de
+> "sorpresa" porque está acotada y documentada) de **deuda programada** (trabajo real diferido a un
+> sprint posterior) y de **riesgos a vigilar**. Última revisión: **2026-06-02** (cierre S7).
+
+La regla maestra (CLAUDE.md §5 y reglas de oro §6.6): *lo que se construye en demo debe ser reusable en
+MVP, sin código desechable*. Por eso casi toda la deuda es **acotada por interfaz** (stubs, flags), no
+atajos que haya que reescribir.
+
+---
+
+## 1. Deuda intencional de demo (decisión cerrada, no es bug)
+
+| # | Tema | Estado en demo | Por qué es seguro | Dónde se cierra (MVP) |
+|---|------|----------------|-------------------|------------------------|
+| 1 | **Sin RLS multi-tenant** | `tenant_id` simbólico en las 10 tablas, sin Row Level Security activo. El filtrado por tenant es **a nivel de aplicación** (todas las queries Prisma llevan `where: { tenant_id }`). | Demo mono-tenant ("Taxi Green Demo"). No hay datos de otros operadores que aislar. El `tenant_id` ya viaja en sesión y queries, así que activar RLS es aditivo. | Activar políticas RLS en Supabase + `auth.jwt()->tenant_id`. Semilla MVP. |
+| 2 | **Rate limit in-memory** | Login admin/counter/driver usa un limitador en memoria del proceso (`apps/web/src/lib/auth/rate-limit.ts`). | En demo corre un solo proceso Next. Cumple su función (frenar fuerza bruta del PIN en la demo). | Mover a Redis/Upstash o tabla con TTL para que sea consistente entre instancias. |
+| 3 | **Voucher QR no es "un solo uso"** | `verifyVoucherToken` es **stateless** (valida firma HMAC + expiración + match de reserva), no marca el token como consumido. | El QR aún no se "quema" porque el escaneo real del counter llega en **S9**. La firma HMAC ya impide falsificación/alteración. | S9: bloqueo idempotente server-side al escanear (regla CLAUDE.md §4.6). |
+| 4 | **RENIEC = cache demo** | `packages/integraciones/reniec` resuelve 3 DNIs del guion (`44556677`, `12345678`, `87654321`) desde cache in-memory TTL 30 min. El provider real (`apis-net-pe`) existe pero exige `RENIEC_API_TOKEN`. | El flujo protagonista solo necesita esos DNIs. Sin token → 503 controlado, no rompe. | Cablear `RENIEC_API_TOKEN` y/o cadena de fallbacks (prohibida en demo, CLAUDE.md §5). |
+| 5 | **Pago / SUNAT / SMS / WABA simulados** | Stubs por interfaz: el comprobante PDF tiene *look* SUNAT pero no emite ante SUNAT; el pago al conductor es mockup (`DriverHistorySummary`); WhatsApp entra por `/wa-sim` y crea reservas como actor sistema. | Decisión de alcance (CLAUDE.md §0, §5). GPS/ETA/mapa **sí** son reales (exigencia de Raúl). | Integraciones reales por sprint MVP, detrás de las mismas interfaces y firma/secreto WABA entrante. |
+| 6 | **Liquidación no se ejecuta** | El cierre con doble confirmación prepara `por_liquidar`; el pago es "harina de otro costal" (mockup). | Regla de negocio explícita (CLAUDE.md §4.5). | Motor de liquidación MVP. |
+| 7 | **IA apagada por defecto** | `IA_HABILITADA=false`. Toda capacidad LLM tiene par determinista vía `withFallback`. AnthropicProvider ya está implementado para activarse con key. | Costo cero en demo y robustez: la demo corre 100% determinista con badge algoritmo. | Activar `ANTHROPIC_API_KEY` cuando se quiera mostrar el badge IA. |
+| 8 | **Solo Android en app conductor** | Sin iOS, sin background location. S7 usa foreground location y fallback textual si Mapbox nativo no está disponible. | Alcance de demo (CLAUDE.md §5). El flujo operativo ya existe; el smoke físico depende de dispositivo/dev client. | EAS Build + background location (MVP). |
+| 9 | **Doble confirmación cruzada simplificada (S7→S8)** | El conductor, al `finalizado`, deja la reserva en `por_liquidar` de forma unilateral (`estadoReservaParaViaje`). El estado `EstadoReserva.finalizada` existe en el enum pero **no se usa** (holgura). El "lado pasajero" de §4.4 no es un gate de estado: en la demo se materializa como comprobante + calificación en `/p/[token]` (S8). | **Consistente y deliberado**: tanto el cierre de S7 como el prompt de S8 (`PROMPT_SPRINT_8_CODEX` líneas 32/57/88) asumen `por_liquidar` tras el cierre del conductor y construyen la experiencia del pasajero encima. No hay agente que quede esperando un cruce de estados. | Si en MVP se quiere el gate estricto de §4.4 (conductor `finalizado` → reserva `finalizada`; pasajero confirma → `por_liquidar`), el estado `finalizada` ya está reservado para ese uso. |
+
+---
+
+## 2. Deuda programada (trabajo real, diferido a un sprint posterior — NO es regresión)
+
+| Tema | Sprint que lo cierra | Nota |
+|------|----------------------|------|
+| **Deploy Railway real validado** | **S9** (deploy + video respaldo) | El workflow `.github/workflows/deploy-web.yml` ya existe y está corregido (lee `packageManager`, gateado por `RAILWAY_TOKEN` vía `env` de job). Falta el `RAILWAY_TOKEN` en Secrets y un `railway up` real. |
+| **PDF Puppeteer validado en Railway** (no solo local) | **S9** | Local: `x-comprobante-renderer: puppeteer` (32 KB). Railway necesita su propio `PUPPETEER_EXECUTABLE_PATH`/layer de Chromium o `@sparticuz/chromium-min`. El bug de bundling (ws/`b.mask`) ya está resuelto en `next.config.ts`, así que el binario es lo único que falta verificar en la nube. |
+| Escaneo real del QR en `/counter` (consumo "un solo uso") | **S9** | Ver §1.3. |
+| Geocoding real Mapbox para direcciones libres | Post S4 / MVP | S4 resuelve direcciones del guion con diccionario local (`Av. Pardo 123`, zonas Lima). `NEXT_PUBLIC_MAPBOX_TOKEN` queda opcional si se decide ampliar direcciones libres. |
+| Distancia/ETA real con Directions | Post S7 / MVP | S7 agrega ubicación conductor foreground y mapa/fallback, pero la ETA visible sigue siendo demo estable. Mapbox Directions real queda opcional si se quiere afinar el wow sin arriesgar cierre. |
+| Tracking pasajero `/p/[token]` consumiendo `reserva-{id}` | **S8** | S7 ya emite `estado` y `posicion`; S8 debe consumirlos en el link público del pasajero. |
+
+---
+
+## 3. Riesgos a vigilar (no bloquean, pero pueden sorprender)
+
+| Riesgo | Detalle | Mitigación actual |
+|--------|---------|-------------------|
+| **Realtime depende de config del proyecto Supabase** | `postgres_changes` filtrado por `tenant_id` requiere: `reservas` en publicación `supabase_realtime`, `REPLICA IDENTITY FULL` y `GRANT SELECT` a `anon/authenticated/service_role`. Si se **resetea la DB**, hay que reaplicarlo. | Verificado vivo el 2026-06-01. `/admin` degrada a **polling 10s** si Realtime no está. Pendiente: versionar estos pasos como migración SQL Supabase. |
+| **Secretos en `.env` locales** | DB password, `HMAC_SECRET`, `AUTH_SECRET` son valores de demo; sus literales viven **solo** en `.env` gitignored, nunca versionados ni documentados aquí. | **Rotar la DB password tras la demo.** `HMAC_SECRET`/`AUTH_SECRET` rotar antes de prod. |
+| **`marcarExcepcion` sobrescribe `sugerencia_copiloto`** | Al marcar excepción se reemplaza el jsonb completo (se pierde la sugerencia del algoritmo) y se fuerza `necesita_revision` sin condición. | Aceptable en demo (la excepción es acción terminal del operador). Si en MVP se quiere preservar la traza, hacer *merge* en lugar de overwrite. |
+| **Push/location real dependen de Android físico** | S6 registra token si Expo entrega `ExpoPushToken[...]`. S7 solicita ubicación foreground y emite `posicion`, pero el smoke físico no se pudo cerrar desde Codex. | No bloquea login, Realtime ni endpoints. Para cerrar smoke real: Android físico + API URL LAN/túnel + Supabase env + permisos. |
+| **FCM directo no está cableado** | El campo se llama `fcm_token`, pero en S6 la demo usa Expo Push Service. Si llega un token no Expo, `sendConductorAssignmentPush` devuelve `fcm_not_configured` sin romper asignación. | Aceptable en Expo Go. FCM directo queda para dev client/Firebase Admin en MVP si se necesita. |
+| **Realtime dual conductor/reserva** | `conductor-{id}` entrega la primera asignación; `reserva-{id}` emite `asignacion`, `estado` y `posicion` para viaje/S8. | Canal dual documentado. No retirar `reserva-{id}`. |
+| **LLM real de ingesta/asignación no smokeado con Anthropic** | S4/S5 cubrieron IA off, LLM ok mockeado y fallback por error/timeout. No se hizo llamada real porque no hay `ANTHROPIC_API_KEY`. | No bloquea: `/wa-sim`, `/api/ingesta/extraer` y `/api/asignacion/sugerir` funcionan con `fuente=algoritmo`, y el adapter real falla controlado hacia fallback si falta key. |
+| **Carga de prompts `.md` bajo bundling de Next (solo si IA on)** | `packages/ia/src/prompts.ts` hace `readFileSync(new URL('../prompts/x.md', import.meta.url))`. `@taxigreen/ia` está en `transpilePackages`, así que Next lo empaqueta y `import.meta.url` apunta al chunk de `.next`, donde no están los `.md` → `loadPrompt` lanza ENOENT. **`withFallback` lo captura y degrada a determinista**, así que NO crashea, pero la IA "parecería activa y nunca correría". | **Antes de activar IA en prod: smokear `/api/ingesta/extraer` y `/api/asignacion/sugerir` con `IA_HABILITADA=true` + key y confirmar `fuente=llm`.** Fix recomendado: inlinar los prompts como string importado, o añadir `outputFileTracingIncludes` + resolver ruta robusta. IA off en demo. |
+| **AI SDK v6 vs "SDK 4" documentado** | `packages/ia` usa `ai@^6` + `@ai-sdk/anthropic@^3`; CLAUDE.md §1 dice "Vercel AI SDK 4". v6 es más nuevo y **peer-compatible con zod `^3.25.76`** (ya unificado, ver §4). Funciona con provider mockeado; la ruta real Anthropic sigue sin smokear. | Decisión del equipo: actualizar CLAUDE.md §1 a "AI SDK 6" (recomendado, ya integrado) **o** fijar a v4 (reescritura del adapter, no validable sin key). No se downgradeó para no romper código que funciona con mocks. |
+| **`colaScore` se normaliza por la espera máxima de la cola (S5, corregido en auditoría)** | El `colaScore` ya NO usa el tope `min(min/60,1)` (saturaba y rompía la prioridad de cola >60 min). Ahora es `minutos/maxMinutos` (relativo a la cola actual). | Corregido + test de regresión. Es **relativo**: si todos esperan parecido, los scores de cola quedan altos y los factores secundarios (distancia/match) deciden entre casi-iguales — comportamiento deseado. |
+| **`POST /api/asignacion/sugerir` no lo consume la UI** | La card calcula la sugerencia en el RSC (server-side); el endpoint queda gateado y funcional pero sin consumidor en el front. | No es código muerto peligroso; superficie lista para refresco manual/uso externo. |
+| **Aceptar sugerencia confía en metadata de auditoría del cliente** | `aceptarSugerenciaAsignacion` guarda `score`/`razon`/`factores` desde campos ocultos. Conductor y unidad **sí** se validan contra el tenant. | Modelo "humano en control" (operador confiable). Endurecible en MVP recomputando la sugerencia server-side al aceptar. |
+| **El driver NO se bundlea en CI (S6, gap de proceso)** | `apps/driver` tiene `build: echo`; typecheck/lint NO ejecutan Metro/Babel. Por eso dos bugs que rompían el bundle (worklets + `@babel/runtime`) pasaron "verde". Ya corregidos en la auditoría S6. | **Gate manual cada sprint de app:** `cd apps/driver && npx expo export --platform android` debe terminar en EXIT 0. Considerar añadirlo a CI (es más lento; requiere toolchain RN). |
+| **`nativewind`/`react-native-css-interop` deben quedar pineados (S6)** | `nativewind` fijado a `4.1.23` exacto + override `react-native-css-interop: 0.1.22`. Subir a 4.2.x/css-interop 0.2.x reintroduce `react-native-worklets/plugin`, incompatible con reanimated 3.10 (Expo SDK 51) → el bundle vuelve a romper. | No quitar el pin ni el override sin migrar a reanimated 4 / worklets. |
+| **`@rnmapbox/maps` NO corre en Expo Go común** | S7 lo carga de forma diferida. Si falta token o módulo nativo, la pantalla muestra ruta textual y las acciones siguen operativas. El bundle Android sí pasa con Mapbox incluido. | Para mapa nativo real: dev client/EAS + `EXPO_PUBLIC_MAPBOX_TOKEN` + `MAPBOX_DOWNLOAD_TOKEN`. El fallback textual es intencional para demo sin dev client. |
+
+---
+
+## 4. Estándar de dependencias y TypeScript
+
+**Zod unificado a 3.x (auditoría S4).** Se detectó que `packages/ia` traía `zod@^4.4.3` mientras el resto del
+repo (apps/web, apps/driver, ingesta) usa `zod@^3`. Dos copias de zod conviviendo (ia importaba schemas zod3 de
+ingesta y definía schemas zod4 locales) es frágil y contradice CLAUDE.md §1 ("Zod 3"). Como `ai@6` y
+`@ai-sdk/anthropic@3` aceptan peer `zod ^3.25.76 || ^4.1.8`, se bajó `ia` a `zod@^3.25.76` sin tocar
+`schemas.ts` (usa solo APIs comunes a v3/v4). Verificado: CI 52/52 + E2E 4/4 verde. Ahora **todo el repo usa una
+sola versión de zod (3.25.76)**.
+
+`tsconfig.base.json` ya aplica: `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`,
+`noFallthroughCasesInSwitch` y, desde la auditoría S3, **`noImplicitReturns`** (verificado: CI 52/52 sigue
+verde).
+
+Flags adicionales evaluados y **no** adoptados aún (por ruido/fricción durante maquetado de UI):
+
+- `exactOptionalPropertyTypes` — alto impacto, rompe patrones `prop?: T` habituales; revisar caso a caso.
+- `noPropertyAccessFromIndexSignature` — ruidoso con accesos por índice; bajo valor aquí.
+- `noUnusedLocals` / `noUnusedParameters` — ya cubiertos como **warning** por ESLint
+  (`@typescript-eslint/no-unused-vars`, `argsIgnorePattern: ^_`). Promoverlos a error en los paquetes
+  críticos (`voucher`, `auditoria`, `asignacion`, `ingesta`, `comprobantes`, `database`, `integraciones`)
+  vía `tsconfig` por paquete es razonable **antes de cerrar el MVP**, no durante construcción de UI.

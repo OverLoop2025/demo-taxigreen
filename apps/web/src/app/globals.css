@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-product: #227fde;
+  --color-product-deep: #0b0952;
+  --color-background: #f9fafb;
+  --color-foreground: #1f2937;
+  --color-border: #e5e7eb;
+}
+
+body {
+  @apply bg-background text-foreground font-sans antialiased;
+}

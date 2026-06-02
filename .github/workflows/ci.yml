@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # No fijamos `version` aquí: action-setup@v4 lee `packageManager`
+      # (pnpm@10.33.0) de package.json. Fijar ambos provoca el error
+      # "Multiple versions of pnpm specified" y dejaría la versión de CI
+      # desincronizada del lockfile (9.0) generado con pnpm 10.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo typecheck / lint / test / build
+        run: pnpm turbo run typecheck lint test build
+        env:
+          # En CI el LLM va desconectado: el sistema corre 100% determinista.
+          IA_HABILITADA: 'false'

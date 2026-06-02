@@ -1,0 +1,24 @@
+# Postgres 17 + PostGIS local (opcional en demo: Supabase es la DB real).
+# Útil para desarrollo offline / CI. Extensiones postgis y pgcrypto se crean al init.
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    container_name: taxigreen_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: taxigreen
+      POSTGRES_PASSWORD: taxigreen
+      POSTGRES_DB: taxigreen
+    ports:
+      - '5432:5432'
+    volumes:
+      - taxigreen_pgdata:/var/lib/postgresql/data
+      - ./supabase/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U taxigreen -d taxigreen']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  taxigreen_pgdata:

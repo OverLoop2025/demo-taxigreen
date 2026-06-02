@@ -1,0 +1,19 @@
+node_modules
+.next
+.expo
+.turbo
+dist
+build
+coverage
+pnpm-lock.yaml
+packages/database/src/generated
+# Documentación del repo (no formatear los insumos)
+00_EVIDENCIA_REAL
+01_INVESTIGACIONES_IA
+02_PROPUESTAS_PREVIAS
+03_REFERENCIAS_EXTERNAS
+04_SINTESIS_TRABAJO
+05_FINAL
+06_DEMO_TECNICA
+07_PLAN_EJECUCION
+_FUENTE_DESARROLLO

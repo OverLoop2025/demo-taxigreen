@@ -1,0 +1,260 @@
+{
+  "project": "Taxi Green — Copiloto Operativo · Figma Master",
+  "version": "4.1-recojo-aeropuerto-semantic-lock",
+  "mode": "new_file_from_zero",
+  "warning": "El plugin limpia las páginas del archivo actual. Ejecutarlo en un archivo Figma nuevo o duplicado.",
+  "sourceDocuments": [
+    "../FLUJO_NEGOCIO_CANONICO.md",
+    "../CONTRATO_NARRATIVO_DEMO.md",
+    "../ESPECIFICACION_PANTALLAS_PREMIUM.md",
+    "../MAPA_ALINEACION_PLAN_FIGMA.md",
+    "../../07_PLAN_EJECUCION/LOGICA_NEGOCIO_OPERATIVA.md",
+    "../AUDITORIA_FIGMA_WOW.md",
+    "../DISEÑO_UI_DETALLADO.md",
+    "../logo.jpg"
+  ],
+  "figmaPages": [
+    "00 Cover",
+    "01 Design Tokens",
+    "02 Components",
+    "03 Patterns",
+    "04 Iconography & Assets",
+    "05 Entrada y Link Pasajero",
+    "06 App Conductor",
+    "07 Admin Operativo",
+    "08 Counter Aeropuerto",
+    "09 Empresa Cliente",
+    "10 WhatsApp Solicitante",
+    "11 Soporte de Viaje",
+    "12 Estados",
+    "13 Prototype"
+  ],
+  "screens": {
+    "05 Entrada y Link Pasajero": [
+      "1.A Entrada multicanal",
+      "1.B Reserva paso 1: tipo de viaje",
+      "1.C Reserva paso 2: datos del vuelo",
+      "1.C-otro Reserva paso 2: origen/destino libre",
+      "1.D Reserva paso 3: datos del pasajero",
+      "1.E Reserva paso 4: confirmación",
+      "1.F Reserva confirmada",
+      "1.G1 Esperando asignación",
+      "1.G2 Conductor asignado",
+      "1.G3 Conductor llegó",
+      "1.G4 En viaje",
+      "1.G5 Viaje finalizado",
+      "1.H Mis reservas",
+      "1.I Ayuda y soporte",
+      "1.J Yo"
+    ],
+    "06 App Conductor": [
+      "2.A Login conductor",
+      "2.B Inicio libre",
+      "2.C Nueva asignación recibida",
+      "2.D Camino al pasajero",
+      "2.E Esperando al pasajero",
+      "2.F Viaje en curso",
+      "2.G Finalizar viaje",
+      "2.H Historial conductor",
+      "2.I Yo"
+    ],
+    "07 Admin Operativo": [
+      "3.A Login admin operativo",
+      "3.B Torre de control",
+      "3.C Reserva drawer + aprobación humana",
+      "3.D Mapa operacional en vivo",
+      "3.E Conductores",
+      "3.F Bandeja de ingesta multicanal",
+      "3.G Reportes",
+      "3.H Configuración"
+    ],
+    "08 Counter Aeropuerto": [
+      "4.A Login supervisor de counter",
+      "4.B Dashboard del counter",
+      "4.C Crear reserva manual",
+      "4.D Historial de reservas del counter",
+      "10.A Layout principal",
+      "10.B Vuelo aterrizado / recepción",
+      "13.I Reporte rápido"
+    ],
+    "09 Empresa Cliente": [
+      "5.A Login empresa cliente",
+      "5.B Dashboard empresa",
+      "5.C Reservar taxi corporativo",
+      "11.A Resumen",
+      "11.B Viajes",
+      "11.C Colaboradores",
+      "11.D Facturación",
+      "11.E Notificaciones e incidencias"
+    ],
+    "10 WhatsApp Solicitante": [
+      "12.A Mensaje incompleto",
+      "12.B Datos completos",
+      "12.C Reserva creada"
+    ],
+    "11 Soporte de Viaje": [
+      "13.A Reportar objeto perdido",
+      "13.B Reporte recibido",
+      "13.C Detalle de soporte",
+      "13.D Queja o problema",
+      "13.E Incidente de seguridad",
+      "13.F Cola interna de soporte",
+      "13.G Resolución de objeto perdido",
+      "13.H Confirmación del conductor",
+      "13.J Incidencias del colaborador",
+      "13.K Constancia PDF"
+    ],
+    "12 Estados": [
+      "Empty states",
+      "Errores",
+      "Loading",
+      "Offline"
+    ]
+  },
+  "prototypeFlows": [
+    {
+      "name": "Flujo protagonista A-Z: canal de entrada + WhatsApp solicitante hotel/concierge + admin + conductor + pasajero + soporte",
+      "start": "cover.00",
+      "path": [
+        "cover.00",
+        "prototype.home",
+        "pwa.passenger.1A",
+        "whatsapp.12A",
+        "whatsapp.12B",
+        "whatsapp.12C",
+        "dispatch.3C",
+        "driver.2C",
+        "driver.2D",
+        "pwa.passenger.1G2",
+        "pwa.passenger.1G3",
+        "pwa.passenger.1G4",
+        "pwa.passenger.1G5",
+        "wellbeing.13A",
+        "wellbeing.13B",
+        "wellbeing.13F",
+        "wellbeing.13G",
+        "wellbeing.13H",
+        "wellbeing.13K"
+      ]
+    },
+    {
+      "name": "Ruta de apoyo: counter walk-in aeropuerto -> destino en Lima",
+      "start": "prototype.home",
+      "path": [
+        "prototype.home",
+        "counter.4A",
+        "counter.4B",
+        "counter.4C",
+        "dispatch.3C"
+      ]
+    },
+    {
+      "name": "Arco final: objeto olvidado desde el link del pasajero",
+      "start": "pwa.passenger.1G5",
+      "path": [
+        "pwa.passenger.1G5",
+        "wellbeing.13A",
+        "wellbeing.13B",
+        "wellbeing.13F",
+        "wellbeing.13G",
+        "wellbeing.13H",
+        "wellbeing.13K"
+      ]
+    }
+  ],
+  "brand": {
+    "productChrome": {
+      "ink": "#0B0952",
+      "accent": "#227FDE",
+      "surface": "#FFFFFF"
+    },
+    "tenantTaxiGreen": ["#0B3B1F", "#137A43", "#22B96B", "#78CA5C", "#199E1C", "#3D9A67"],
+    "tenantAccent": "#CEBC2C",
+    "wellbeing": "#7C3AED",
+    "danger": "#E0341C",
+    "principles": ["premium", "sobrio", "ejecutivo", "humano en control"]
+  },
+  "validation": {
+    "requiredProtagonistPath": [
+      "cover.00",
+      "prototype.home",
+      "pwa.passenger.1A",
+      "whatsapp.12A",
+      "whatsapp.12B",
+      "whatsapp.12C",
+      "dispatch.3C",
+      "driver.2C",
+      "driver.2D",
+      "pwa.passenger.1G2",
+      "pwa.passenger.1G3",
+      "pwa.passenger.1G4",
+      "pwa.passenger.1G5",
+      "wellbeing.13A",
+      "wellbeing.13B",
+      "wellbeing.13F",
+      "wellbeing.13G",
+      "wellbeing.13H",
+      "wellbeing.13K"
+    ],
+    "entryScreens": [
+      "cover.00",
+      "prototype.home",
+      "pwa.passenger.1A",
+      "driver.2A",
+      "dispatch.3A",
+      "counter.4A",
+      "company.5A"
+    ],
+    "supportScreens": [
+      "pwa.passenger.1B",
+      "pwa.passenger.1C",
+      "pwa.passenger.1C_otro",
+      "pwa.passenger.1D",
+      "pwa.passenger.1E",
+      "pwa.passenger.1F",
+      "pwa.passenger.1G1",
+      "pwa.passenger.1H",
+      "pwa.passenger.1I",
+      "pwa.passenger.1J",
+      "driver.2E",
+      "driver.2F",
+      "driver.2G",
+      "driver.2H",
+      "driver.2I",
+      "dispatch.3B",
+      "dispatch.3D",
+      "dispatch.3E",
+      "dispatch.3F",
+      "dispatch.3G",
+      "dispatch.3H",
+      "counter.4B",
+      "counter.4C",
+      "counter.4D",
+      "counter.10A",
+      "counter.10B",
+      "counter.13I",
+      "wellbeing.13C",
+      "wellbeing.13D",
+      "wellbeing.13E",
+      "wellbeing.13J",
+      "company.5B",
+      "company.5C",
+      "company.11A",
+      "company.11B",
+      "company.11C",
+      "company.11D",
+      "company.11E"
+    ],
+    "archiveScreens": [
+      "states.empty",
+      "states.errors",
+      "states.loading",
+      "states.offline"
+    ],
+    "manualFigmaChecks": [
+      "Revisar en Figma que setReactionsAsync materialice actions[] en cada botón visible.",
+      "Verificar visualmente que 13 Prototype de 70% de peso a la ruta A-Z.",
+      "Confirmar que los botones secundarios de compartir/exportar se sientan ghost y no compitan con la primaria."
+    ]
+  }
+}

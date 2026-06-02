@@ -1,0 +1,17 @@
+export const PREFIJOS_VUELO = [
+  'LA',
+  'LP',
+  'JA',
+  'H2',
+  'AV',
+  'CM',
+  'IB',
+  'UX',
+  'DL',
+  'UA',
+  'AA',
+  'AM',
+  'AR',
+  'KL',
+  'AF',
+] as const;

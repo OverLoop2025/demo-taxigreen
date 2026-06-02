@@ -1,0 +1,40 @@
+# Dependencias
+node_modules/
+.pnpm-store/
+
+# Builds
+.next/
+out/
+dist/
+build/
+.expo/
+.turbo/
+
+# Prisma
+packages/database/src/generated/
+
+# Entornos
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Tests
+coverage/
+playwright-report/
+test-results/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+*.pem
+
+# Expo / nativos
+apps/driver/android/
+apps/driver/ios/
+apps/driver/.expo/

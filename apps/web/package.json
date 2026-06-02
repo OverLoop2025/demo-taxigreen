@@ -1,0 +1,51 @@
+{
+  "name": "@taxigreen/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --config ../../eslint.config.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.4.0",
+    "@supabase/supabase-js": "^2.106.2",
+    "@tanstack/react-table": "^8.21.3",
+    "@taxigreen/asignacion": "workspace:*",
+    "@taxigreen/auditoria": "workspace:*",
+    "@taxigreen/comprobantes": "workspace:*",
+    "@taxigreen/database": "workspace:*",
+    "@taxigreen/ia": "workspace:*",
+    "@taxigreen/ingesta": "workspace:*",
+    "@taxigreen/integraciones-reniec": "workspace:*",
+    "@taxigreen/shared": "workspace:*",
+    "@taxigreen/voucher": "workspace:*",
+    "bcryptjs": "^3.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "jose": "^5.10.0",
+    "lucide-react": "^0.468.0",
+    "nanoid": "^5.1.11",
+    "next": "~15.4.0",
+    "next-auth": "5.0.0-beta.25",
+    "pino": "^9.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.77.0",
+    "tailwind-merge": "^2.5.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "19.2.6",
+    "@types/react-dom": "19.2.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
