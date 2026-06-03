@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { useAuth } from '@/features/auth/use-auth';
-import { extractReservaId } from '@/features/push/use-notification-observer';
+import { extractIncidentNavigation, extractReservaId } from '@/features/push/use-notification-observer';
 
 export default function Index() {
   const router = useRouter();
@@ -23,12 +23,21 @@ export default function Index() {
         // Cold-start desde un tap de push: abrir directo la asignación. Se decide
         // aquí (no en el observer) para evitar competir con este mismo redirect.
         const lastResponse = await Notifications.getLastNotificationResponseAsync().catch(() => null);
-        const reservaId = lastResponse
-          ? extractReservaId(lastResponse.notification.request.content.data)
-          : null;
+        const data = lastResponse?.notification.request.content.data;
+        const incident = data ? extractIncidentNavigation(data) : null;
+        const reservaId = data ? extractReservaId(data) : null;
         if (cancelled) return;
 
-        if (reservaId) {
+        if (incident) {
+          router.replace({
+            pathname: '/(auth)/incidencia/[id]' as never,
+            params: {
+              id: incident.incidenciaId,
+              reservaId: incident.reservaId,
+              descripcion: incident.descripcion,
+            },
+          });
+        } else if (reservaId) {
           router.replace({ pathname: '/(auth)/asignacion/[id]', params: { id: reservaId } });
         } else {
           router.replace('/(auth)/home');

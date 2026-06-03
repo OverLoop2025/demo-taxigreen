@@ -27,7 +27,7 @@ function pushLabel(state: PushRegistrationState) {
 export default function HomeScreen() {
   const router = useRouter();
   const { conductor, session } = useAuth();
-  const { status: realtimeStatus, lastAssignment } = useRealtime();
+  const { status: realtimeStatus, lastAssignment, lastIncident } = useRealtime();
   const [onDuty, setOnDuty] = useState(true);
   const [pushState, setPushState] = useState<PushRegistrationState>({ status: 'idle' });
   const pushAttempted = useRef(false);
@@ -105,6 +105,30 @@ export default function HomeScreen() {
           </>
         )}
       </View>
+
+      {lastIncident ? (
+        <View className="mt-4 rounded-2xl bg-white px-5 py-5">
+          <Text className="text-sm font-bold uppercase tracking-wide text-purple-700">Objeto olvidado</Text>
+          <Text className="mt-2 text-xl font-bold text-product-deep">{lastIncident.descripcion}</Text>
+          <Text className="mt-2 text-base text-gray-600">
+            Caso recibido del viaje {lastIncident.reservaId.slice(0, 8)}.
+          </Text>
+          <TouchButton
+            label="Responder incidencia"
+            className="mt-5"
+            onPress={() =>
+              router.push({
+                pathname: '/(auth)/incidencia/[id]' as never,
+                params: {
+                  id: lastIncident.incidenciaId,
+                  reservaId: lastIncident.reservaId,
+                  descripcion: lastIncident.descripcion,
+                },
+              })
+            }
+          />
+        </View>
+      ) : null}
     </ScrollView>
   );
 }

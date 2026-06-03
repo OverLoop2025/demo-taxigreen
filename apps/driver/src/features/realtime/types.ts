@@ -4,3 +4,12 @@ export type AssignmentPayload = {
   vehiculoId: string | null;
   receivedAt: string;
 };
+
+export type IncidentPayload = {
+  incidenciaId: string;
+  reservaId: string;
+  tipologia: string;
+  estado: string;
+  descripcion: string;
+  receivedAt: string;
+};

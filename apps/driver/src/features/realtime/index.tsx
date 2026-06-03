@@ -1,14 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/features/auth/use-auth';
 import { getDriverSupabaseClient } from './client';
-import type { AssignmentPayload } from './types';
+import type { AssignmentPayload, IncidentPayload } from './types';
 
 type RealtimeStatus = 'disabled' | 'connecting' | 'subscribed' | 'error';
 
 type RealtimeContextValue = {
   status: RealtimeStatus;
   lastAssignment: AssignmentPayload | null;
+  lastIncident: IncidentPayload | null;
   clearLastAssignment: () => void;
+  clearLastIncident: () => void;
 };
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
@@ -29,10 +31,31 @@ function normalizePayload(payload: unknown): AssignmentPayload | null {
   };
 }
 
+function normalizeIncidentPayload(payload: unknown): IncidentPayload | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const incidenciaId = record.incidencia_id;
+  const reservaId = record.reserva_id;
+  const tipologia = record.tipologia;
+  const estado = record.estado;
+  const descripcion = record.descripcion;
+
+  if (typeof incidenciaId !== 'string' || typeof reservaId !== 'string') return null;
+  return {
+    incidenciaId,
+    reservaId,
+    tipologia: typeof tipologia === 'string' ? tipologia : 'objeto_olvidado',
+    estado: typeof estado === 'string' ? estado : 'abierta',
+    descripcion: typeof descripcion === 'string' ? descripcion : 'Objeto olvidado reportado.',
+    receivedAt: new Date().toISOString(),
+  };
+}
+
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const [status, setStatus] = useState<RealtimeStatus>('disabled');
   const [lastAssignment, setLastAssignment] = useState<AssignmentPayload | null>(null);
+  const [lastIncident, setLastIncident] = useState<IncidentPayload | null>(null);
 
   useEffect(() => {
     const conductorId = session?.conductor.conductorId;
@@ -51,6 +74,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           setLastAssignment(payload);
         }
       })
+      .on('broadcast', { event: 'incidencia' }, (event) => {
+        const payload = normalizeIncidentPayload(event.payload);
+        if (payload) {
+          setLastIncident(payload);
+        }
+      })
       .subscribe((nextStatus) => {
         if (nextStatus === 'SUBSCRIBED') setStatus('subscribed');
         if (nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') setStatus('error');
@@ -65,9 +94,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       lastAssignment,
+      lastIncident,
       clearLastAssignment: () => setLastAssignment(null),
+      clearLastIncident: () => setLastIncident(null),
     }),
-    [lastAssignment, status],
+    [lastAssignment, lastIncident, status],
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

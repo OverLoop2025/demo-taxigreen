@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, Text, ToastAndroid, View } from 'react-native';
 import { TouchButton } from '@/components/TouchButton';
 import { AssignmentMap } from '@/components/map/AssignmentMap';
+import { ApiError } from '@/features/api/client';
 import {
   changeDriverAssignmentState,
   getDriverAssignment,
@@ -80,15 +81,16 @@ export default function AssignmentScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<NextTripAction | null>(null);
   const autoRetryArmed = useRef(false);
+  const prevOnlineRef = useRef<boolean | null>(null);
 
   const estadoViaje = assignment?.viaje?.estado ?? null;
   const trackingActive = isTrackingState(estadoViaje);
   const tracking = useLocationTracking(reservaId ?? null, trackingActive);
   const nextAction = useMemo(() => getNextTripAction(estadoViaje), [estadoViaje]);
 
-  const loadAssignment = useCallback(async () => {
+  const loadAssignment = useCallback(async (silent = false) => {
     if (!reservaId || !session?.token) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const response = await getDriverAssignment(reservaId, session.token);
@@ -97,13 +99,23 @@ export default function AssignmentScreen() {
       const message = loadError instanceof Error ? loadError.message : 'No se pudo cargar la asignación.';
       setError(message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [reservaId, session?.token]);
 
   useEffect(() => {
     void loadAssignment();
   }, [loadAssignment]);
+
+  // Reconnect re-sync: cuando el network pasa de offline → online, refrescar sin
+  // spinner para recuperar broadcasts Supabase Realtime perdidos durante la desconexión.
+  useEffect(() => {
+    const prev = prevOnlineRef.current;
+    prevOnlineRef.current = network.isOnline;
+    if (prev !== null && prev !== true && network.isOnline === true && !loading && !submitting) {
+      void loadAssignment(true);
+    }
+  }, [network.isOnline, loadAssignment, loading, submitting]);
 
   const submitAction = useCallback(
     async (action: NextTripAction) => {
@@ -131,8 +143,16 @@ export default function AssignmentScreen() {
         showToast(`${action.label} confirmado`);
       } catch (submitError) {
         const message = submitError instanceof Error ? submitError.message : 'No se pudo cambiar el estado.';
-        setPendingRetry(action);
-        autoRetryArmed.current = false;
+        // 409: el servidor divergió del estado local (admin cambió estado, doble submit, etc.).
+        // Re-sincronizar silenciosamente y limpiar el pendingRetry para no repetir el mismo POST.
+        if (submitError instanceof ApiError && submitError.status === 409) {
+          setPendingRetry(null);
+          autoRetryArmed.current = false;
+          void loadAssignment(true);
+        } else {
+          setPendingRetry(action);
+          autoRetryArmed.current = false;
+        }
         setError(message);
       } finally {
         setSubmitting(false);

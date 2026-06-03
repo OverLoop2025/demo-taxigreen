@@ -7,6 +7,20 @@ export function extractReservaId(data: Notifications.NotificationContent['data']
   return typeof reservaId === 'string' && reservaId.length > 0 ? reservaId : null;
 }
 
+export function extractIncidentNavigation(data: Notifications.NotificationContent['data']) {
+  const screen = data?.screen;
+  const incidenciaId = data?.incidenciaId;
+  if (screen !== 'incidencia' || typeof incidenciaId !== 'string' || incidenciaId.length === 0) {
+    return null;
+  }
+
+  return {
+    incidenciaId,
+    reservaId: typeof data?.reservaId === 'string' ? data.reservaId : undefined,
+    descripcion: typeof data?.descripcion === 'string' ? data.descripcion : undefined,
+  };
+}
+
 /**
  * Observa SOLO los taps de notificación con la app viva (foreground/background).
  * El caso cold-start (app cerrada → tap) lo resuelve `app/index.tsx` leyendo
@@ -18,7 +32,21 @@ export function useNotificationObserver() {
 
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const reservaId = extractReservaId(response.notification.request.content.data);
+      const data = response.notification.request.content.data;
+      const incident = extractIncidentNavigation(data);
+      if (incident) {
+        router.push({
+          pathname: '/(auth)/incidencia/[id]' as never,
+          params: {
+            id: incident.incidenciaId,
+            reservaId: incident.reservaId,
+            descripcion: incident.descripcion,
+          },
+        });
+        return;
+      }
+
+      const reservaId = extractReservaId(data);
       if (reservaId) {
         router.push({ pathname: '/(auth)/asignacion/[id]', params: { id: reservaId } });
       }

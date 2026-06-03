@@ -25,6 +25,7 @@ export default function AuthLayout() {
       <Tabs.Screen name="home" options={{ title: 'Inicio' }} />
       <Tabs.Screen name="perfil" options={{ title: 'Perfil' }} />
       <Tabs.Screen name="asignacion/[id]" options={{ href: null }} />
+      <Tabs.Screen name="incidencia/[id]" options={{ href: null }} />
     </Tabs>
   );
 }
