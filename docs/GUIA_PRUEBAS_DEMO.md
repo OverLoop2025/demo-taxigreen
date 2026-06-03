@@ -1,7 +1,7 @@
 # Guía de pruebas manuales — Taxi Green Demo
 
-**Última actualización:** 2026-06-02  
-**Cubre:** Sprint 0-7  
+**Última actualización:** 2026-06-03  
+**Cubre:** Sprint 0-8  
 **Objetivo:** que una persona no técnica pueda levantar la app, entrar a las pantallas y comprobar el flujo construido.
 
 ---
@@ -19,16 +19,19 @@ Hoy la demo ya permite comprobar este recorrido:
 7. Ver una recomendación de conductor + unidad.
 8. Aceptar la recomendación o decidir asignar manualmente.
 9. Ver auditoría de lo ocurrido.
-10. Abrir link pasajero y endpoints de voucher/comprobante ya construidos.
+10. Abrir link pasajero `/p/[token]` con tracking, estado, comprobante, calificación e incidencia.
 11. Abrir la app conductor en Expo/dev client.
 12. Ingresar como conductor con email + PIN.
 13. Abrir la asignación activa del conductor.
 14. Avanzar estados del viaje: En camino, Llegué, Pasajero a bordo, Servicio terminado.
 15. Emitir ubicación foreground por Supabase Realtime mientras el viaje está activo.
+16. Finalizar el viaje y probar comprobante/calificación desde el link pasajero.
+17. Reportar objeto olvidado y responderlo desde la app conductor.
+18. Ver el caso en `/bienestar/[caso]` y la bandeja `/admin/bienestar`.
 
 La app conductor ya tiene login, sesión segura, Home, Perfil, push degradable, recepción Realtime de asignaciones,
-detalle activo, estados secuenciales y ubicación foreground. Todavía faltan tracking visual del pasajero final y flujo
-de objeto olvidado completo. Eso está descrito al final en "Lo que falta".
+detalle activo, estados secuenciales, ubicación foreground, tracking pasajero, comprobante/calificación y objeto
+olvidado E2E básico. Todavía faltan counter final, landing, reset/deploy y video respaldo.
 
 ---
 
@@ -443,7 +446,158 @@ login, Realtime y estados de viaje no dependen de push.
 
 ---
 
-## 7. Otras pantallas útiles
+## 7. Link pasajero y bienestar
+
+### Paso 1 — Abre el link pasajero protagonista
+
+Abre:
+
+```text
+http://localhost:3000/p/tg_demo_passenger_001
+```
+
+Resultado esperado:
+
+- Debe verse `Recojo en aeropuerto`.
+- Debe verse el conductor `Raúl Quispe`.
+- Debe verse la unidad `ABC-123`.
+- Debe verse el vuelo `LA2456`.
+- Debe verse muy prominente:
+
+```text
+Salida 3, columna F2
+```
+
+- Debe verse el destino:
+
+```text
+Av. Pardo 123, Miraflores
+```
+
+Si falta `NEXT_PUBLIC_MAPBOX_TOKEN`, verás ruta textual. Eso es normal: estados, llamadas, comprobante e incidencias
+siguen funcionando.
+
+### Paso 2 — Verifica estados en vivo
+
+Con `/p/tg_demo_passenger_001` abierto, en la app conductor avanza:
+
+```text
+En camino
+Llegué
+Pasajero a bordo
+Servicio terminado
+```
+
+Resultado esperado en el link pasajero:
+
+- El timeline cambia sin refrescar si Realtime está activo.
+- Si Realtime falla, el polling actualiza cada 10 segundos.
+- La ubicación aparece como coordenadas o marcador si el conductor emite `posicion`.
+
+### Paso 3 — Finaliza y prueba comprobante
+
+Después de `Servicio terminado`, el link pasajero muestra:
+
+```text
+Comprobante y calificación
+```
+
+Puedes:
+
+1. Dejar el DNI vacío y preparar comprobante.
+2. O ingresar el DNI demo:
+
+```text
+44556677
+```
+
+3. Pulsar `RENIEC`.
+4. Pulsar `Preparar comprobante`.
+5. Pulsar `Descargar PDF`.
+
+Resultado esperado:
+
+- El PDF se abre desde el endpoint tokenizado del pasajero.
+- En auditoría queda `comprobante_pasajero_preparado` y/o `comprobante_pdf_generado`.
+
+### Paso 4 — Calificación triple
+
+En el mismo bloque, califica:
+
+- Servicio
+- Conductor
+- Unidad
+
+Si pones 3 o menos en algún eje, escribe un motivo breve. Luego pulsa:
+
+```text
+Guardar calificación
+```
+
+Resultado esperado:
+
+- En `reservas.calificacion` queda un JSON con los tres ejes.
+- En auditoría queda `reserva_calificada`.
+
+### Paso 5 — Reporta objeto olvidado
+
+En el link pasajero, escribe:
+
+```text
+Olvidé una cartera negra en el asiento posterior.
+```
+
+Pulsa:
+
+```text
+Reportar objeto olvidado
+```
+
+Resultado esperado:
+
+- Se crea una incidencia `objeto_olvidado`.
+- En el link aparece un enlace `Ver caso`.
+- En `/admin/bienestar` aparece la incidencia activa.
+- Si la app conductor está abierta y Realtime está activo, Home muestra una tarjeta `Objeto olvidado`.
+
+### Paso 6 — Responde desde app conductor
+
+En la app conductor, toca:
+
+```text
+Responder incidencia
+```
+
+Luego pulsa:
+
+```text
+Sí encontré
+```
+
+Resultado esperado:
+
+- El caso en `/bienestar/[caso]` cambia a `Objeto encontrado`.
+- El pasajero puede elegir:
+  - `Entregar en recepción del hotel hoy`
+  - `Recoger en oficina Taxi Green mañana`
+- Al elegir una opción, el caso queda cerrado.
+
+### Paso 7 — Bandeja bienestar admin
+
+Abre:
+
+```text
+http://localhost:3000/admin/bienestar
+```
+
+Resultado esperado:
+
+- Deben verse incidencias activas.
+- Cada card muestra voucher, pasajero, conductor, unidad, severidad y estado.
+
+---
+
+## 8. Otras pantallas útiles
 
 Panel admin:
 
@@ -489,7 +643,7 @@ http://localhost:3000/api/voucher/TG-2026-0001/qr
 
 ---
 
-## 8. Cómo ver la base de datos
+## 9. Cómo ver la base de datos
 
 La forma más amigable:
 
@@ -515,10 +669,12 @@ Qué comprobar después de aceptar una sugerencia:
 - En `auditoria`, debe existir `reserva_asignada`.
 - En `auditoria.fuente_decision`, debe verse `fuente = algoritmo` o `fuente = llm`.
 - En `usuarios`, `fcm_token` puede poblarse cuando la app conductor obtiene Expo Push Token real.
+- En `reservas.calificacion`, debe aparecer la calificación triple al guardarla desde `/p/[token]`.
+- En `incidencias.timeline`, deben aparecer acciones del pasajero y conductor.
 
 ---
 
-## 9. Comandos de verificación técnica
+## 10. Comandos de verificación técnica
 
 Para correr todo el pipeline:
 
@@ -544,10 +700,10 @@ Antes de `pnpm e2e`, la app web debe estar levantada en:
 http://localhost:3000
 ```
 
-Resultado esperado al cierre de Sprint 7:
+Resultado esperado al cierre de Sprint 8:
 
 ```text
-5 passed
+6 passed
 ```
 
 Para comprobar que la app móvil bundlea de verdad:
@@ -561,7 +717,7 @@ Debe terminar con `Android Bundled` y `EXIT 0`.
 
 ---
 
-## 10. Cómo apagar y volver a levantar
+## 11. Cómo apagar y volver a levantar
 
 Si el servidor está corriendo en la terminal, presiona:
 
@@ -590,11 +746,11 @@ pnpm --filter @taxigreen/web start
 
 ---
 
-## 11. Limpieza de datos de prueba
+## 12. Limpieza de datos de prueba
 
 Durante pruebas manuales y E2E se crean reservas `TG-WA-*`.
 
-Si quieres volver a un baseline limpio, la opción más segura es reseed:
+Para restaurar la reserva protagonista sin borrar las reservas creadas por pruebas:
 
 ```bash
 pnpm --filter @taxigreen/database db:seed
@@ -606,19 +762,50 @@ El seed garantiza la reserva protagonista:
 TG-2026-0001
 ```
 
+Para volver a un baseline completamente limpio de demo, borra solo datos `TG-WA-*`, limpia tokens push demo y luego
+reseed:
+
+```bash
+pnpm --filter @taxigreen/database exec tsx --eval '
+import { prisma } from "@taxigreen/database";
+
+async function main() {
+  const extras = await prisma.reservas.findMany({
+    where: { voucher_codigo: { startsWith: "TG-WA-" } },
+    select: { id: true },
+  });
+  const ids = extras.map((r) => r.id);
+  if (ids.length > 0) {
+    await prisma.incidencias.deleteMany({ where: { reserva_id: { in: ids } } });
+    await prisma.comprobantes.deleteMany({ where: { reserva_id: { in: ids } } });
+    await prisma.viajes.deleteMany({ where: { reserva_id: { in: ids } } });
+    await prisma.auditoria.deleteMany({ where: { target_id: { in: ids } } });
+    await prisma.reservas.deleteMany({ where: { id: { in: ids } } });
+  }
+  await prisma.usuarios.updateMany({ where: { fcm_token: { not: null } }, data: { fcm_token: null } });
+}
+
+main().finally(() => prisma.$disconnect());
+'
+
+pnpm --filter @taxigreen/database db:seed
+
+pnpm --filter @taxigreen/database exec tsx --eval '
+import { prisma } from "@taxigreen/database";
+
+async function main() {
+  await prisma.auditoria.deleteMany({ where: { id: { not: "auditoria-demo-seed-s1" } } });
+}
+
+main().finally(() => prisma.$disconnect());
+'
+```
+
 No uses `db:reset` salvo que realmente quieras borrar y reconstruir la base completa.
 
 ---
 
-## 12. Qué falta construir en próximos sprints
-
-### Sprint 8
-
-Experiencia pasajero:
-
-- Tracking en `/p/[token]`.
-- Comprobante visible.
-- Flujo de incidencia de objeto olvidado.
+## 13. Qué falta construir en próximos sprints
 
 ### Sprint 9
 
@@ -632,7 +819,7 @@ Cierre demo:
 
 ---
 
-## 13. Qué hacer si algo falla
+## 14. Qué hacer si algo falla
 
 Si no puedes entrar:
 

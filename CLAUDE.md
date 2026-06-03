@@ -205,18 +205,18 @@ El **estado real del código** y el **handoff entre sprints** viven en [`docs/`]
 - [`docs/PROMPT_SPRINT_7_CODEX.md`](docs/PROMPT_SPRINT_7_CODEX.md) — prompt copy-paste para ejecutar solo Sprint 7.
 - [`docs/ESTADO_SPRINT_7.md`](docs/ESTADO_SPRINT_7.md) — qué se implementó en S7, smoke endpoints de estados, bundle móvil y pendientes Android físico/Mapbox.
 - [`docs/PROMPT_SPRINT_8_CODEX.md`](docs/PROMPT_SPRINT_8_CODEX.md) — prompt copy-paste para ejecutar solo Sprint 8.
-- [`docs/GUIA_PRUEBAS_DEMO.md`](docs/GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar la demo S0-S7.
+- [`docs/ESTADO_SPRINT_8.md`](docs/ESTADO_SPRINT_8.md) — qué se implementó en S8, link pasajero, bienestar, smoke y pendientes Android físico.
+- [`docs/PROMPT_SPRINT_9_CODEX.md`](docs/PROMPT_SPRINT_9_CODEX.md) — prompt copy-paste para ejecutar solo Sprint 9.
+- [`docs/GUIA_PRUEBAS_DEMO.md`](docs/GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar la demo S0-S8.
 - [`docs/DEUDA_TECNICA.md`](docs/DEUDA_TECNICA.md) — registro de deuda: intencional de demo (sin RLS, rate-limit in-memory, QR no one-time, RENIEC demo) vs programada (Railway/PDF-en-Railway = S9) vs riesgos a vigilar.
 
-**Estado:** Sprint 7 **cerrado** (2026-06-02) — S1/S2/S3/S4/S5/S6/S7 verificados contra Supabase/local donde aplica.
-S7 agrega endpoints móviles `GET /api/conductor/asignacion/[id]` y `POST /estado`, helper de transición secuencial,
-auditoría `driver_estado_viaje_actualizado`, broadcast `estado` en `reserva-{id}`, pantalla real de asignación activa,
-foreground location con broadcast `posicion`, keep-awake, red/reintento conservador y fallback textual si Mapbox nativo
-no está disponible. Smoke real: login conductor1 200, GET 200 con protagonista, sin Bearer 401, salto de estado 409,
-secuencia completa 200 hasta `por_liquidar`, conductor2 404/404, broadcast estado OK. CI `pnpm turbo run typecheck lint
-test build` 52/52, E2E 5/5, `expo export --platform android` EXIT 0 (1350 módulos, .hbc 4.09 MB). DB quedó limpia:
-0 `TG-WA-*`, 0 `fcm_token`, auditoría solo `seed_sprint_1`, protagonista `asignada/asignado` con timestamps S7 `null`.
-Pendiente ambiental: Android físico/dev client para validar ubicación real, keep-awake físico, push real y mapa Mapbox
-nativo (`EXPO_PUBLIC_MAPBOX_TOKEN` + `MAPBOX_DOWNLOAD_TOKEN`). Siguiente sprint: `docs/PROMPT_SPRINT_8_CODEX.md`.
+**Estado:** Sprint 8 **cerrado** (2026-06-03) — S1/S2/S3/S4/S5/S6/S7/S8 verificados contra Supabase/local donde aplica.
+S8 agrega `/p/[token]` público con tracking por `reserva-{id}`, polling fallback, Mapbox GL JS opcional, comprobante,
+PDF tokenizado, calificación triple, incidencia de objeto olvidado, `/bienestar/[caso]`, `/admin/bienestar`, clasificador
+determinista en `packages/bienestar` y respuesta mínima del conductor por Realtime/push `conductor-{id}`. Mantener la
+regla: app pasajero nativa/OAuth pasajero siguen prohibidos en demo. Pendiente ambiental: Android físico/dev client para
+push real de incidencia y navegación desde notificación; Mapbox Directions real queda fuera del alcance demo. Verificación:
+`pnpm turbo run typecheck lint test build` 52/52, `pnpm e2e` 6/6, `expo export --platform android` EXIT 0 y smoke S8
+contra Supabase cerrado. Siguiente sprint: `docs/PROMPT_SPRINT_9_CODEX.md`.
 Al cerrar cada sprint: actualizar `docs/ESTADO_SPRINT_{n}.md`, registrar deuda en `docs/DEUDA_TECNICA.md` y dejar el
 prompt del siguiente.

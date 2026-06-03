@@ -3,8 +3,8 @@
 - Use WSL as the only runtime for workspace paths under `/home/jose/dev`.
 - Repository root for this project: `/home/jose/dev/demo-taxigreen`.
 - Primary build authority: `CLAUDE.md`.
-- Current implementation status: Sprint 7 implemented. Read `docs/ESTADO_SPRINT_7.md` before starting more work.
-- Next sprint prompt: `docs/PROMPT_SPRINT_8_CODEX.md`.
+- Current implementation status: Sprint 8 implemented. Read `docs/ESTADO_SPRINT_8.md` before starting more work.
+- Next sprint prompt: `docs/PROMPT_SPRINT_9_CODEX.md`.
 - If `context7` is relevant or explicitly requested, use the MCP tool directly if exposed.
 - Do not probe `context7` with MCP resources/templates list methods; this server is tools-only.
 - If `context7` is configured in WSL but not surfaced as a tool, fallback:
@@ -12,7 +12,7 @@
   - Speak MCP over `http://localhost:3131/mcp`
 - If the user asks to avoid web browsing, do not replace `context7` with web search.
 
-## Sprint 7 Handoff
+## Sprint 8 Handoff
 
 - S1 DB smoke is closed against Supabase: migration, seed x2, login helpers, audit and protagonist reservation verified.
 - S2 added voucher QR HMAC, comprobante PDF visual, RENIEC lookup and `/admin/auditoria`.
@@ -28,8 +28,14 @@
 - S7 added `GET /api/conductor/asignacion/[id]`, `POST /api/conductor/asignacion/[id]/estado`, `apps/web/src/lib/conductor-asignacion*.ts`, audited sequential state transitions and broadcast `estado` in `reserva-{id}`.
 - S7 driver replaced the assignment placeholder with the active trip screen: passenger/flight/voucher header, point "Salida 3, columna F2", Mapbox native when available, textual fallback when not, one large sequential action, foreground location broadcast `posicion`, keep-awake and conservative retry.
 - S7 verification: `pnpm turbo run typecheck lint test build` 52/52 green, `pnpm e2e` 5/5 green, `expo export --platform android` EXIT 0 (1350 modules), `next start` + Supabase smoke login 200, GET assignment 200, no-Bearer 401, invalid jump 409, full sequence to `por_liquidar` 200, conductor2 404/404; DB cleaned to seed baseline.
-- Push/location/map real still need Android physical + dev client/EAS + `EXPO_PUBLIC_EXPO_PROJECT_ID`/Mapbox tokens; without them S7 degrades visibly and login/Realtime/state endpoints still work.
-- Before S8, read `docs/PROMPT_SPRINT_8_CODEX.md`; S8 owns `/p/[token]` passenger tracking, comprobante/calificación and one object-lost incidence. `ANTHROPIC_API_KEY` remains optional; deterministic first.
+- S8 added public passenger tracking `/p/[token]` backed by `apps/web/src/lib/pasajero.ts`, Supabase Realtime `reserva-{id}` (`estado`, `posicion`, `incidencia`) and polling fallback.
+- S8 added passenger comprobante/calificación endpoints: `GET /api/pasajero/[token]`, `POST /comprobante`, `GET /comprobante/pdf`, `POST /calificacion`.
+- S8 added object-lost flow in `packages/bienestar`, `POST /api/incidencias`, `GET /api/incidencias/[id]`, `POST /responder`, `POST /cerrar`, `/bienestar/[caso]` and `/admin/bienestar`.
+- S8 driver added Realtime/push incident handling, Home incident card and hidden `/(auth)/incidencia/[id]` response screen.
+- S8 verification: `pnpm turbo run typecheck lint test build` 52/52 green, `pnpm e2e` 6/6 green, `expo export --platform android` EXIT 0 (1352 modules), `next start` + Supabase smoke `/p/tg_demo_passenger_001` 200, passenger API 200, incident `abierta -> en_resolucion -> cerrada` with 3 audit rows; smoke data cleaned.
+- DB baseline after S8: reservas=1, incidencias=1 seed, auditoria=1 seed_sprint_1, fcmTokens=0, protagonist `TG-2026-0001` assigned to Raúl Quispe with S7 trip timestamps null.
+- Push/location/map real still need Android physical + dev client/EAS + `EXPO_PUBLIC_EXPO_PROJECT_ID`/Mapbox tokens; without them S8 degrades visibly and login/Realtime/state/incident endpoints still work.
+- Before S9, read `docs/PROMPT_SPRINT_9_CODEX.md`; S9 owns `/counter`, final QR consumption, landing/demo reset, Railway deploy and video fallback. `ANTHROPIC_API_KEY` remains optional; deterministic first.
 
 <claude-mem-context>
 # Memory Context
