@@ -27,6 +27,9 @@ export default async function AdminPage() {
             <Link className="rounded-md border border-border bg-white px-4 py-2 text-sm font-medium text-product hover:bg-product-muted" href="/admin/metricas">
               Métricas
             </Link>
+            <Link className="rounded-md border border-border bg-white px-4 py-2 text-sm font-medium text-product hover:bg-product-muted" href="/admin/bienestar">
+              Bienestar
+            </Link>
             <Link className="rounded-md border border-border bg-white px-4 py-2 text-sm font-medium text-product hover:bg-product-muted" href="/admin/auditoria">
               Auditoría
             </Link>

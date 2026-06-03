@@ -16,6 +16,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@taxigreen/asignacion": "workspace:*",
     "@taxigreen/auditoria": "workspace:*",
+    "@taxigreen/bienestar": "workspace:*",
     "@taxigreen/comprobantes": "workspace:*",
     "@taxigreen/database": "workspace:*",
     "@taxigreen/ia": "workspace:*",

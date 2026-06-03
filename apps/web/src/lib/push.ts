@@ -107,3 +107,82 @@ export async function sendConductorAssignmentPush({
     clearTimeout(timeout);
   }
 }
+
+export async function sendConductorIncidentPush({
+  tenantId,
+  conductorId,
+  reservaId,
+  incidenciaId,
+  descripcion,
+}: {
+  tenantId: string;
+  conductorId: string;
+  reservaId: string;
+  incidenciaId: string;
+  descripcion: string;
+}): Promise<PushResult> {
+  const conductor = await prisma.conductores.findFirst({
+    where: { id: conductorId, tenant_id: tenantId },
+    select: {
+      id: true,
+      usuario: { select: { fcm_token: true } },
+    },
+  });
+
+  if (!conductor) {
+    return { ok: false, reason: 'conductor_not_found' };
+  }
+
+  const token = conductor.usuario.fcm_token;
+  if (!token) {
+    return { ok: false, reason: 'missing_token' };
+  }
+
+  if (!isExpoPushToken(token)) {
+    return { ok: false, reason: 'fcm_not_configured' };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json',
+        'accept-encoding': 'gzip, deflate',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: token,
+        title: 'Objeto olvidado',
+        body: descripcion,
+        data: {
+          screen: 'incidencia',
+          reservaId,
+          incidenciaId,
+          descripcion,
+        },
+        sound: 'default',
+        channelId: 'asignacion',
+        priority: 'high',
+      }),
+    });
+
+    const ticket = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      return { ok: false, reason: 'expo_push_failed', detail: response.statusText };
+    }
+    return { ok: true, provider: 'expo', ticket };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'push error';
+    return {
+      ok: false,
+      reason: message.toLowerCase().includes('abort') ? 'expo_push_timeout' : 'expo_push_failed',
+      detail: message,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}

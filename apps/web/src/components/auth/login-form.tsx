@@ -18,6 +18,19 @@ const schema = z.object({
 
 type LoginValues = z.infer<typeof schema>;
 
+function normalizeCallbackPath(value: string, fallback = '/admin') {
+  if (value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
 export function LoginForm({
   title,
   subtitle,
@@ -29,6 +42,7 @@ export function LoginForm({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const safeCallbackUrl = normalizeCallbackPath(callbackUrl);
   const form = useForm<LoginValues>({
     resolver: zodResolver(schema),
     defaultValues: { email: '', password: '' },
@@ -40,7 +54,7 @@ export function LoginForm({
       email: values.email,
       password: values.password,
       redirect: false,
-      callbackUrl,
+      callbackUrl: safeCallbackUrl,
     });
 
     if (result?.error) {
@@ -48,7 +62,7 @@ export function LoginForm({
       return;
     }
 
-    router.push(result?.url ?? callbackUrl);
+    router.push(safeCallbackUrl);
     router.refresh();
   }
 

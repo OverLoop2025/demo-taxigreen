@@ -2,6 +2,13 @@ import { getToken } from 'next-auth/jwt';
 import { NextResponse, type NextRequest } from 'next/server';
 import { AUTH_SECRET } from './lib/auth/secret';
 
+const SESSION_COOKIE_NAMES = [
+  '__Secure-authjs.session-token',
+  'authjs.session-token',
+  '__Secure-next-auth.session-token',
+  'next-auth.session-token',
+];
+
 function redirectToLogin(request: NextRequest, loginPath: string) {
   const url = request.nextUrl.clone();
   url.pathname = loginPath;
@@ -9,9 +16,21 @@ function redirectToLogin(request: NextRequest, loginPath: string) {
   return NextResponse.redirect(url);
 }
 
+async function readAuthToken(request: NextRequest) {
+  const cookieName =
+    SESSION_COOKIE_NAMES.find((name) => request.cookies.has(name)) ?? 'authjs.session-token';
+
+  return getToken({
+    req: request,
+    secret: AUTH_SECRET,
+    cookieName,
+    secureCookie: cookieName.startsWith('__Secure-'),
+  });
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = await getToken({ req: request, secret: AUTH_SECRET });
+  const token = await readAuthToken(request);
   const role = typeof token?.role === 'string' ? token.role : null;
 
   // `/wa-sim` crea reservas en la DB (Server Action) y consume el extractor;
