@@ -20,18 +20,19 @@ jobs:
     env:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
+      # Actions en v6 (runtime Node 24); la v4 corría en Node 20, deprecado.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      # Sin `version`: action-setup@v4 lee `packageManager` (pnpm@10.33.0).
+      # Sin `version`: action-setup lee `packageManager` (pnpm@10.33.0).
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       # Sin `cache: pnpm`: este job no corre `pnpm install` (Railway CLI se instala
       # con npm y `railway up` construye en el servidor). Pedir caché de pnpm aquí
       # hacía fallar el post-step "Path Validation Error" porque el store no existe.
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 

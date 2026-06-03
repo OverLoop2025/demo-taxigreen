@@ -15,18 +15,20 @@ jobs:
     name: typecheck · lint · test · build
     runs-on: ubuntu-latest
     steps:
+      # Actions en v6 (runtime Node 24): la v4 corría en Node 20, deprecado y
+      # forzado a Node 24 por GitHub desde el 2026-06-16.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      # No fijamos `version` aquí: action-setup@v4 lee `packageManager`
+      # No fijamos `version` aquí: action-setup lee `packageManager`
       # (pnpm@10.33.0) de package.json. Fijar ambos provoca el error
       # "Multiple versions of pnpm specified" y dejaría la versión de CI
-      # desincronizada del lockfile (9.0) generado con pnpm 10.
+      # desincronizada del lockfile generado con pnpm 10.
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
