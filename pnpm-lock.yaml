@@ -157,6 +157,9 @@ importers:
       '@taxigreen/auditoria':
         specifier: workspace:*
         version: link:../../packages/auditoria
+      '@taxigreen/bienestar':
+        specifier: workspace:*
+        version: link:../../packages/bienestar
       '@taxigreen/comprobantes':
         specifier: workspace:*
         version: link:../../packages/comprobantes
@@ -274,6 +277,9 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.19)(lightningcss@1.27.0)(terser@5.48.0)
 
   packages/comprobantes:
     dependencies:
