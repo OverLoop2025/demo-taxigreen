@@ -6,5 +6,6 @@ import { test, expect } from '@playwright/test';
  */
 test('la landing responde y muestra Taxi Green', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: /Taxi Green/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Recojo en el Jorge Chávez/i })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Pídelo por WhatsApp/i })).toBeVisible();
 });
