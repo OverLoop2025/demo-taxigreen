@@ -1,0 +1,68 @@
+name: EAS build (driver APK)
+
+# Construye el APK del conductor en EAS (nube). Manual (workflow_dispatch): consume
+# cola/créditos de tu cuenta Expo, por eso NO corre en cada push.
+#
+# Requisitos:
+#   - Secret EXPO_TOKEN en GitHub (Settings → Secrets and variables → Actions).
+#   - Las variables EXPO_PUBLIC_* viven en apps/driver/eas.json (perfil `base`), así
+#     el APK queda apuntando a Railway (login real) y no a localhost.
+#   - El token NATIVO de Mapbox para descargar el SDK (MAPBOX_DOWNLOAD_TOKEN, sk.*)
+#     debe existir como variable de entorno en EAS, no aquí:
+#       eas env:create --name MAPBOX_DOWNLOAD_TOKEN --value sk.xxx --environment production
+#     Sin él, el build cae al fallback textual del mapa del conductor (no rompe).
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Perfil de build EAS
+        type: choice
+        options: [preview, development, production]
+        default: preview
+
+concurrency:
+  group: eas-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: eas build android (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install EAS CLI
+        if: ${{ env.EXPO_TOKEN != '' }}
+        run: npm i -g eas-cli
+
+      # Valida que el EXPO_TOKEN es correcto: imprime el usuario dueño de la cuenta.
+      - name: Validar credencial Expo (eas whoami)
+        if: ${{ env.EXPO_TOKEN != '' }}
+        run: eas whoami
+
+      # `--no-wait` encola el build y devuelve la URL de seguimiento sin bloquear el
+      # runner ~20 min. El APK se descarga desde expo.dev cuando termina.
+      - name: EAS build (Android · ${{ inputs.profile }})
+        if: ${{ env.EXPO_TOKEN != '' }}
+        working-directory: apps/driver
+        run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive --no-wait
+
+      - name: Falta EXPO_TOKEN
+        if: ${{ env.EXPO_TOKEN == '' }}
+        run: echo "::warning::EXPO_TOKEN no está en Secrets; build EAS omitido."
