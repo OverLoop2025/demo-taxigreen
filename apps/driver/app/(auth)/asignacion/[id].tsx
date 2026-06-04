@@ -18,6 +18,7 @@ import type { DriverAssignment, EstadoViaje, NextTripAction } from '@/features/a
 import { useAuth } from '@/features/auth/use-auth';
 import { useLocationTracking } from '@/features/location';
 import { useNetworkStatus } from '@/features/network/use-network-status';
+import { useDriverRoute } from '@/features/routing/use-route';
 
 function KeepAwakeGate() {
   useKeepAwake('taxigreen-driver-trip-active');
@@ -49,6 +50,21 @@ function etaLabel(estado: EstadoViaje | null | undefined) {
   if (estado === 'a_bordo') return 'ETA 23 min al destino';
   if (estado === 'finalizado') return 'Servicio cerrado';
   return 'Listo para iniciar';
+}
+
+function dynamicEtaLabel(estado: EstadoViaje | null | undefined, duracionSegundos: number | null) {
+  if (estado === 'en_punto') return 'Esperando pasajero';
+  if (estado === 'finalizado') return 'Servicio cerrado';
+  if (typeof duracionSegundos === 'number') {
+    const minutes = Math.max(0, Math.ceil(duracionSegundos / 60));
+    if (estado === 'a_bordo') return `ETA ${minutes} min al destino`;
+    return `ETA ${minutes} min al punto`;
+  }
+  return etaLabel(estado);
+}
+
+function routeSourceLabel(source: 'mapbox' | 'estimacion') {
+  return source === 'mapbox' ? 'Ruta real con tráfico' : 'Estimación de respaldo';
 }
 
 function StatusPill({ label }: { label: string }) {
@@ -86,6 +102,11 @@ export default function AssignmentScreen() {
   const estadoViaje = assignment?.viaje?.estado ?? null;
   const trackingActive = isTrackingState(estadoViaje);
   const tracking = useLocationTracking(reservaId ?? null, trackingActive);
+  const route = useDriverRoute({
+    assignment,
+    driverLocation: tracking.lastLocation,
+    token: session?.token,
+  });
   const nextAction = useMemo(() => getNextTripAction(estadoViaje), [estadoViaje]);
 
   const loadAssignment = useCallback(async (silent = false) => {
@@ -204,7 +225,10 @@ export default function AssignmentScreen() {
           <Text className="mt-2 text-lg font-semibold text-white/80">
             {assignment.vuelo.codigo ?? 'Vuelo por confirmar'} · {assignment.voucherCodigo}
           </Text>
-          <Text className="mt-3 text-base font-semibold text-white">{etaLabel(estadoViaje)}</Text>
+          <Text className="mt-3 text-base font-semibold text-white">
+            {dynamicEtaLabel(estadoViaje, route.route.duracionSegundos)}
+          </Text>
+          <Text className="mt-1 text-sm font-semibold text-white/70">{routeSourceLabel(route.route.fuente)}</Text>
         </View>
 
         <View className="mt-4 rounded-2xl bg-white px-5 py-5">
@@ -218,7 +242,7 @@ export default function AssignmentScreen() {
         </View>
 
         <View className="mt-4">
-          <AssignmentMap assignment={assignment} driverLocation={tracking.lastLocation} />
+          <AssignmentMap assignment={assignment} driverLocation={tracking.lastLocation} route={route.route} />
         </View>
 
         <View className="mt-4 gap-3">

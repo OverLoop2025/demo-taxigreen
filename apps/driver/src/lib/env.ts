@@ -10,6 +10,8 @@ const schema = z.object({
   EXPO_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   EXPO_PUBLIC_EXPO_PROJECT_ID: z.string().optional(),
   EXPO_PUBLIC_MAPBOX_TOKEN: z.string().optional(),
+  EXPO_PUBLIC_RUTAS_UMBRAL_RECALCULO_M: z.coerce.number().positive().default(120),
+  EXPO_PUBLIC_RUTAS_INTERVALO_MIN_S: z.coerce.number().positive().default(6),
 });
 
 export const env = schema.parse({
@@ -18,6 +20,8 @@ export const env = schema.parse({
   EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   EXPO_PUBLIC_EXPO_PROJECT_ID: process.env.EXPO_PUBLIC_EXPO_PROJECT_ID,
   EXPO_PUBLIC_MAPBOX_TOKEN: process.env.EXPO_PUBLIC_MAPBOX_TOKEN,
+  EXPO_PUBLIC_RUTAS_UMBRAL_RECALCULO_M: process.env.EXPO_PUBLIC_RUTAS_UMBRAL_RECALCULO_M,
+  EXPO_PUBLIC_RUTAS_INTERVALO_MIN_S: process.env.EXPO_PUBLIC_RUTAS_INTERVALO_MIN_S,
 });
 
 export type Env = z.infer<typeof schema>;
