@@ -28,30 +28,15 @@ type UseDriverRouteArgs = {
 const MIN_RECALC_METERS = env.EXPO_PUBLIC_RUTAS_UMBRAL_RECALCULO_M;
 const MIN_RECALC_MS = env.EXPO_PUBLIC_RUTAS_INTERVALO_MIN_S * 1000;
 
-function toPoint(point: { lat: number | null; lng: number | null }) {
+type LatLng = { lat: number; lng: number };
+
+function toPoint(point: { lat: number | null; lng: number | null }): LatLng | null {
   return typeof point.lat === 'number' && typeof point.lng === 'number'
     ? { lat: point.lat, lng: point.lng }
     : null;
 }
 
-function targetForPhase(assignment: DriverAssignment) {
-  const estado = assignment.viaje?.estado;
-  if (estado === 'a_bordo') return toPoint(assignment.destino);
-  if (estado === 'en_punto' || estado === 'finalizado') return null;
-  return toPoint(assignment.origen);
-}
-
-function fallbackGeometry(assignment: DriverAssignment, driverLocation: DriverLocation | null) {
-  const origin = toPoint(assignment.origen);
-  const destination = toPoint(assignment.destino);
-  const driver = driverLocation ?? origin;
-  const points = [driver, origin, destination]
-    .filter((point): point is { lat: number; lng: number } => Boolean(point))
-    .map((point) => [point.lng, point.lat]);
-  return points.length >= 2 ? { type: 'LineString' as const, coordinates: points } : null;
-}
-
-function distanceMeters(a: DriverLocation, b: DriverLocation) {
+function distanceMeters(a: LatLng, b: LatLng) {
   const earth = 6_371_000;
   const toRad = (value: number) => (value * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
@@ -64,75 +49,79 @@ function distanceMeters(a: DriverLocation, b: DriverLocation) {
   return earth * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-function initialRoute(assignment: DriverAssignment | null, driverLocation: DriverLocation | null): DriverRouteResult {
+// Tramo a trazar SIEMPRE como ruta real por calles (nunca recta). Devuelve dos
+// puntos reales y distintos según la fase; el endpoint /api/rutas/calcular los
+// convierte en polilínea Mapbox. a_bordo → destino; aproximación (GPS lejos del
+// recojo) → recojo; resto (en_punto/finalizado/sin GPS) → viaje completo.
+function legForPhase(assignment: DriverAssignment, driverLocation: DriverLocation | null): { start: LatLng; end: LatLng } | null {
+  const origin = toPoint(assignment.origen);
+  const destination = toPoint(assignment.destino);
+  const driver = driverLocation ? { lat: driverLocation.lat, lng: driverLocation.lng } : null;
+  const estado = assignment.viaje?.estado;
+
+  if (estado === 'a_bordo' && destination) {
+    return { start: driver ?? origin ?? destination, end: destination };
+  }
+
+  const aproximando = estado === 'asignado' || estado === 'en_camino' || estado === 'en_punto' || !estado;
+  if (aproximando && driver && origin && distanceMeters(driver, origin) > MIN_RECALC_METERS) {
+    return { start: driver, end: origin };
+  }
+
+  if (origin && destination) return { start: origin, end: destination };
+  return null;
+}
+
+// Clave de tramo redondeada a ~110 m (3 decimales) para no recalcular el mismo
+// tramo en cada tick de GPS; un tramo nuevo (cambió la fase o el conductor se
+// movió lo suficiente) sí dispara recálculo inmediato.
+function legKey(leg: { start: LatLng; end: LatLng }) {
+  return `${leg.start.lat.toFixed(3)},${leg.start.lng.toFixed(3)}|${leg.end.lat.toFixed(3)},${leg.end.lng.toFixed(3)}`;
+}
+
+function emptyRoute(): DriverRouteResult {
   return {
     distanciaMetros: null,
     duracionSegundos: null,
     duracionSinTraficoSegundos: null,
-    geometry: assignment ? fallbackGeometry(assignment, driverLocation) : null,
+    geometry: null,
     fuente: 'estimacion',
     calculadoEn: null,
   };
 }
 
-export function useDriverRoute({ assignment, driverLocation, token }: UseDriverRouteArgs) {
-  const [route, setRoute] = useState<DriverRouteResult>(() => initialRoute(assignment, driverLocation));
-  const [status, setStatus] = useState<'idle' | 'calculating' | 'ready' | 'fallback'>('idle');
-  const lastCalcRef = useRef<{ location: DriverLocation; ts: number; phase: string | null } | null>(null);
-  const phase = assignment?.viaje?.estado ?? null;
+function isRealGeometry(result: DriverRouteResult) {
+  return result.fuente === 'mapbox' && (result.geometry?.coordinates.length ?? 0) > 2;
+}
 
-  const target = useMemo(() => (assignment ? targetForPhase(assignment) : null), [assignment]);
+export function useDriverRoute({ assignment, driverLocation, token }: UseDriverRouteArgs) {
+  const [route, setRoute] = useState<DriverRouteResult>(emptyRoute);
+  const [status, setStatus] = useState<'idle' | 'calculating' | 'ready' | 'fallback'>('idle');
+  const lastCalcRef = useRef<{ key: string; ts: number } | null>(null);
+
+  const leg = useMemo(() => (assignment ? legForPhase(assignment, driverLocation) : null), [assignment, driverLocation]);
 
   useEffect(() => {
-    if (!assignment) {
-      setRoute(initialRoute(null, null));
+    if (!assignment || !leg) {
+      setRoute(emptyRoute());
       setStatus('idle');
       return;
     }
 
-    if (!target) {
-      setRoute({
-        distanciaMetros: 0,
-        duracionSegundos: 0,
-        duracionSinTraficoSegundos: null,
-        geometry: fallbackGeometry(assignment, driverLocation),
-        fuente: 'estimacion',
-        calculadoEn: new Date().toISOString(),
-      });
-      setStatus('ready');
-      return;
-    }
-
-    const origin = driverLocation ?? toPoint(assignment.origen);
-    if (!origin) {
-      setRoute(initialRoute(assignment, driverLocation));
+    if (!token) {
+      // Sin token no hay ruta real; no dibujamos recta (geometry queda null).
+      setRoute(emptyRoute());
       setStatus('fallback');
       return;
     }
 
-    const normalizedLocation: DriverLocation = {
-      lat: origin.lat,
-      lng: origin.lng,
-      heading: driverLocation?.heading ?? null,
-      speed: driverLocation?.speed ?? null,
-      ts: driverLocation?.ts ?? new Date().toISOString(),
-    };
+    const key = legKey(leg);
     const last = lastCalcRef.current;
     const now = Date.now();
-    if (last && last.phase === phase) {
-      const movedEnough = distanceMeters(last.location, normalizedLocation) >= MIN_RECALC_METERS;
-      const waitedEnough = now - last.ts >= MIN_RECALC_MS;
-      if (!movedEnough || !waitedEnough) return;
-    }
-
-    if (!token) {
-      setRoute(initialRoute(assignment, driverLocation));
-      setStatus('fallback');
-      return;
-    }
+    if (last && last.key === key && now - last.ts < MIN_RECALC_MS) return;
 
     let cancelled = false;
-    lastCalcRef.current = { location: normalizedLocation, ts: now, phase };
+    lastCalcRef.current = { key, ts: now };
     setStatus('calculating');
 
     void apiFetch<DriverRouteResult>('/api/rutas/calcular', {
@@ -140,34 +129,38 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
       token,
       body: {
         reserva_id: assignment.id,
-        origen: { lat: normalizedLocation.lat, lng: normalizedLocation.lng },
-        destino: target,
+        origen: leg.start,
+        destino: leg.end,
         perfil: 'driving-traffic',
       },
     })
       .then((result) => {
         if (cancelled) return;
-        setRoute({
+        const real = isRealGeometry(result);
+        setRoute((current) => ({
           distanciaMetros: result.distanciaMetros,
           duracionSegundos: result.duracionSegundos,
           duracionSinTraficoSegundos: result.duracionSinTraficoSegundos,
-          geometry: result.geometry,
-          fuente: result.fuente,
+          // Anti-degradación: sólo geometría real (>2 vértices) reemplaza el trazo.
+          // Una estimación (recta de 2 puntos) nunca se dibuja: se conserva la
+          // curva real previa si existe, o queda null.
+          geometry: real ? result.geometry : current.fuente === 'mapbox' ? current.geometry : null,
+          fuente: real || current.fuente === 'mapbox' ? 'mapbox' : result.fuente,
           calculadoEn: result.calculadoEn,
           cache: result.cache,
-        });
-        setStatus(result.fuente === 'mapbox' ? 'ready' : 'fallback');
+        }));
+        setStatus(real ? 'ready' : 'fallback');
       })
       .catch(() => {
         if (cancelled) return;
-        setRoute(initialRoute(assignment, driverLocation));
+        // Error de red: conservamos lo que haya (nunca una recta), sólo marcamos fallback.
         setStatus('fallback');
       });
 
     return () => {
       cancelled = true;
     };
-  }, [assignment, driverLocation, phase, target, token]);
+  }, [assignment, leg, token]);
 
   return { route, status };
 }

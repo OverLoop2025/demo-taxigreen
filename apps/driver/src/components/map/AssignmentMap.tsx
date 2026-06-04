@@ -90,10 +90,11 @@ export function AssignmentMap({
   const origin = toCoordinate(assignment.origen);
   const destination = toCoordinate(assignment.destino);
   const driver = driverLocation ? [driverLocation.lng, driverLocation.lat] : origin;
+  // Sólo se traza geometría REAL de Mapbox (>2 vértices = ruta por calles). Si aún
+  // no hay ruta real, se muestran sólo los marcadores; nunca una recta de 2 puntos.
   const routeCoordinates =
-    route.geometry?.coordinates && route.geometry.coordinates.length >= 2
-      ? route.geometry.coordinates
-      : ([driver, origin, destination].filter(Boolean) as number[][]);
+    route.geometry?.coordinates && route.geometry.coordinates.length > 2 ? route.geometry.coordinates : [];
+  const hasRoute = routeCoordinates.length > 2;
   const center = origin ?? destination ?? driver ?? [-77.08, -12.06];
 
   const routeShape = useMemo(
@@ -102,13 +103,13 @@ export function AssignmentMap({
       properties: {},
       geometry: {
         type: 'LineString',
-        coordinates: routeCoordinates.length >= 2 ? routeCoordinates : [center, center],
+        coordinates: hasRoute ? routeCoordinates : [],
       },
     }),
-    [center, routeCoordinates],
+    [hasRoute, routeCoordinates],
   );
 
-  if (!token || !Mapbox || routeCoordinates.length < 2) {
+  if (!token || !Mapbox) {
     return (
       <View className="min-h-72 rounded-xl border border-product/20 bg-blue-50 px-5 py-5">
         <Text className="text-sm font-bold uppercase tracking-wide text-product">Ruta operativa</Text>
@@ -134,17 +135,19 @@ export function AssignmentMap({
     <View className="h-80 overflow-hidden rounded-xl border border-product/20 bg-gray-200">
       <MapView style={styles.map} styleURL="mapbox://styles/mapbox/dark-v11">
         <Camera centerCoordinate={center} zoomLevel={11.5} animationMode="easeTo" animationDuration={800} />
-        <ShapeSource id="taxigreen-route" shape={routeShape}>
-          <LineLayer
-            id="taxigreen-route-line"
-            style={{
-              lineColor: '#38BDF8',
-              lineWidth: 5,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }}
-          />
-        </ShapeSource>
+        {hasRoute ? (
+          <ShapeSource id="taxigreen-route" shape={routeShape}>
+            <LineLayer
+              id="taxigreen-route-line"
+              style={{
+                lineColor: '#38BDF8',
+                lineWidth: 5,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
+          </ShapeSource>
+        ) : null}
 
         {driver ? (
           <MarkerView coordinate={driver} anchor={{ x: 0.5, y: 0.5 }}>
