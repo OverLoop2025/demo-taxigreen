@@ -141,22 +141,16 @@ function getCoordinates(point: { lat: number | null; lng: number | null }) {
     : null;
 }
 
-function buildLine(data: PassengerTripData, driverPosition: PassengerPosition | null) {
-  const origin = getCoordinates(data.ruta.origen);
-  const destination = getCoordinates(data.ruta.destino);
-  const driver =
-    driverPosition && typeof driverPosition.lat === 'number' && typeof driverPosition.lng === 'number'
-      ? ([driverPosition.lng, driverPosition.lat] as [number, number])
-      : null;
-
-  return [driver, origin, destination].filter((item): item is [number, number] => Boolean(item));
-}
-
+// Tramo a recalcular en vivo desde el GPS del conductor (siempre conductor→target,
+// que Mapbox traza por calles). Devuelve null en fases sin tramo activo
+// (en_punto/finalizado): ahí NO se recalcula y se conserva la geometría real del
+// servidor. Nunca se sintetiza una recta en el cliente.
 function routeTarget(data: PassengerTripData) {
-  if (data.viaje.estado === 'finalizado') return null;
-  if (data.viaje.estado === 'en_punto') return null;
   if (data.viaje.estado === 'a_bordo') return getCoordinates(data.ruta.destino);
-  return getCoordinates(data.ruta.origen);
+  if (data.viaje.estado === 'en_camino' || data.viaje.estado === 'asignado' || data.viaje.estado === null) {
+    return getCoordinates(data.ruta.origen);
+  }
+  return null;
 }
 
 function distanceMeters(a: PassengerPosition, b: PassengerPosition) {
@@ -304,9 +298,12 @@ function PassengerMap({
   const destinationMarkerRef = useRef<MapboxMarker | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sólo se dibuja geometría REAL de Mapbox (>2 vértices = trazado por calles).
+  // Si no hay ruta real todavía, `line` queda vacío y no se pinta ninguna línea
+  // (jamás una recta de 2 puntos). Los marcadores siguen visibles.
   const line = useMemo(
-    () => (route.geometry?.coordinates.length ? route.geometry.coordinates : buildLine(data, driverPosition)),
-    [data, driverPosition, route.geometry],
+    () => (route.geometry && route.geometry.coordinates.length > 2 ? route.geometry.coordinates : []),
+    [route.geometry],
   );
 
   // Crear el mapa UNA sola vez (deps `[token]`). Antes este effect dependía de
@@ -397,9 +394,17 @@ function PassengerMap({
             .addTo(map);
         }
 
-        if (line.length >= 2) {
-          const bounds = new mapboxgl.LngLatBounds(line[0]!, line[0]!);
-          line.forEach((coordinates) => bounds.extend(coordinates));
+        // Encuadre: por la ruta real si existe; si aún no llega, por los marcadores
+        // (recojo/destino/conductor) para que el viaje se vea completo igualmente.
+        const framePoints =
+          line.length >= 2
+            ? line
+            : ([origin, destination, driverPosition ? [driverPosition.lng, driverPosition.lat] : null].filter(
+                Boolean,
+              ) as [number, number][]);
+        if (framePoints.length >= 2) {
+          const bounds = new mapboxgl.LngLatBounds(framePoints[0]!, framePoints[0]!);
+          framePoints.forEach((coordinates) => bounds.extend(coordinates));
           map.fitBounds(bounds, { padding: 42, duration: 0 });
         }
         setReady(true);
@@ -917,15 +922,9 @@ export function PassengerTrackingClient({ initialData }: Props) {
   useEffect(() => {
     if (!driverPosition || finished) return;
     const target = routeTarget(data);
-    if (!target) {
-      setRoute((current) => ({
-        ...current,
-        distanciaMetros: 0,
-        duracionSegundos: 0,
-        geometry: null,
-      }));
-      return;
-    }
+    // Sin tramo activo (en_punto/finalizado): no recalculamos y conservamos la
+    // geometría real ya cargada. No se toca la línea.
+    if (!target) return;
 
     const last = lastRouteCalcRef.current;
     const now = Date.now();
@@ -962,7 +961,10 @@ export function PassengerTrackingClient({ initialData }: Props) {
                 : record.duracionSinTraficoSegundos === null
                   ? null
                   : undefined,
-            geometry: record.geometry?.type === 'LineString' ? record.geometry : undefined,
+            geometry:
+              record.geometry?.type === 'LineString' && record.geometry.coordinates.length > 2
+                ? record.geometry
+                : undefined,
             fuente: record.fuente === 'mapbox' || record.fuente === 'estimacion' ? record.fuente : undefined,
           }),
         );

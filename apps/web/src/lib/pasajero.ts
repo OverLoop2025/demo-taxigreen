@@ -269,13 +269,35 @@ function pointFrom(lat: number | null, lng: number | null) {
   return typeof lat === 'number' && typeof lng === 'number' ? { lat, lng } : null;
 }
 
-function routeTarget(reserva: PassengerRecord) {
-  const viaje = reserva.viajes[0];
-  if (viaje?.estado === EstadoViaje.a_bordo) {
-    return pointFrom(reserva.destino_lat, reserva.destino_lng);
+function metrosEntre(a: PuntoGeo, b: PuntoGeo) {
+  return calcularRutaEstimada({ origen: a, destino: b }, { sinuosidad: 1, velocidadKmh: 28 }).distanciaMetros;
+}
+
+// Tramo a trazar SIEMPRE como ruta real por calles (nunca recta de 2 puntos).
+// Devuelve dos puntos REALES y distintos para cada fase del viaje; Mapbox los
+// convierte en una polilínea de cientos de vértices. Reglas:
+//  - a_bordo: conductor (o aeropuerto) → destino (tramo en curso con pasajero).
+//  - asignado/en_camino/en_punto con GPS lejos del recojo: conductor → recojo (aproximación).
+//  - resto (finalizado, sin GPS, o ya en el punto): viaje completo aeropuerto → destino.
+// Antes `finalizado`/`en_punto` devolvían null y el cliente caía a una recta. Ya no.
+function routeLeg(reserva: PassengerRecord, posicion: PassengerPosition | null): { start: PuntoGeo; end: PuntoGeo } | null {
+  const origen = pointFrom(reserva.origen_lat, reserva.origen_lng);
+  const destino = pointFrom(reserva.destino_lat, reserva.destino_lng);
+  const driver = posicion ? { lat: posicion.lat, lng: posicion.lng } : null;
+  const estado = reserva.viajes[0]?.estado;
+
+  if (estado === EstadoViaje.a_bordo && destino) {
+    return { start: driver ?? origen ?? destino, end: destino };
   }
-  if (viaje?.estado === EstadoViaje.finalizado) return null;
-  return pointFrom(reserva.origen_lat, reserva.origen_lng);
+
+  const aproximando =
+    estado === EstadoViaje.asignado || estado === EstadoViaje.en_camino || estado === EstadoViaje.en_punto || !estado;
+  if (aproximando && driver && origen && metrosEntre(driver, origen) > 120) {
+    return { start: driver, end: origen };
+  }
+
+  if (origen && destino) return { start: origen, end: destino };
+  return null;
 }
 
 // Caché in-memory de geometría real. El link /p/[token] se refresca cada 10 s y
@@ -312,9 +334,10 @@ async function resolveRoute(origen: PuntoGeo, destino: PuntoGeo): Promise<RouteR
 }
 
 async function computeTracking(reserva: PassengerRecord, posicion: PassengerPosition | null) {
-  const destino = routeTarget(reserva);
-  const origen = posicion ? { lat: posicion.lat, lng: posicion.lng } : pointFrom(reserva.origen_lat, reserva.origen_lng);
-  if (!origen || !destino) {
+  const leg = routeLeg(reserva, posicion);
+  if (!leg) {
+    // Sólo cuando la reserva no tiene coordenadas usables. Sin geometría: el
+    // cliente no dibuja ninguna línea (nunca una recta simulada).
     return {
       etaMinutos: estimateEtaMinutos(reserva),
       distanciaMetros: null,
@@ -325,13 +348,16 @@ async function computeTracking(reserva: PassengerRecord, posicion: PassengerPosi
     };
   }
 
-  const route = await resolveRoute(origen, destino);
+  const route = await resolveRoute(leg.start, leg.end);
+  // La geometría de la estimación determinista es una recta de 2 puntos: no la
+  // entregamos como trazo (el cliente sólo dibuja geometría real >2 vértices).
+  const geometryReal = route.fuente === 'mapbox' && route.geometry.coordinates.length > 2 ? route.geometry : null;
   return {
     etaMinutos: Math.max(0, Math.ceil(route.duracionSegundos / 60)),
     distanciaMetros: route.distanciaMetros,
     duracionSegundos: route.duracionSegundos,
     duracionSinTraficoSegundos: route.duracionSinTraficoSegundos,
-    geometry: route.geometry as RouteLineString | null,
+    geometry: geometryReal as RouteLineString | null,
     fuente: route.fuente,
   };
 }
