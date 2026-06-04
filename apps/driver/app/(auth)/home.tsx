@@ -2,6 +2,8 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, Switch, Text, View } from 'react-native';
 import { TouchButton } from '@/components/TouchButton';
+import { getActiveDriverAssignment } from '@/features/assignment/client';
+import type { DriverAssignment } from '@/features/assignment/types';
 import { useAuth } from '@/features/auth/use-auth';
 import { registerForPushNotifications, type PushRegistrationState } from '@/features/push';
 import { useRealtime } from '@/features/realtime';
@@ -20,8 +22,16 @@ function pushLabel(state: PushRegistrationState) {
     if (state.reason === 'missing_project_id') return 'Push: falta projectId Expo';
     return 'Push: permiso denegado';
   }
-  if (state.status === 'error') return 'Push: registro fallido';
+  // No es un fallo del flujo: el APK standalone no tiene credenciales FCM, así que
+  // Expo no puede emitir token. Las asignaciones igual llegan por Realtime.
+  if (state.status === 'error') return 'Push no provisionado';
   return 'Push pendiente';
+}
+
+// Cuando el push no quedó registrado, aclaramos que la entrega NO depende de él.
+function pushHint(state: PushRegistrationState) {
+  if (state.status === 'registered' || state.status === 'idle') return null;
+  return 'Las asignaciones llegan por Realtime.';
 }
 
 export default function HomeScreen() {
@@ -30,6 +40,7 @@ export default function HomeScreen() {
   const { status: realtimeStatus, lastAssignment, lastIncident } = useRealtime();
   const [onDuty, setOnDuty] = useState(true);
   const [pushState, setPushState] = useState<PushRegistrationState>({ status: 'idle' });
+  const [activeAssignment, setActiveAssignment] = useState<DriverAssignment | null>(null);
   const pushAttempted = useRef(false);
 
   useEffect(() => {
@@ -43,7 +54,27 @@ export default function HomeScreen() {
       });
   }, [session?.token]);
 
+  // Carga inicial de la asignación vigente: el conductor ve su viaje al abrir la
+  // app aunque no haya un broadcast Realtime en curso (no depende del push).
+  useEffect(() => {
+    if (!session?.token) return;
+    let cancelled = false;
+    getActiveDriverAssignment(session.token)
+      .then((response) => {
+        if (!cancelled) setActiveAssignment(response.asignacion);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveAssignment(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.token]);
+
   const vehicle = conductor?.vehiculo;
+  // El broadcast en vivo manda; si no hay, mostramos la asignación cargada al abrir.
+  const assignmentReservaId = lastAssignment?.reservaId ?? activeAssignment?.id ?? null;
+  const assignmentNombre = lastAssignment ? null : activeAssignment?.pasajero.nombre ?? null;
 
   return (
     <ScrollView className="flex-1 bg-gray-100" contentContainerClassName="px-5 pb-8 pt-12">
@@ -75,15 +106,22 @@ export default function HomeScreen() {
         <View className="min-h-20 flex-1 rounded-2xl bg-white px-4 py-4">
           <Text className="text-sm font-bold uppercase tracking-wide text-gray-500">Push</Text>
           <Text className="mt-1 text-base font-bold text-product-deep">{pushLabel(pushState)}</Text>
+          {pushHint(pushState) ? (
+            <Text className="mt-1 text-xs leading-4 text-gray-500">{pushHint(pushState)}</Text>
+          ) : null}
         </View>
       </View>
 
       <View className="mt-4 rounded-2xl bg-white px-5 py-5">
         <Text className="text-xl font-bold text-product-deep">Próxima asignación</Text>
-        {lastAssignment ? (
+        {assignmentReservaId ? (
           <>
-            <Text className="mt-3 text-base font-semibold text-gray-500">Reserva recibida</Text>
-            <Text className="mt-1 text-2xl font-bold text-product-deep">{lastAssignment.reservaId.slice(0, 8)}</Text>
+            <Text className="mt-3 text-base font-semibold text-gray-500">
+              {lastAssignment ? 'Reserva recibida' : 'Asignación vigente'}
+            </Text>
+            <Text className="mt-1 text-2xl font-bold text-product-deep">
+              {assignmentNombre ?? assignmentReservaId.slice(0, 8)}
+            </Text>
             <Text className="mt-1 text-base text-gray-600">Lista para revisar en la pantalla de asignación.</Text>
             <TouchButton
               label="Abrir asignación"
@@ -91,7 +129,7 @@ export default function HomeScreen() {
               onPress={() =>
                 router.push({
                   pathname: '/(auth)/asignacion/[id]',
-                  params: { id: lastAssignment.reservaId },
+                  params: { id: assignmentReservaId },
                 })
               }
             />

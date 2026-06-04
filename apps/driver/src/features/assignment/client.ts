@@ -7,6 +7,14 @@ export function getDriverAssignment(reservaId: string, token: string) {
   });
 }
 
+// Asignación vigente del conductor (la más reciente no cancelada). Permite mostrar
+// el viaje al abrir la app sin depender de un broadcast Realtime en vivo.
+export function getActiveDriverAssignment(token: string) {
+  return apiFetch<{ asignacion: DriverAssignment | null }>(`/api/conductor/asignacion/activa`, {
+    token,
+  });
+}
+
 export function changeDriverAssignmentState({
   reservaId,
   token,
