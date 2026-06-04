@@ -4,26 +4,37 @@
     "appVersionSource": "local"
   },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
+    "base": {
       "node": "22.11.0",
       "pnpm": "10.33.0",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://web-production-816a4.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ikitmdoasrvtnotsfkzk.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlraXRtZG9hc3J2dG5vdHNma3prIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNTA5ODMsImV4cCI6MjA5NTgyNjk4M30.P1fdV3F0Z4VeIPDY7pM7Zw9GRuOCWeN3t1iRIn8nw_4",
+        "EXPO_PUBLIC_EXPO_PROJECT_ID": "9934ffa9-6f7e-46ae-9499-40c46973d57c",
+        "EXPO_PUBLIC_MAPBOX_TOKEN": "pk.eyJ1Ijoib3Zlcmxvb3AiLCJhIjoiY21wd3dseHcwMDRocDJxcHlydGUxdWo1ciJ9.-x_fgvLp5wSF8o6qFpsCSQ"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "environment": "development",
+      "developmentClient": true,
+      "distribution": "internal",
       "android": {
         "buildType": "apk"
       }
     },
     "preview": {
+      "extends": "base",
+      "environment": "preview",
       "distribution": "internal",
-      "node": "22.11.0",
-      "pnpm": "10.33.0",
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "node": "22.11.0",
-      "pnpm": "10.33.0",
+      "extends": "base",
+      "environment": "production",
       "autoIncrement": true
     }
   },
