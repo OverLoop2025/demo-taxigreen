@@ -1,4 +1,11 @@
-import { calcularRutaEstimada, type RouteLineString, type RutaFuente } from '@taxigreen/rutas';
+import {
+  calcularRutaEstimada,
+  withRutaFallback,
+  type PuntoGeo,
+  type RouteLineString,
+  type RouteResult,
+  type RutaFuente,
+} from '@taxigreen/rutas';
 import { EstadoReserva, EstadoViaje, Prisma, prisma } from '@taxigreen/database';
 
 const passengerSelect = {
@@ -271,7 +278,40 @@ function routeTarget(reserva: PassengerRecord) {
   return pointFrom(reserva.origen_lat, reserva.origen_lng);
 }
 
-function estimatedTracking(reserva: PassengerRecord, posicion: PassengerPosition | null) {
+// Caché in-memory de geometría real. El link /p/[token] se refresca cada 10 s y
+// además hace SSR; sin caché, cada lectura golpearía Mapbox Directions y el SSR
+// pagaría hasta `timeoutMs` de latencia. Clave redondeada a ~11 m (4 decimales).
+const TRACKING_CACHE_TTL_MS = 30_000;
+const trackingCache = new Map<string, { expiresAt: number; value: RouteResult }>();
+
+function trackingKey(origen: PuntoGeo, destino: PuntoGeo) {
+  return `${origen.lat.toFixed(4)},${origen.lng.toFixed(4)}|${destino.lat.toFixed(4)},${destino.lng.toFixed(4)}`;
+}
+
+// Ruta real (Mapbox driving-traffic) con fallback determinista, vía withRutaFallback.
+// Antes esto llamaba directo a calcularRutaEstimada → geometría de 2 puntos (línea
+// recta), y el cliente la repintaba sobre la curva de Mapbox en cada refresh. Ahora
+// el server ya entrega la geometría real (705 puntos) desde el primer paint.
+async function resolveRoute(origen: PuntoGeo, destino: PuntoGeo): Promise<RouteResult> {
+  const key = trackingKey(origen, destino);
+  const cached = trackingCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  let value: RouteResult;
+  try {
+    value = await withRutaFallback({
+      request: { origen, destino, perfil: 'driving-traffic' },
+      timeoutMs: 2500,
+    });
+  } catch {
+    value = calcularRutaEstimada({ origen, destino });
+  }
+
+  trackingCache.set(key, { expiresAt: Date.now() + TRACKING_CACHE_TTL_MS, value });
+  return value;
+}
+
+async function computeTracking(reserva: PassengerRecord, posicion: PassengerPosition | null) {
   const destino = routeTarget(reserva);
   const origen = posicion ? { lat: posicion.lat, lng: posicion.lng } : pointFrom(reserva.origen_lat, reserva.origen_lng);
   if (!origen || !destino) {
@@ -280,23 +320,23 @@ function estimatedTracking(reserva: PassengerRecord, posicion: PassengerPosition
       distanciaMetros: null,
       duracionSegundos: null,
       duracionSinTraficoSegundos: null,
-      geometry: null,
-      fuente: 'estimacion' as const,
+      geometry: null as RouteLineString | null,
+      fuente: 'estimacion' as RutaFuente,
     };
   }
 
-  const route = calcularRutaEstimada({ origen, destino });
+  const route = await resolveRoute(origen, destino);
   return {
     etaMinutos: Math.max(0, Math.ceil(route.duracionSegundos / 60)),
     distanciaMetros: route.distanciaMetros,
     duracionSegundos: route.duracionSegundos,
     duracionSinTraficoSegundos: route.duracionSinTraficoSegundos,
-    geometry: route.geometry,
+    geometry: route.geometry as RouteLineString | null,
     fuente: route.fuente,
   };
 }
 
-export function serializePassengerTrip(reserva: PassengerRecord): PassengerTripData {
+export async function serializePassengerTrip(reserva: PassengerRecord): Promise<PassengerTripData> {
   const viaje = reserva.viajes[0] ?? null;
   const comprobante = reserva.comprobantes[0] ?? null;
   const posicion = reserva.conductor?.posiciones[0] ?? null;
@@ -312,7 +352,7 @@ export function serializePassengerTrip(reserva: PassengerRecord): PassengerTripD
         ts: posicion.ts.toISOString(),
       }
     : null;
-  const tracking = estimatedTracking(reserva, driverPosition);
+  const tracking = await computeTracking(reserva, driverPosition);
 
   return {
     token,
@@ -419,5 +459,5 @@ export async function getPassengerTripByToken(token: string) {
     select: passengerSelect,
   });
 
-  return reserva ? serializePassengerTrip(reserva) : null;
+  return reserva ? await serializePassengerTrip(reserva) : null;
 }

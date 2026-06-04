@@ -182,6 +182,47 @@ function routeLabel(route: RouteState) {
   return route.fuente === 'mapbox' ? 'Ruta real' : 'Estimación';
 }
 
+// Anti-degradación de geometría: una vez que tenemos la curva real de Mapbox NO la
+// reemplazamos por la recta de la estimación. Sólo otra curva mapbox (o no tener
+// curva previa) cambia la geometría dibujada. Las métricas (distancia/ETA) sí se
+// refrescan siempre. Esto elimina el salto curva→recta que producían el refresh de
+// 10 s y los recálculos que caían al fallback determinista.
+function preferRealGeometry(current: RouteState, incoming: Partial<RouteState>): RouteState {
+  const distanciaMetros =
+    typeof incoming.distanciaMetros === 'number' ? incoming.distanciaMetros : current.distanciaMetros;
+  const duracionSegundos =
+    typeof incoming.duracionSegundos === 'number' ? incoming.duracionSegundos : current.duracionSegundos;
+  const duracionSinTraficoSegundos =
+    incoming.duracionSinTraficoSegundos !== undefined
+      ? incoming.duracionSinTraficoSegundos
+      : current.duracionSinTraficoSegundos;
+
+  const incomingIsMapbox = incoming.fuente === 'mapbox' && incoming.geometry?.type === 'LineString';
+  const currentIsMapbox = current.fuente === 'mapbox' && current.geometry != null;
+
+  if (incomingIsMapbox) {
+    return {
+      distanciaMetros,
+      duracionSegundos,
+      duracionSinTraficoSegundos,
+      geometry: incoming.geometry ?? current.geometry,
+      fuente: 'mapbox',
+    };
+  }
+
+  if (currentIsMapbox) {
+    return { distanciaMetros, duracionSegundos, duracionSinTraficoSegundos, geometry: current.geometry, fuente: current.fuente };
+  }
+
+  return {
+    distanciaMetros,
+    duracionSegundos,
+    duracionSinTraficoSegundos,
+    geometry: incoming.geometry !== undefined ? incoming.geometry : current.geometry,
+    fuente: incoming.fuente ?? current.fuente,
+  };
+}
+
 function RouteFallback({
   data,
   driverPosition,
@@ -290,7 +331,9 @@ function PassengerMap({
       mapboxgl.accessToken = token;
       const map = new mapboxgl.Map({
         container: containerRef.current,
-        style: 'mapbox://styles/mapbox/light-v11',
+        // Tema oscuro sobrio (alineado a la paleta azul del producto): el chrome
+        // del mapa pasa a negro/azul profundo y la ruta resalta en cian brillante.
+        style: 'mapbox://styles/mapbox/dark-v11',
         center,
         zoom: 11.5,
         attributionControl: false,
@@ -313,25 +356,43 @@ function PassengerMap({
           ],
         };
         map.addSource('route', { type: 'geojson', data: routeData });
+        // Capa inferior (casing): halo azul profundo de marca que da grosor y
+        // contraste sobre el mapa oscuro. El grosor escala con el zoom para que la
+        // ruta se vea consistente de lejos y de cerca.
+        map.addLayer({
+          id: 'route-casing',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#0B0952',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 7, 14, 12, 18, 18],
+            'line-opacity': 0.55,
+            'line-blur': 0.5,
+          },
+        });
+        // Capa superior: trazo cian brillante (refresca sobre el oscuro).
         map.addLayer({
           id: 'route-line',
           type: 'line',
           source: 'route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#227FDE',
-            'line-width': 4,
-            'line-opacity': 0.85,
+            'line-color': '#38BDF8',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 3, 14, 6, 18, 9],
+            'line-opacity': 0.95,
           },
         });
 
-        if (origin) originMarkerRef.current = new mapboxgl.Marker({ color: '#0B7A3B' }).setLngLat(origin).addTo(map);
+        // Marcadores con colores que contrastan sobre el tema oscuro.
+        if (origin) originMarkerRef.current = new mapboxgl.Marker({ color: '#22C55E' }).setLngLat(origin).addTo(map);
         if (destination) {
-          destinationMarkerRef.current = new mapboxgl.Marker({ color: '#0B0952' })
+          destinationMarkerRef.current = new mapboxgl.Marker({ color: '#E2E8F0' })
             .setLngLat(destination)
             .addTo(map);
         }
         if (driverPosition) {
-          driverMarkerRef.current = new mapboxgl.Marker({ color: '#227FDE' })
+          driverMarkerRef.current = new mapboxgl.Marker({ color: '#38BDF8' })
             .setLngLat([driverPosition.lng, driverPosition.lat])
             .addTo(map);
         }
@@ -398,7 +459,7 @@ function PassengerMap({
 
   return (
     <section className="overflow-hidden rounded-md border border-border bg-white">
-      <div ref={containerRef} className="h-72 w-full bg-neutral-100" />
+      <div ref={containerRef} className="h-72 w-full bg-neutral-900" />
       <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm">
         <span className="font-medium text-product-deep">
           ETA {Math.max(0, Math.ceil((route.duracionSegundos ?? data.tracking.etaMinutos * 60) / 60))} min
@@ -841,13 +902,15 @@ export function PassengerTrackingClient({ initialData }: Props) {
     if (next) {
       setData(next);
       if (next.tracking.posicion) setDriverPosition(next.tracking.posicion);
-      setRoute({
-        distanciaMetros: next.tracking.distanciaMetros,
-        duracionSegundos: next.tracking.duracionSegundos,
-        duracionSinTraficoSegundos: next.tracking.duracionSinTraficoSegundos,
-        geometry: next.tracking.geometry,
-        fuente: next.tracking.fuente,
-      });
+      setRoute((current) =>
+        preferRealGeometry(current, {
+          distanciaMetros: next.tracking.distanciaMetros,
+          duracionSegundos: next.tracking.duracionSegundos,
+          duracionSinTraficoSegundos: next.tracking.duracionSinTraficoSegundos,
+          geometry: next.tracking.geometry,
+          fuente: next.tracking.fuente,
+        }),
+      );
     }
   }, [initialData.token]);
 
@@ -889,20 +952,20 @@ export function PassengerTrackingClient({ initialData }: Props) {
       .then((payload) => {
         if (!payload || typeof payload !== 'object') return;
         const record = payload as Partial<RouteState>;
-        setRoute((current) => ({
-          distanciaMetros:
-            typeof record.distanciaMetros === 'number' ? record.distanciaMetros : current.distanciaMetros,
-          duracionSegundos:
-            typeof record.duracionSegundos === 'number' ? record.duracionSegundos : current.duracionSegundos,
-          duracionSinTraficoSegundos:
-            typeof record.duracionSinTraficoSegundos === 'number'
-              ? record.duracionSinTraficoSegundos
-              : record.duracionSinTraficoSegundos === null
-                ? null
-                : current.duracionSinTraficoSegundos,
-          geometry: record.geometry?.type === 'LineString' ? record.geometry : current.geometry,
-          fuente: record.fuente === 'mapbox' || record.fuente === 'estimacion' ? record.fuente : current.fuente,
-        }));
+        setRoute((current) =>
+          preferRealGeometry(current, {
+            distanciaMetros: typeof record.distanciaMetros === 'number' ? record.distanciaMetros : undefined,
+            duracionSegundos: typeof record.duracionSegundos === 'number' ? record.duracionSegundos : undefined,
+            duracionSinTraficoSegundos:
+              typeof record.duracionSinTraficoSegundos === 'number'
+                ? record.duracionSinTraficoSegundos
+                : record.duracionSinTraficoSegundos === null
+                  ? null
+                  : undefined,
+            geometry: record.geometry?.type === 'LineString' ? record.geometry : undefined,
+            fuente: record.fuente === 'mapbox' || record.fuente === 'estimacion' ? record.fuente : undefined,
+          }),
+        );
       })
       .catch(() => undefined);
 
