@@ -132,13 +132,13 @@ export function AssignmentMap({
 
   return (
     <View className="h-80 overflow-hidden rounded-xl border border-product/20 bg-gray-200">
-      <MapView style={styles.map}>
+      <MapView style={styles.map} styleURL="mapbox://styles/mapbox/dark-v11">
         <Camera centerCoordinate={center} zoomLevel={11.5} animationMode="easeTo" animationDuration={800} />
         <ShapeSource id="taxigreen-route" shape={routeShape}>
           <LineLayer
             id="taxigreen-route-line"
             style={{
-              lineColor: '#227FDE',
+              lineColor: '#38BDF8',
               lineWidth: 5,
               lineCap: 'round',
               lineJoin: 'round',
