@@ -2,8 +2,10 @@
 
 > Registro vivo. Distingue **deuda intencional** (decisión consciente de demo, sin riesgo de
 > "sorpresa" porque está acotada y documentada) de **deuda programada** (trabajo real diferido a un
-> sprint posterior) y de **riesgos a vigilar**. Última revisión: **2026-06-04** (cierre S9: routing real,
-> counter one-time, landing, reset de guion y hardenings; ver `docs/ESTADO_SPRINT_9.md`).
+> sprint posterior) y de **riesgos a vigilar**. Última revisión: **2026-06-04** (post-S9: fix de mapa
+> "línea recta" → ruta real Mapbox en TODA fase y superficie, asignación activa al abrir la app, push
+> aclarado y config Expo consolidada / expo-doctor 17/17; antes: cierre S9 routing real, counter one-time,
+> landing, reset de guion y hardenings; ver `docs/ESTADO_SPRINT_9.md`).
 
 La regla maestra (CLAUDE.md §5 y reglas de oro §6.6): *lo que se construye en demo debe ser reusable en
 MVP, sin código desechable*. Por eso casi toda la deuda es **acotada por interfaz** (stubs, flags), no
@@ -46,6 +48,7 @@ atajos que haya que reescribir.
 | **`marcarExcepcion` sobrescribe `sugerencia_copiloto`** | Al marcar excepción se reemplaza el jsonb completo (se pierde la sugerencia del algoritmo) y se fuerza `necesita_revision` sin condición. | Aceptable en demo (la excepción es acción terminal del operador). Si en MVP se quiere preservar la traza, hacer *merge* en lugar de overwrite. |
 | **Push/location real dependen de Android físico** | S6 registra token si Expo entrega `ExpoPushToken[...]`. S7 solicita ubicación foreground y emite `posicion`. S8 añade push/navegación de incidencia, pero el smoke físico no se pudo cerrar desde Codex. | No bloquea login, Realtime, endpoints ni fallback textual. Para cerrar smoke real: Android físico + dev client/EAS + API URL LAN/túnel + Supabase env + permisos. |
 | **FCM directo no está cableado** | El campo se llama `fcm_token`, pero en S6 la demo usa Expo Push Service. Si llega un token no Expo, `sendConductorAssignmentPush` devuelve `fcm_not_configured` sin romper asignación. | Aceptable en Expo Go. FCM directo queda para dev client/Firebase Admin en MVP si se necesita. |
+| **Push NO se registra en el APK standalone (esperado, no bug)** | En el APK instalado (no Expo Go), `Notifications.getExpoPushTokenAsync()` lanza porque Android exige credenciales **FCM** subidas a EAS (proyecto Firebase + `google-services.json` + service account FCM V1), que dependen de la cuenta Google del usuario. El home mostraba "Push: registro fallido". | **Mitigado (2026-06-04):** el flujo NO depende del push — las asignaciones llegan por Supabase **Realtime**, y se añadió `GET /api/conductor/asignacion/activa` + fetch inicial en el home para ver el viaje al abrir la app. La etiqueta pasó a "Push no provisionado · Las asignaciones llegan por Realtime". **Cerrar push real (MVP, opcional):** proyecto Firebase + `eas credentials` (FCM V1) + rebuild. |
 | **Realtime dual conductor/reserva** | `conductor-{id}` entrega asignación e incidencia al driver; `reserva-{id}` emite `asignacion`, `estado`, `posicion` e `incidencia` para viaje/pasajero. | Canal dual documentado. No retirar `reserva-{id}`. |
 | **`GET /api/incidencias/[id]` es público por UUID + token en link de admin** | S8 expone el seguimiento de caso por UUID (cierre sí exige `token_pasajero`). Además `/admin/bienestar` enlaza `/bienestar/{id}?t={token_pasajero}`, incrustando el token del pasajero en una superficie de operador. | Aceptable para demo controlada (UUID no adivinable, operador confiable). MVP: magic link firmado para lectura y vista de operador SIN el token del pasajero en el link. |
 | **Objeto olvidado: dedup de casos (CORREGIDO en auditoría S8, 2026-06-03)** | `POST /api/incidencias` ahora reutiliza el caso de `objeto_olvidado` activo (no `cerrada`/`resuelta`) de la reserva en vez de crear otro (responde `deduplicado:true`). Evita duplicados por doble tap/reintento. | Verificado en smoke: segundo POST devuelve el mismo `id`. La tabla sigue sin `@@unique(reserva_id,tipologia)`; el guard es lógico (suficiente para demo). |
