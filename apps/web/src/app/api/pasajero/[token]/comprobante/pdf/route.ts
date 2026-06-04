@@ -17,8 +17,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     return NextResponse.json({ error: 'token_no_encontrado' }, { status: 404 });
   }
 
-  const url = new URL(request.url);
-  url.pathname = `/api/comprobantes/${reserva.id}/pdf`;
-  url.searchParams.set('redirect', 'signed');
-  return NextResponse.redirect(url);
+  const location = `/api/comprobantes/${reserva.id}/pdf?redirect=signed`;
+  return new Response(null, {
+    status: 307,
+    headers: {
+      Location: location,
+    },
+  });
 }

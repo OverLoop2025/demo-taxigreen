@@ -22,6 +22,7 @@
     "@taxigreen/ia": "workspace:*",
     "@taxigreen/ingesta": "workspace:*",
     "@taxigreen/integraciones-reniec": "workspace:*",
+    "@taxigreen/rutas": "workspace:*",
     "@taxigreen/shared": "workspace:*",
     "@taxigreen/voucher": "workspace:*",
     "bcryptjs": "^3.0.3",

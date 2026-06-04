@@ -1,3 +1,4 @@
+import { calcularRutaEstimada, type RouteLineString, type RutaFuente } from '@taxigreen/rutas';
 import { EstadoReserva, EstadoViaje, Prisma, prisma } from '@taxigreen/database';
 
 const passengerSelect = {
@@ -172,6 +173,11 @@ export type PassengerTripData = {
   tracking: {
     posicion: PassengerPosition | null;
     etaMinutos: number;
+    distanciaMetros: number | null;
+    duracionSegundos: number | null;
+    duracionSinTraficoSegundos: number | null;
+    geometry: RouteLineString | null;
+    fuente: RutaFuente;
   };
   comprobante: {
     disponible: boolean;
@@ -252,12 +258,61 @@ function estimateEtaMinutos(reserva: PassengerRecord) {
   return 0;
 }
 
+function pointFrom(lat: number | null, lng: number | null) {
+  return typeof lat === 'number' && typeof lng === 'number' ? { lat, lng } : null;
+}
+
+function routeTarget(reserva: PassengerRecord) {
+  const viaje = reserva.viajes[0];
+  if (viaje?.estado === EstadoViaje.a_bordo) {
+    return pointFrom(reserva.destino_lat, reserva.destino_lng);
+  }
+  if (viaje?.estado === EstadoViaje.finalizado) return null;
+  return pointFrom(reserva.origen_lat, reserva.origen_lng);
+}
+
+function estimatedTracking(reserva: PassengerRecord, posicion: PassengerPosition | null) {
+  const destino = routeTarget(reserva);
+  const origen = posicion ? { lat: posicion.lat, lng: posicion.lng } : pointFrom(reserva.origen_lat, reserva.origen_lng);
+  if (!origen || !destino) {
+    return {
+      etaMinutos: estimateEtaMinutos(reserva),
+      distanciaMetros: null,
+      duracionSegundos: null,
+      duracionSinTraficoSegundos: null,
+      geometry: null,
+      fuente: 'estimacion' as const,
+    };
+  }
+
+  const route = calcularRutaEstimada({ origen, destino });
+  return {
+    etaMinutos: Math.max(0, Math.ceil(route.duracionSegundos / 60)),
+    distanciaMetros: route.distanciaMetros,
+    duracionSegundos: route.duracionSegundos,
+    duracionSinTraficoSegundos: route.duracionSinTraficoSegundos,
+    geometry: route.geometry,
+    fuente: route.fuente,
+  };
+}
+
 export function serializePassengerTrip(reserva: PassengerRecord): PassengerTripData {
   const viaje = reserva.viajes[0] ?? null;
   const comprobante = reserva.comprobantes[0] ?? null;
   const posicion = reserva.conductor?.posiciones[0] ?? null;
   const unidad = reserva.conductor?.vehiculo ?? null;
   const token = reserva.token_pasajero;
+
+  const driverPosition = posicion
+    ? {
+        lat: posicion.lat,
+        lng: posicion.lng,
+        heading: null,
+        speed: posicion.velocidad ?? null,
+        ts: posicion.ts.toISOString(),
+      }
+    : null;
+  const tracking = estimatedTracking(reserva, driverPosition);
 
   return {
     token,
@@ -322,16 +377,13 @@ export function serializePassengerTrip(reserva: PassengerRecord): PassengerTripD
       updatedAt: isoOrNull(viaje?.updated_at),
     },
     tracking: {
-      posicion: posicion
-        ? {
-            lat: posicion.lat,
-            lng: posicion.lng,
-            heading: null,
-            speed: posicion.velocidad ?? null,
-            ts: posicion.ts.toISOString(),
-          }
-        : null,
-      etaMinutos: estimateEtaMinutos(reserva),
+      posicion: driverPosition,
+      etaMinutos: tracking.etaMinutos,
+      distanciaMetros: tracking.distanciaMetros,
+      duracionSegundos: tracking.duracionSegundos,
+      duracionSinTraficoSegundos: tracking.duracionSinTraficoSegundos,
+      geometry: tracking.geometry,
+      fuente: tracking.fuente,
     },
     comprobante: {
       disponible: isFinished(reserva),

@@ -9,6 +9,7 @@ import {
   PackageSearch,
   Phone,
   Plane,
+  Route,
   Search,
   Send,
   Star,
@@ -33,6 +34,14 @@ type RouteFeatureCollection = {
       coordinates: Array<[number, number]>;
     };
   }>;
+};
+
+type RouteState = {
+  distanciaMetros: number | null;
+  duracionSegundos: number | null;
+  duracionSinTraficoSegundos: number | null;
+  geometry: PassengerTripData['tracking']['geometry'];
+  fuente: PassengerTripData['tracking']['fuente'];
 };
 
 type MapboxMap = {
@@ -143,7 +152,45 @@ function buildLine(data: PassengerTripData, driverPosition: PassengerPosition | 
   return [driver, origin, destination].filter((item): item is [number, number] => Boolean(item));
 }
 
-function RouteFallback({ data, driverPosition }: { data: PassengerTripData; driverPosition: PassengerPosition | null }) {
+function routeTarget(data: PassengerTripData) {
+  if (data.viaje.estado === 'finalizado') return null;
+  if (data.viaje.estado === 'en_punto') return null;
+  if (data.viaje.estado === 'a_bordo') return getCoordinates(data.ruta.destino);
+  return getCoordinates(data.ruta.origen);
+}
+
+function distanceMeters(a: PassengerPosition, b: PassengerPosition) {
+  const earth = 6_371_000;
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return earth * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function formatDistance(value: number | null) {
+  if (typeof value !== 'number') return 'Distancia estimada';
+  if (value < 1000) return `${Math.round(value)} m`;
+  return `${(value / 1000).toFixed(1)} km`;
+}
+
+function routeLabel(route: RouteState) {
+  return route.fuente === 'mapbox' ? 'Ruta real' : 'Estimación';
+}
+
+function RouteFallback({
+  data,
+  driverPosition,
+  route,
+}: {
+  data: PassengerTripData;
+  driverPosition: PassengerPosition | null;
+  route: RouteState;
+}) {
   return (
     <section className="rounded-md border border-border bg-white p-4">
       <div className="flex items-center justify-between gap-3">
@@ -153,6 +200,12 @@ function RouteFallback({ data, driverPosition }: { data: PassengerTripData; driv
         </div>
         <span className="rounded-md bg-product-muted px-2 py-1 text-xs font-semibold text-product">
           ETA {data.tracking.etaMinutos} min
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+        <span className="rounded-md bg-product-muted px-2 py-1 text-product">{routeLabel(route)}</span>
+        <span className="rounded-md bg-neutral-100 px-2 py-1 text-neutral-600">
+          {formatDistance(route.distanciaMetros)}
         </span>
       </div>
       <div className="mt-4 grid gap-3">
@@ -195,9 +248,11 @@ function RouteLineItem({
 function PassengerMap({
   data,
   driverPosition,
+  route,
 }: {
   data: PassengerTripData;
   driverPosition: PassengerPosition | null;
+  route: RouteState;
 }) {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -208,7 +263,10 @@ function PassengerMap({
   const destinationMarkerRef = useRef<MapboxMarker | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const line = useMemo(() => buildLine(data, driverPosition), [data, driverPosition]);
+  const line = useMemo(
+    () => (route.geometry?.coordinates.length ? route.geometry.coordinates : buildLine(data, driverPosition)),
+    [data, driverPosition, route.geometry],
+  );
 
   // Crear el mapa UNA sola vez (deps `[token]`). Antes este effect dependía de
   // `driverPosition`/`line`, que cambian cada 3 s, así que el cleanup destruía y
@@ -335,15 +393,20 @@ function PassengerMap({
   }, [driverPosition, line, ready]);
 
   if (!token || error) {
-    return <RouteFallback data={data} driverPosition={driverPosition} />;
+    return <RouteFallback data={data} driverPosition={driverPosition} route={route} />;
   }
 
   return (
     <section className="overflow-hidden rounded-md border border-border bg-white">
       <div ref={containerRef} className="h-72 w-full bg-neutral-100" />
       <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm">
-        <span className="font-medium text-product-deep">ETA {data.tracking.etaMinutos} min</span>
-        <span className="text-neutral-500">{driverPosition ? 'Ubicación en vivo' : 'Esperando posición'}</span>
+        <span className="font-medium text-product-deep">
+          ETA {Math.max(0, Math.ceil((route.duracionSegundos ?? data.tracking.etaMinutos * 60) / 60))} min
+        </span>
+        <span className="inline-flex items-center gap-2 text-neutral-500">
+          <Route className="h-4 w-4" />
+          {routeLabel(route)} · {formatDistance(route.distanciaMetros)}
+        </span>
       </div>
     </section>
   );
@@ -762,7 +825,15 @@ export function PassengerTrackingClient({ initialData }: Props) {
   const [driverPosition, setDriverPosition] = useState<PassengerPosition | null>(
     initialData.tracking.posicion,
   );
+  const [route, setRoute] = useState<RouteState>({
+    distanciaMetros: initialData.tracking.distanciaMetros,
+    duracionSegundos: initialData.tracking.duracionSegundos,
+    duracionSinTraficoSegundos: initialData.tracking.duracionSinTraficoSegundos,
+    geometry: initialData.tracking.geometry,
+    fuente: initialData.tracking.fuente,
+  });
   const [realtimeStatus, setRealtimeStatus] = useState('Conectando');
+  const lastRouteCalcRef = useRef<{ position: PassengerPosition; ts: number } | null>(null);
   const finished = isFinished(data);
 
   const refresh = useCallback(async () => {
@@ -770,8 +841,73 @@ export function PassengerTrackingClient({ initialData }: Props) {
     if (next) {
       setData(next);
       if (next.tracking.posicion) setDriverPosition(next.tracking.posicion);
+      setRoute({
+        distanciaMetros: next.tracking.distanciaMetros,
+        duracionSegundos: next.tracking.duracionSegundos,
+        duracionSinTraficoSegundos: next.tracking.duracionSinTraficoSegundos,
+        geometry: next.tracking.geometry,
+        fuente: next.tracking.fuente,
+      });
     }
   }, [initialData.token]);
+
+  useEffect(() => {
+    if (!driverPosition || finished) return;
+    const target = routeTarget(data);
+    if (!target) {
+      setRoute((current) => ({
+        ...current,
+        distanciaMetros: 0,
+        duracionSegundos: 0,
+        geometry: null,
+      }));
+      return;
+    }
+
+    const last = lastRouteCalcRef.current;
+    const now = Date.now();
+    if (last) {
+      const movedEnough = distanceMeters(last.position, driverPosition) >= 120;
+      const waitedEnough = now - last.ts >= 6000;
+      if (!movedEnough || !waitedEnough) return;
+    }
+
+    lastRouteCalcRef.current = { position: driverPosition, ts: now };
+    const controller = new AbortController();
+    void fetch('/api/rutas/calcular', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        token_pasajero: data.token,
+        origen: { lat: driverPosition.lat, lng: driverPosition.lng },
+        destino: { lat: target[1], lng: target[0] },
+        perfil: 'driving-traffic',
+      }),
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!payload || typeof payload !== 'object') return;
+        const record = payload as Partial<RouteState>;
+        setRoute((current) => ({
+          distanciaMetros:
+            typeof record.distanciaMetros === 'number' ? record.distanciaMetros : current.distanciaMetros,
+          duracionSegundos:
+            typeof record.duracionSegundos === 'number' ? record.duracionSegundos : current.duracionSegundos,
+          duracionSinTraficoSegundos:
+            typeof record.duracionSinTraficoSegundos === 'number'
+              ? record.duracionSinTraficoSegundos
+              : record.duracionSinTraficoSegundos === null
+                ? null
+                : current.duracionSinTraficoSegundos,
+          geometry: record.geometry?.type === 'LineString' ? record.geometry : current.geometry,
+          fuente: record.fuente === 'mapbox' || record.fuente === 'estimacion' ? record.fuente : current.fuente,
+        }));
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [data, driverPosition, finished]);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -855,7 +991,7 @@ export function PassengerTrackingClient({ initialData }: Props) {
           <DriverCard data={data} />
           <VehicleCard data={data} />
           <MeetingPointCard data={data} />
-          <PassengerMap data={data} driverPosition={driverPosition} />
+          <PassengerMap data={data} driverPosition={driverPosition} route={route} />
           <TripTimeline data={data} />
 
           <section className="grid grid-cols-2 gap-3">

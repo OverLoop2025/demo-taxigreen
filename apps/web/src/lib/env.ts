@@ -25,6 +25,11 @@ const schema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   NEXT_PUBLIC_MAPBOX_TOKEN: z.string().optional(),
+  MAPBOX_SERVER_TOKEN: z.string().optional(),
+  RUTAS_HABILITADAS: z.enum(['true', 'false']).default('false'),
+  RUTAS_VELOCIDAD_KMH: z.coerce.number().positive().default(28),
+  RUTAS_UMBRAL_RECALCULO_M: z.coerce.number().positive().default(120),
+  RUTAS_INTERVALO_MIN_S: z.coerce.number().positive().default(6),
 });
 
 export const env = schema.parse({
@@ -44,6 +49,28 @@ export const env = schema.parse({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   NEXT_PUBLIC_MAPBOX_TOKEN: process.env.NEXT_PUBLIC_MAPBOX_TOKEN,
+  MAPBOX_SERVER_TOKEN: process.env.MAPBOX_SERVER_TOKEN,
+  RUTAS_HABILITADAS: process.env.RUTAS_HABILITADAS,
+  RUTAS_VELOCIDAD_KMH: process.env.RUTAS_VELOCIDAD_KMH,
+  RUTAS_UMBRAL_RECALCULO_M: process.env.RUTAS_UMBRAL_RECALCULO_M,
+  RUTAS_INTERVALO_MIN_S: process.env.RUTAS_INTERVALO_MIN_S,
 });
+
+const requiredProductionEnv = [
+  'AUTH_SECRET',
+  'HMAC_SECRET',
+  'DATABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+] as const;
+
+// `next build` también corre con NODE_ENV=production; el fail-fast se aplica al
+// runtime real (next start/Railway), no al build de CI sin secretos.
+const isProductionBuild = process.env.NEXT_PHASE === 'phase-production-build';
+if (env.NODE_ENV === 'production' && !isProductionBuild && process.env.CI !== 'true') {
+  const missing = requiredProductionEnv.filter((key) => !env[key]);
+  if (missing.length > 0) {
+    throw new Error(`Variables de producción faltantes: ${missing.join(', ')}`);
+  }
+}
 
 export type Env = z.infer<typeof schema>;
