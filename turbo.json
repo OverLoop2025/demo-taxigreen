@@ -6,7 +6,12 @@
     "IA_HABILITADA",
     "ANTHROPIC_API_KEY",
     "DATABASE_URL",
-    "DIRECT_URL"
+    "DIRECT_URL",
+    "RUTAS_HABILITADAS",
+    "MAPBOX_SERVER_TOKEN",
+    "RUTAS_VELOCIDAD_KMH",
+    "RUTAS_UMBRAL_RECALCULO_M",
+    "RUTAS_INTERVALO_MIN_S"
   ],
   "tasks": {
     "typecheck": {

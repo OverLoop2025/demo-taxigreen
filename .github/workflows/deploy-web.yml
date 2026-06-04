@@ -40,6 +40,11 @@ jobs:
         if: ${{ env.RAILWAY_TOKEN != '' }}
         run: npm i -g @railway/cli
 
+      # `RAILWAY_TOKEN` es un **project token** (scoped a proyecto+environment de
+      # Railway). En ese modo el CLI auto-resuelve proyecto y environment desde el
+      # token, así que NO se pasa `--project`: hacerlo dispara
+      # "--environment is required when using --project" y el deploy falla. Solo se
+      # indica el servicio a desplegar. (Verificado contra railway CLI 4.66.x.)
       - name: Deploy
         if: ${{ env.RAILWAY_TOKEN != '' }}
         run: railway up --service web --detach

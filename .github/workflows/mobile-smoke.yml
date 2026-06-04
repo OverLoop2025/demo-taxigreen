@@ -1,0 +1,59 @@
+name: Mobile smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'apps/driver/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.mjs'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'apps/driver/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.mjs'
+
+concurrency:
+  group: mobile-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-export:
+    name: driver typecheck · lint · expo export android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Driver typecheck
+        run: pnpm --filter @taxigreen/driver typecheck
+
+      - name: Driver lint
+        run: pnpm --filter @taxigreen/driver lint
+
+      - name: Expo export Android
+        run: pnpm --filter @taxigreen/driver exec expo export --platform android
+        env:
+          EXPO_NO_TELEMETRY: '1'
