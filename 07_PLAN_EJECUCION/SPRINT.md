@@ -1093,35 +1093,74 @@ Sin preguntas.
 
 ---
 
-## Sprint 9 — /counter + landing pública + datos guion + reset + deploy + video respaldo — Modelo: SONNET 4.6
+## Sprint 9 — routing en tiempo real + /counter + landing + reset + deploy + video respaldo — Modelo: SONNET 4.6
 
-**Objetivo:** cerrar la demo. Vista counter con escaneo QR (cámara), landing pública con CTA WhatsApp, datos exactos del guion cargados, mecanismo reset, deploy prod estable, video de respaldo grabado.
+**Estado 2026-06-04:** Sprint 9 implementado y verificado localmente. Cierre operativo en
+[`../docs/ESTADO_SPRINT_9.md`](../docs/ESTADO_SPRINT_9.md). Resultado: `packages/rutas` + Mapbox Directions/fallback,
+`/api/rutas/calcular`, `/counter` QR one-time, landing `/`, `db:seed-guion`, `mobile-smoke.yml`, fail-fast runtime de
+secretos, fix redirect PDF relativo, `pnpm turbo run typecheck lint test build` 56/56, `pnpm e2e` 7/7 y `expo export`
+Android OK. Pendiente externo: token Railway secreto real para GitHub Actions y video respaldo.
+
+> **Alcance ampliado el 2026-06-03** (este documento manda actualizarse antes de continuar si cambia el
+> alcance, ver "Cierre"). S9 absorbe la feature **"todo en tiempo real"** (distancia real por carretera, ETA
+> con tráfico, ruta dibujada, recálculo al moverse) — que **no es scope creep**: la regla de negocio #7 exige
+> "GPS, ETA y mapa reales" y §7.8 ya presupuesta Mapbox a USD 0. Solo su implementación estaba diferida.
+> Diseño completo en **`docs/PLAN_RUTAS_TIEMPO_REAL_S9.md`**; veredicto de endurecimientos en
+> **`docs/CIERRE_10_DE_10.md`**.
+
+**Objetivo:** cerrar la **codificación** y pasar al despliegue. Routing en tiempo real con fallback
+determinista; vista counter con escaneo QR (cámara) **de un solo uso**; landing pública con CTA WhatsApp;
+datos exactos del guion cargados (con polyline de movimiento); mecanismo reset; dos endurecimientos acotados;
+deploy prod estable; video de respaldo grabado.
+
+### S9.0. Routing en tiempo real (NUEVO — leer `docs/PLAN_RUTAS_TIEMPO_REAL_S9.md`)
+
+0. `feat(pkg/rutas): packages/rutas — espejo de packages/ia: estimador DETERMINISTA (haversine·sinuosidad +
+   velocidad media) + adapter Mapbox Directions driving-traffic + withRutaFallback (flag RUTAS_HABILITADAS) +
+   tests`.
+0b. `feat(app/web): GET /api/rutas/calcular server-side (token pasajero o Bearer conductor) con caché in-memory
+   + throttle; MAPBOX_SERVER_TOKEN nunca sale al cliente`.
+0c. `feat(app/web): /p/[token] pinta geometry real + ETA/distancia + badge fuente + recálculo al moverse
+   (sin recrear el mapa, respeta fix S8)`.
+0d. `feat(app/driver): AssignmentMap pinta geometry real + hook use-route con recálculo debounced; ETA/distancia
+   visibles; tramo por fase (en_camino→punto, a_bordo→destino)`.
+   **NO TOCAR `packages/asignacion/heuristica.ts` (S5 sigue con haversine). Cero tablas nuevas.**
 
 ### S9.1. Backlog
 
-1. `feat(app/web): /counter/page.tsx con UI tablet-optimized + tab "Validar voucher"`.
+1. `feat(app/web): /counter/page.tsx con UI tablet-optimized + tab "Validar voucher" + QR DE UN SOLO USO
+   (consumo idempotente server-side; cierra DEUDA §1.3)`.
 2. `feat(app/web): /counter componente QRScanner con html5-qrcode o @yudiel/react-qr-scanner usando cámara navegador → escanea QR → POST /api/voucher/[id]/verify → muestra datos reserva + botón "Confirmar entrega"`.
 3. `feat(app/web): / landing pública con hero + CTA "Pídelo por WhatsApp" (link wa.me con mensaje pre-armado) + sección "Cómo funciona" + footer`.
-4. `feat(pkg/database): seed-guion.ts con datos EXACTOS del guion (3 conversaciones WhatsApp en /wa-sim, 1 reserva preasignada para demostrar tracking en vivo, 1 incidencia activa, conductor1 activo en turno con posición pre-cargada)`.
+4. `feat(pkg/database): seed-guion.ts con datos EXACTOS del guion (3 conversaciones WhatsApp en /wa-sim, 1 reserva preasignada para demostrar tracking en vivo, 1 incidencia activa, conductor1 activo en turno con POLYLINE de posiciones pre-cargada Aeropuerto→Av. Pardo para mostrar movimiento/recálculo sin teléfono físico)`.
 5. `feat(pkg/database): script reset = seed-guion (no UI, comando pnpm)`.
 6. `feat(app/web): /demo/guion-narrado/page.tsx con steps del guion (para ensayos, no para cliente)`.
-7. `chore: revisión final accesibilidad WCAG AA contraste + alt texts + focus visible`.
-8. `chore: ensayo completo del guion timed (target <12min flujo A→Z + 3min counter + 2min incidencia)`.
-9. `chore: deploy prod Railway con dominio custom (ej. demo.taxigreen.dev)`.
-10. `chore: variables env prod configuradas`.
-11. `chore: video de respaldo grabado con OBS Studio (15 min) del guion completo`.
-12. `docs: README de demo con instrucciones para presentador (cómo abrir, cómo resetear via pnpm db:seed, qué hacer si X falla)`.
+7. `chore(infra): .github/workflows/mobile-smoke.yml (typecheck + lint + expo export del driver; workflow_dispatch + paths apps/driver/** packages/**)`.
+8. `feat(app/web): env.ts fail-fast en NODE_ENV=production si falta AUTH_SECRET/HMAC_SECRET/DATABASE_URL/SUPABASE_SERVICE_ROLE_KEY; MAPBOX_SERVER_TOKEN y RUTAS_* opcionales`.
+9. `chore: revisión final accesibilidad WCAG AA contraste + alt texts + focus visible`.
+10. `chore: ensayo completo del guion timed (target <12min flujo A→Z + 3min counter + 2min incidencia)`.
+11. `chore: deploy prod Railway 1 instancia (rate-limit in-memory consistente) + smoke de producción si hay RAILWAY_TOKEN`.
+12. `chore: variables env prod configuradas (incluye MAPBOX_SERVER_TOKEN, RUTAS_HABILITADAS)`.
+13. `chore: video de respaldo grabado con OBS Studio (15 min) del guion completo`.
+14. `docs: README/demo-presenter + checklist de prueba física del conductor (incluye recálculo de ruta real)`.
 
 ### S9.2. Criterios de aceptación
 
+- ROUTING: con `RUTAS_HABILITADAS=true` + token, /p/[token] y app conductor muestran ruta por calles, ETA/distancia reales (con tráfico) y badge 🛰️, y recalculan al mover al conductor. Con flag off o sin token: estimación recta + badge 📐, sin romper nada.
+- `packages/rutas` con tests verdes; el scoring S5 (`packages/asignacion`) NO cambia (regresión verde).
 - Ensayo completo del guion <17 min sin tropiezos.
-- /counter funcional con cámara escaneando QR del seed.
+- /counter funcional con cámara escaneando QR del seed y QR de un solo uso (segundo escaneo = "ya validado").
 - Landing pública responde 200 en prod.
-- `pnpm --filter database db:seed` resetea estado para nuevo ensayo.
+- `mobile-smoke.yml` verde (workflow_dispatch).
+- `pnpm --filter database db:seed`/`seed-guion` resetea estado (con polyline) para nuevo ensayo.
 - Video de respaldo grabado y subido a Drive interno.
-- README de demo claro para presentador.
+- README de demo + checklist de prueba física claro para presentador.
 
 ### S9.3. Prompt SONNET — S9
+
+> **Nota (2026-06-03):** el prompt **autoritativo y actualizado** (con routing en tiempo real + endurecimientos)
+> es [`docs/PROMPT_SPRINT_9_CODEX.md`](../docs/PROMPT_SPRINT_9_CODEX.md). El bloque inline de abajo es la
+> versión original previa a la ampliación de alcance; se conserva por trazabilidad. **Usar el de `docs/`.**
 
 ```text
 Contexto: S0-S8 cerrados. Cerramos la demo.

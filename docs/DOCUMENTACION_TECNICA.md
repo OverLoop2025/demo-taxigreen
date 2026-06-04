@@ -1,6 +1,6 @@
 # Documentación Técnica — Demo Taxi Green
 
-**Versión:** 1.8 · **Fecha:** 2026-06-03 · **Cubre:** Sprint 0-8 — 100% del avance actual.
+**Versión:** 1.10 · **Fecha:** 2026-06-04 · **Cubre:** Sprint 0-9 — demo completa verificada localmente y en producción + auditoría de cierre.
 **Ámbito:** este documento describe **todo lo que existe hoy en el monorepo de software**. Para el *qué construir*
 y el *por qué de negocio*, la fuente de verdad es [`_FUENTE_DESARROLLO/`](../_FUENTE_DESARROLLO/) y
 [`07_PLAN_EJECUCION/`](../07_PLAN_EJECUCION/); este doc no los reemplaza, los **complementa con el estado real del código**.
@@ -8,9 +8,8 @@ y el *por qué de negocio*, la fuente de verdad es [`_FUENTE_DESARROLLO/`](../_F
 Documentos vivos relacionados:
 - [`../CLAUDE.md`](../CLAUDE.md) — instrucciones maestras de build (decisiones cerradas).
 - [`ESTADO_SPRINT_0_Y_HANDOFF.md`](ESTADO_SPRINT_0_Y_HANDOFF.md) — handoff a Sprint 1 (estado real + gotchas).
-- [`ESTADO_SPRINT_8.md`](ESTADO_SPRINT_8.md) — cierre real de Sprint 8.
-- [`PROMPT_SPRINT_9_CODEX.md`](PROMPT_SPRINT_9_CODEX.md) — prompt copy-paste para ejecutar Sprint 9.
-- [`GUIA_PRUEBAS_DEMO.md`](GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar S0-S8.
+- [`ESTADO_SPRINT_9.md`](ESTADO_SPRINT_9.md) — cierre real de Sprint 9.
+- [`GUIA_PRUEBAS_DEMO.md`](GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar S0-S9.
 
 ---
 
@@ -22,7 +21,7 @@ Jorge Chávez** para un huésped que llega a Lima; el sistema crea la reserva, e
 sugerencia de conductor+unidad, el conductor (app nativa) recoge en **Salida 3, columna F2** y lleva al pasajero a
 **Av. Pardo 123, Miraflores**; cierre con comprobante y calificación; arco corto de objeto olvidado.
 
-**Estado actual:** **Sprint 8 implementado**. Sprint 1 quedó cerrado contra Supabase con migración, seed idempotente,
+**Estado actual:** **Sprint 9 implementado**. Sprint 1 quedó cerrado contra Supabase con migración, seed idempotente,
 login real y auditoría. Sprint 2 agregó voucher QR HMAC, comprobante PDF visual, RENIEC cacheado y vista de auditoría.
 Sprint 3 agregó `/admin` operativo con Realtime, detalle de reserva, asignación manual conductor/unidad y métricas.
 Sprint 4 agrega ingesta determinista, wrapper LLM opcional y simulador `/wa-sim` capaz de crear reservas auditadas.
@@ -31,7 +30,9 @@ de reserva. Sprint 6 agrega app conductor Expo con login email+PIN, sesión en S
 Realtime `conductor-{id}` y navegación a asignación. Sprint 7 agrega detalle activo de asignación, endpoints móviles
 Bearer, estados secuenciales, ubicación foreground y broadcast `posicion`/`estado` en `reserva-{id}`.
 Sprint 8 agrega `/p/[token]` con tracking público, Mapbox/fallback textual, comprobante/calificación, incidencia de
-objeto olvidado, `/bienestar/[caso]`, `/admin/bienestar` y respuesta mínima del conductor.
+objeto olvidado, `/bienestar/[caso]`, `/admin/bienestar` y respuesta mínima del conductor. Sprint 9 agrega routing
+real con Mapbox Directions + fallback determinista, `/counter` con QR de un solo uso, landing pública, reset de guion,
+mobile smoke CI, fail-fast runtime de secretos y corrección del redirect PDF en Railway.
 El monorepo conserva el pipeline `typecheck/lint/test/build` en verde.
 
 ---
@@ -75,6 +76,7 @@ determinista. Nada del flujo determinista cambia.
 | Conductor (`apps/driver`) | React Native + Expo SDK 51 · Expo Router 3 · NativeWind 4 · expo-notifications · expo-location · expo-keep-awake · expo-network · Supabase JS · React 18.2 | Expo 51 |
 | Datos | Prisma 6 · PostgreSQL 17 + PostGIS 3.5 (Supabase) | — |
 | IA | Interfaz `LLMProvider` + adapter Anthropic real + `withFallback` | modelos demo: `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` |
+| Rutas | `packages/rutas` + Mapbox Directions v5 + fallback determinista | `driving-traffic`, `geojson`, `overview=full` |
 | Real-time | Supabase Realtime (browser client + server broadcast) | validado en S3 |
 | Tests | Vitest 2 (unit) · Playwright 1.48+ (e2e) | — |
 | Hosting | Railway (web) · Supabase (DB/Realtime/Storage) · Expo Go (driver) | — |
@@ -121,7 +123,7 @@ demo-taxigreen/
 │  │  ├─ package.json · next.config.ts · tsconfig.json · next-env.d.ts
 │  │  ├─ postcss.config.mjs · tailwind.config.ts (tokens azul) · vitest.config.ts · .env.example
 │  │  └─ src/
-│  │     ├─ app/ layout.tsx · page.tsx · admin/{auditoria,bienestar,metricas,reservas}/ · bienestar/[caso]/ · wa-sim/ · api/{admin,auth,voucher,comprobantes,reniec,ingesta,asignacion,conductor,pasajero,incidencias}/ · p/[token]
+│  │     ├─ app/ layout.tsx · page.tsx · counter/ · demo/guion-narrado/ · admin/{auditoria,bienestar,metricas,reservas}/ · bienestar/[caso]/ · wa-sim/ · api/{admin,auth,voucher,rutas,comprobantes,reniec,ingesta,asignacion,conductor,pasajero,incidencias}/ · p/[token]
 │  │     ├─ components/ brand-header.tsx · ui/* · admin/{audit-table,admin-reservas-live}.tsx · auth/login-form.tsx
 │  │     ├─ lib/ env.ts · logger.ts · sentry.ts · auth/* · conductor-token.ts · conductor-asignacion*.ts · push.ts · admin/reservas.ts · supabase/{client,server}.ts · supabase-storage.ts
 │  │     └─ __tests__/ smoke.test.ts + lib/* tests (vitest)
@@ -130,7 +132,7 @@ demo-taxigreen/
 │     ├─ tsconfig.json · babel.config.js · metro.config.js (monorepo) · tailwind.config.js (NativeWind)
 │     ├─ global.css · expo-env.d.ts · nativewind-env.d.ts · .env.example
 │     ├─ app/ _layout.tsx · index.tsx · login.tsx · (auth)/{home,perfil,asignacion/[id],incidencia/[id]}
-│     └─ src/ components/* · features/{api,assignment,auth,incidents,location,network,push,realtime} · lib/env.ts (Zod, EXPO_PUBLIC_*)
+│     └─ src/ components/* · features/{api,assignment,auth,incidents,location,network,push,realtime,routing} · lib/env.ts (Zod, EXPO_PUBLIC_*)
 │
 ├─ packages/
 │  ├─ database/            Prisma 6 — schema 10 tablas + migración inicial + seed protagonista + scripts db:*
@@ -140,6 +142,7 @@ demo-taxigreen/
 │  ├─ ingesta/             DETERMINISTA (parser reservas WhatsApp) — implementado en S4
 │  ├─ asignacion/          DETERMINISTA (heurística scoring) — implementado en S5
 │  ├─ bienestar/           DETERMINISTA (clasificador objeto olvidado) — implementado en S8
+│  ├─ rutas/               DETERMINISTA + Mapbox Directions + withRutaFallback — implementado en S9
 │  ├─ voucher/             QR + HMAC — implementado en S2
 │  ├─ comprobantes/        PDF SUNAT-like — implementado en S2 con fallback local
 │  ├─ auditoria/           recordAudit — implementado en S1 + vista web en S2
@@ -151,16 +154,17 @@ demo-taxigreen/
 │  ├─ docker-compose.yml   Postgres 17 + PostGIS local (opcional)
 │  └─ supabase/ init/01-extensions.sql (postgis, pgcrypto) · migrations/.gitkeep
 │
-├─ tests/e2e/              Playwright: smoke, voucher, admin, wa-sim, asignación sugerida y link pasajero
+├─ tests/e2e/              Playwright: smoke, voucher, admin, wa-sim, asignación sugerida, link pasajero y rutas
 │                         (corre con `pnpm e2e`)
 │
 └─ .github/workflows/
    ├─ ci.yml               install → turbo typecheck/lint/test/build (IA_HABILITADA=false)
-   └─ deploy-web.yml       Railway (gated por RAILWAY_TOKEN; manual hasta tener credenciales)
+   ├─ deploy-web.yml       Railway `railway up --service web` (gated por RAILWAY_TOKEN project token; CI activo)
+   └─ mobile-smoke.yml     driver typecheck/lint + expo export Android
 ```
 
-**13 paquetes de workspace:** `@taxigreen/web`, `@taxigreen/driver`, `@taxigreen/{database, shared, ia, ingesta,
-asignacion, bienestar, voucher, comprobantes, auditoria}`, `@taxigreen/integraciones-{reniec, lap-atu}`.
+**14 paquetes de workspace:** `@taxigreen/web`, `@taxigreen/driver`, `@taxigreen/{database, shared, ia, ingesta,
+asignacion, bienestar, rutas, voucher, comprobantes, auditoria}`, `@taxigreen/integraciones-{reniec, lap-atu}`.
 
 ### 5.1 Detalle por archivo relevante
 
@@ -178,7 +182,10 @@ asignacion, bienestar, voucher, comprobantes, auditoria}`, `@taxigreen/integraci
 - `src/lib/auth/*` — Auth.js v5 con credentials admin/counter/driver, helpers bcrypt/PIN y sesiones JWT.
 - `src/lib/logger.ts` (Pino) · `src/lib/sentry.ts` (dummy con misma API que `@sentry/nextjs`).
 - `src/components/ui/button.tsx` — botón con variantes en azul (`bg-product`); placeholder sin radix (ver §7).
-- `src/app/page.tsx` — landing placeholder que enumera las superficies y enlaza el flujo (CTA WhatsApp).
+- `src/app/page.tsx` — landing pública de demo con CTA WhatsApp y entrada al link pasajero protagonista.
+- `src/app/counter/` — supervisor counter: validación manual/cámara progresiva de voucher QR y consumo one-time.
+- `src/app/demo/guion-narrado/` — guion interno de presentación para preparar demo/video.
+- `src/app/api/rutas/calcular/route.ts` — endpoint server-side de ruta/ETA con token pasajero o Bearer conductor.
 - `src/app/wa-sim/` — simulador WhatsApp Web de S4: conversaciones seed, extracción, panel JSON/confianza y creación de reserva.
 - `src/app/api/ingesta/extraer/route.ts` — endpoint de ingesta con `extraerReservaConFallback`.
 - `src/app/api/asignacion/sugerir/route.ts` — endpoint protegido para sugerir conductor+unidad.
@@ -194,7 +201,7 @@ asignacion, bienestar, voucher, comprobantes, auditoria}`, `@taxigreen/integraci
   `conductor-{conductorId}` (`asignacion`/`incidencia`).
 - `src/app/admin/reservas/[id]/sugerencia-card.tsx` — tarjeta "Copiloto recomienda" con aceptar/override.
 - `next.config.ts` — transpila paquetes internos (`shared`, `voucher`, `comprobantes`, `reniec`, `ingesta`,
-  `asignacion`, `bienestar`, `ia`) y deja Puppeteer/Chromium externos para no romper `ws`.
+  `asignacion`, `bienestar`, `rutas`, `ia`) y deja Puppeteer/Chromium externos para no romper `ws`.
 - `tsconfig.json` — `paths`/`typeRoots` que fuerzan `react`/`react-dom` al `@types` local de web (ver §7, gotcha 2).
 
 **apps/driver** (Expo)
@@ -212,12 +219,13 @@ asignacion, bienestar, voucher, comprobantes, auditoria}`, `@taxigreen/integraci
 - `src/features/network` — polling básico de conectividad y reintento conservador.
 - `src/features/push` — canal Android `asignacion`, permisos, Expo Push Token y tap listener.
 - `src/features/realtime` — cliente Supabase RN y canal `conductor-{conductorId}`.
+- `src/features/routing/use-route.ts` — recalcula ruta/ETA contra `/api/rutas/calcular` con fallback local.
 - `src/lib/env.ts` — env tipadas con Zod (prefijo `EXPO_PUBLIC_*`, incluye `EXPO_PUBLIC_EXPO_PROJECT_ID`).
 
 **packages/database**
 - `prisma/schema.prisma` — **vacío a propósito** (datasource Postgres + generator). Las 10 tablas llegan en S1.
 - `src/index.ts` — cliente Prisma singleton (patrón global, log condicionado por `NODE_ENV`).
-- `package.json` — scripts `db:migrate/db:deploy/db:seed/db:studio/db:reset` listos.
+- `package.json` — scripts `db:migrate/db:deploy/db:seed/db:seed-guion/db:studio/db:reset` listos.
 
 **packages/ia** (la capa que materializa el enfoque del §2)
 - `src/llm-provider.ts` (interfaz) · `src/providers/anthropic.ts` (AI SDK/Anthropic) · `src/fallback.ts`
@@ -231,7 +239,7 @@ asignacion, bienestar, voucher, comprobantes, auditoria}`, `@taxigreen/integraci
 
 ```bash
 # Requisitos: Node 22 LTS (.nvmrc) y pnpm 9+. (La máquina actual usa Node 24 / pnpm 10; compatible.)
-pnpm install                         # instala 13 workspaces. Sin TTY (CI/automatización): CI=true pnpm install
+pnpm install                         # instala 14 workspaces. Sin TTY (CI/automatización): CI=true pnpm install
 
 # Variables de entorno (todas opcionales en Sprint 0)
 cp .env.example .env
@@ -241,11 +249,16 @@ cp apps/driver/.env.example apps/driver/.env
 # (Opcional) Postgres local con PostGIS
 docker compose -f infra/docker-compose.yml up -d
 
-# Verificación completa (debe quedar en verde: 52/52 tareas)
+# Migraciones + guion demo
+pnpm --filter @taxigreen/database db:deploy
+pnpm --filter @taxigreen/database db:seed-guion
+
+# Verificación completa (debe quedar en verde: 56/56 tareas)
 pnpm turbo run typecheck lint test build
 
 # Web en http://localhost:3000
-pnpm turbo run dev --filter=@taxigreen/web
+pnpm --filter @taxigreen/web build
+pnpm --filter @taxigreen/web start
 
 # App conductor (Expo Go en Android físico)
 cd apps/driver && pnpm start          # escanear el QR con Expo Go
@@ -307,7 +320,7 @@ Descubiertas resolviendo fricción real de instalación/build. Documentadas tamb
 
 | Criterio (DoD Sprint 0) | Resultado |
 |---|---|
-| `pnpm install --frozen-lockfile` resuelve los 13 workspaces | ✅ |
+| `pnpm install --frozen-lockfile` resuelve los 14 workspaces | ✅ |
 | `pnpm turbo run typecheck lint test build` (sin caché) | ✅ **52/52 tasks** verdes (~16 s) |
 | `next build` compila y **prerenderiza 4/4 páginas** (`/`, `/_not-found`, …) | ✅ sin error de hidratación |
 | `next start` → `GET /` | ✅ **HTTP 200**, `<title>Taxi Green — Demo</title>`, contiene "Jorge Chávez" + CTA WhatsApp |
@@ -324,24 +337,32 @@ y grants de lectura para `reservas`.
 
 ---
 
-## 9. Qué NO se construyó todavía (y es correcto)
+## 9. Qué NO se construye en demo (y es correcto)
 
-Conforme al plan, S0-S8 dejaron cimentación, datos, auth, artefactos físico-digitales, despacho operativo, ingesta
+Conforme al plan, S0-S9 dejan cimentación, datos, auth, artefactos físico-digitales, despacho operativo, ingesta
 WhatsApp determinista, sugerencia automática de asignación, app conductor operativa con estados/ubicación foreground,
-tracking público del pasajero, comprobante/calificación y objeto olvidado E2E. Todavía no existe el counter final,
-reset/guion de demo, deploy real ni video respaldo. Todo eso entra en Sprint 9.
+tracking público del pasajero, comprobante/calificación, objeto olvidado E2E, routing real con fallback, counter QR
+one-time, landing y reset/guion. Lo que queda fuera es deliberadamente MVP o externo a la demo.
 
 **Prohibido en toda la demo** (no construir aunque se pida): app pasajero nativa, OAuth pasajero, portal `/empresa`,
 OCR on-device, biometría, background location, RLS activo, cadena RENIEC, 9 tipologías extra de bienestar,
 marketplace/subasta, tarifa dinámica, flight tracking, liquidación real, SaaS, iOS. (Canónico: `PLAN_SOFTWARE §2.3`/`§6`.)
-Todavía faltan por sprint: counter final, landing pulida, reset/guion, deploy Railway y video respaldo (S9).
+Pendiente externo post-S9: video respaldo y smoke físico Android si se quiere demostrar push/mapa nativo con APK/dev
+client instalado. El `RAILWAY_TOKEN` ya está en GitHub Secrets y el CI despliega automático; deploy manual y por
+Actions verificados en `https://web-production-816a4.up.railway.app`. Acción de seguridad: rotar el token si circuló
+por un canal no seguro (un project token lee todas las variables del servicio).
 
 ---
 
-## 10. Próximos pasos (Sprint 9)
+## 10. Próximos pasos post-S9
 
-**Sprint 9**: cerrar la demo ejecutable con `/counter`, consumo final de voucher QR, landing/guion, reset seguro,
-deploy Railway y video respaldo. Prompt copy-paste listo en [`PROMPT_SPRINT_9_CODEX.md`](PROMPT_SPRINT_9_CODEX.md).
+La demo de software está cerrada en S9. Lo siguiente solo debe hacerse por instrucción explícita:
+
+- `RAILWAY_TOKEN` real ya está en GitHub Secrets y `deploy-web.yml` despliega automático en push a main (hecho).
+- **Rotar** el `RAILWAY_TOKEN` (y password DB / `AUTH_SECRET` / `HMAC_SECRET`) antes de producción real; ver `DEUDA_TECNICA.md`.
+- Grabar video respaldo de la demo.
+- Validar Android físico con dev client/EAS si se quiere enseñar push/mapa nativo/location real.
+- Empezar MVP: RLS, Redis/Upstash, SUNAT/pago/WABA/RENIEC reales, geocoding libre y liquidación.
 
 **Regla de oro:** no se abre un sprint sin cerrar el anterior con `pnpm turbo run typecheck lint test build` verde
 y smoke test; al cerrar cada sprint se actualiza el estado (`docs/ESTADO_SPRINT_{n}.md`) y se deja el prompt del
@@ -577,9 +598,78 @@ Verificación S8:
 - DB post-verificación: 0 `TG-WA-*`, 0 `fcm_token`, auditoría solo `seed_sprint_1`, protagonista
   `asignada/asignado` con timestamps S7 `null`.
 
-Pendiente ambiental S8: Android físico/dev client para push real de incidencia y navegación desde notificación; Mapbox
-Directions real no forma parte de la demo y el link pasajero mantiene fallback textual.
+Pendiente ambiental S8: Android físico/dev client para push real de incidencia y navegación desde notificación. La
+ruta del link pasajero mantiene fallback textual; **el routing real (Directions) se planifica e integra en S9** (ver
+§19), no queda fuera del producto.
 
-Próximo sprint: S9 `/counter`, consumo final de QR, landing, reset/guion, deploy Railway y video respaldo.
+Sprint 9 ya implementó routing en tiempo real, `/counter` con QR de un solo uso, landing, reset/guion,
+endurecimientos y preparación de deploy Railway.
+
+---
+
+## 19. Actualización Sprint 9 — routing, counter y cierre de demo
+
+Estado actual: Sprint 9 implementado y verificado localmente. El detalle operativo vive en
+[`ESTADO_SPRINT_9.md`](ESTADO_SPRINT_9.md). El diseño original sigue documentado en
+> [`PLAN_RUTAS_TIEMPO_REAL_S9.md`](PLAN_RUTAS_TIEMPO_REAL_S9.md).
+
+**Qué se construyó:** distancia real por carretera, ETA real con tráfico, ruta dibujada que sigue las calles y
+recálculo cuando el conductor se mueve. **No fue scope creep:** la regla de negocio #7 exige "GPS, ETA y mapa
+reales" y `PLAN_SOFTWARE §7.8` presupuesta Mapbox a **USD 0**; solo su implementación estaba diferida.
+
+**Patrón (calca `packages/ia`):** `packages/rutas` con (a) **estimador determinista siempre
+activo** (haversine·sinuosidad + velocidad media — lo que hoy hace `estimateEtaMinutos` + `buildLine`), (b)
+adapter **Mapbox Directions `driving-traffic`**, (c) `withRutaFallback()` gobernado por **`RUTAS_HABILITADAS`**.
+Sin token o flag off ⇒ estimación; con token ⇒ ruta real.
+
+**Flujo de datos:** `GET /api/rutas/calcular` server-side (token pasajero o Bearer conductor) con **caché
+in-memory + throttle**; el token de Directions (`MAPBOX_SERVER_TOKEN`) **no sale al cliente** (los tiles siguen
+con `NEXT_PUBLIC_MAPBOX_TOKEN`). Recálculo cliente-side debounced: umbral **120 m y 6 s**; tramo según fase
+(`en_camino`→punto, `a_bordo`→destino). Geometría se actualiza con `setData` **sin recrear el mapa** (respeta el
+fix de auditoría S8).
+
+**Inventario que cambió:** `packages/rutas` (nuevo), `api/rutas/calcular` (nuevo), `lib/pasajero.ts` (ETA pasa a
+ser fallback; contrato `tracking` gana `geometry`/`distancia`/`duración`/`fuente`), `p/[token]/seguimiento-cliente.tsx`
+(pinta geometry real + badge + recálculo), driver `AssignmentMap.tsx` + nuevo `features/routing/use-route.ts`,
+`seed-guion.ts` (polyline pre-cargada). **No se toca** `packages/asignacion/heuristica.ts` (S5 sigue con
+haversine) ni el schema (cero tablas; caché in-memory).
+
+**Costo $0 demostrable:** free tier 100k req/mes; ~50–150 req por ensayo con throttle+caché; degradación a
+estimación ante 429/timeout/sin token.
+
+### Gotcha de entorno S9 (routing)
+
+- **Token de Directions = token público `pk.*` con scopes por defecto.** Directions viene habilitado en un
+  `pk.*` por defecto; si ya hay token de tiles (S7/S8) **se puede reutilizar** como `MAPBOX_SERVER_TOKEN`.
+  `MAPBOX_DOWNLOAD_TOKEN` (`sk.*`, DOWNLOADS:READ) es **solo** para descargar el SDK nativo en EAS y **no**
+  sirve para Directions. Mantener `MAPBOX_SERVER_TOKEN` **server-side** (sin prefijo `NEXT_PUBLIC_`).
+
+Cambios adicionales S9:
+
+- `/counter` quedó operativo para supervisor con validación manual/cámara progresiva y consumo QR one-time.
+- `/` quedó como landing pública de demo con CTA WhatsApp y link pasajero.
+- `db:seed-guion` deja la DB lista para narrar la demo con 10 posiciones pre-cargadas.
+- `mobile-smoke.yml` agrega gate Android (`typecheck`, `lint`, `expo export`).
+- `env.ts` endurece secretos críticos en runtime de producción.
+- Redirect PDF pasajero usa `Location` relativo para evitar `https://0.0.0.0:3000/...` en Railway.
+
+Verificación S9:
+
+- `pnpm turbo run typecheck lint test build`: verde, 56/56 tasks.
+- `pnpm e2e`: 7/7 verde.
+- `pnpm --filter @taxigreen/driver exec expo export --platform android`: EXIT 0, 1354 módulos.
+- Smoke local `next start`: landing 200, pasajero 200, ruta pública 200 con `fuente=mapbox`, counter 307 protegido,
+  PDF pasajero 307 relativo.
+- Deploy Railway: `2291ae23-1e18-436a-918b-4ecf29b5dc29` SUCCESS/RUNNING; producción smokeada en
+  `https://web-production-816a4.up.railway.app`.
+- Smoke QR: verify 200, consume supervisor 200, reuse 409.
+- `db:seed-guion`: deja QR no consumido y DB limpia para demo.
+
+**Auditoría de cierre S9 (2026-06-04):** revisión quirúrgica del código y de producción viva. Núcleo sólido; se
+corrigió **un bug real de CI** (`deploy-web.yml` pasaba `--project` sin `--environment`, que aborta con un project
+token → fix: `railway up --service web --detach`) y se confirmó que el **bug de PDF `0.0.0.0:3000` ya estaba
+resuelto** en el deploy vivo (cadena 307 relativo → Supabase firmado → 200). Smoke de producción: `/` 200, ruta
+`fuente=mapbox` 691 puntos, mapa con token inlineado, counter 307 relativo. `RAILWAY_TOKEN` (project token) válido y
+en GitHub Secrets. Detalle en [`ESTADO_SPRINT_9.md §7`](ESTADO_SPRINT_9.md).
 
 *Fin. Este documento se actualiza al cierre de cada sprint para mantener la cobertura al 100% del avance.*

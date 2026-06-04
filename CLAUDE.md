@@ -55,6 +55,11 @@ Tests:      Vitest 2 + Playwright 1.48 + MSW 2 · Hosting demo: Railway (web) + 
 La demo debe correr con el LLM desconectado (badge 🤖 IA / ⚙️ Algoritmo). Ningún string de prompt vive en código:
 van en `packages/ia/prompts/*.md` con frontmatter de versión. Referencia: `PLAN_SOFTWARE §7.5`.
 
+> **El mismo patrón se extiende en S9 al routing** (`packages/rutas`): estimador determinista siempre activo
+> (haversine + velocidad media) **+** Mapbox Directions opcional, unidos por `withRutaFallback()` y gobernados
+> por `RUTAS_HABILITADAS`. Sin token o flag off, la demo corre con estimación (badge 🛰️ Ruta real / 📐
+> Estimación). Detalle: `docs/PLAN_RUTAS_TIEMPO_REAL_S9.md`.
+
 ---
 
 ## 2. Estructura del monorepo (objetivo, `SPRINT.md §0.2`)
@@ -68,11 +73,12 @@ packages/
   shared/   tipos, design tokens (azul), helpers
   ingesta/ asignacion/ bienestar/   DETERMINISTAS (parser, scoring, clasificación)
   ia/       interfaz LLMProvider + 1 adapter (anthropic) + withFallback + prompts/
+  rutas/    (S9) RouteProvider + adapter Mapbox Directions (driving-traffic) + estimador determinista + withRutaFallback
   voucher/ comprobantes/ auditoria/
   integraciones/{reniec, lap-atu}
 infra/      docker-compose (Postgres 17 + PostGIS) + supabase/migrations
 tests/e2e/  Playwright
-.github/workflows/  ci.yml + deploy-web.yml
+.github/workflows/  ci.yml + deploy-web.yml + mobile-smoke.yml (S9)
 ```
 
 `apps/web` y `apps/driver` comparten **solo** `packages/*`. Nunca imports cruzados directos entre apps.
@@ -136,7 +142,7 @@ liquidación real (solo mockup) · SaaS multi-operador · iOS (solo Android demo
 | S6 | App conductor RN+Expo: scaffolding + auth PIN + push + recibir asignación |
 | S7 | App conductor: mapa + estados viaje + ubicación foreground |
 | S8 | `/p/[token]` + tracking + comprobante + 1 incidencia (objeto olvidado) |
-| S9 | `/counter` QR + landing + datos del guion + reset + deploy + video respaldo |
+| S9 | **Routing en tiempo real** (`packages/rutas`) + `/counter` QR un-solo-uso + landing + reset/guion + endurecimientos (mobile-smoke, env fail-fast) + deploy real + video respaldo |
 
 **Reglas de oro (no negociables, `SPRINT.md §0`):**
 1. La demo cuenta UN flujo protagonista; si una tarea no contribuye al flujo A→Z, se aplaza a MVP.
@@ -206,17 +212,25 @@ El **estado real del código** y el **handoff entre sprints** viven en [`docs/`]
 - [`docs/ESTADO_SPRINT_7.md`](docs/ESTADO_SPRINT_7.md) — qué se implementó en S7, smoke endpoints de estados, bundle móvil y pendientes Android físico/Mapbox.
 - [`docs/PROMPT_SPRINT_8_CODEX.md`](docs/PROMPT_SPRINT_8_CODEX.md) — prompt copy-paste para ejecutar solo Sprint 8.
 - [`docs/ESTADO_SPRINT_8.md`](docs/ESTADO_SPRINT_8.md) — qué se implementó en S8, link pasajero, bienestar, smoke y pendientes Android físico.
-- [`docs/PROMPT_SPRINT_9_CODEX.md`](docs/PROMPT_SPRINT_9_CODEX.md) — prompt copy-paste para ejecutar solo Sprint 9.
-- [`docs/GUIA_PRUEBAS_DEMO.md`](docs/GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar la demo S0-S8.
-- [`docs/DEUDA_TECNICA.md`](docs/DEUDA_TECNICA.md) — registro de deuda: intencional de demo (sin RLS, rate-limit in-memory, QR no one-time, RENIEC demo) vs programada (Railway/PDF-en-Railway = S9) vs riesgos a vigilar.
+- [`docs/PROMPT_SPRINT_9_CODEX.md`](docs/PROMPT_SPRINT_9_CODEX.md) — prompt copy-paste para ejecutar solo Sprint 9 (ya incluye routing real + endurecimientos).
+- [`docs/PLAN_RUTAS_TIEMPO_REAL_S9.md`](docs/PLAN_RUTAS_TIEMPO_REAL_S9.md) — **arquitectura de routing en tiempo real** (S9): `packages/rutas`, `withRutaFallback`, recálculo, caché, qué se mueve, costo $0, tokens.
+- [`docs/CIERRE_10_DE_10.md`](docs/CIERRE_10_DE_10.md) — veredicto senior sobre las 7 recomendaciones (qué entra a S9 vs MVP), camino al 10/10 y solicitud consolidada de credenciales.
+- [`docs/ESTADO_SPRINT_9.md`](docs/ESTADO_SPRINT_9.md) — qué se implementó en S9, routing real, counter one-time, landing, reset, smoke y pendiente real de token Railway.
+- [`docs/GUIA_PRUEBAS_DEMO.md`](docs/GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar la demo S0-S9.
+- [`docs/DEUDA_TECNICA.md`](docs/DEUDA_TECNICA.md) — registro de deuda: intencional de demo (sin RLS, rate-limit in-memory, RENIEC demo) vs programada real post-S9 (token deploy automático, video, Android físico) vs riesgos a vigilar.
 
-**Estado:** Sprint 8 **cerrado** (2026-06-03) — S1/S2/S3/S4/S5/S6/S7/S8 verificados contra Supabase/local donde aplica.
-S8 agrega `/p/[token]` público con tracking por `reserva-{id}`, polling fallback, Mapbox GL JS opcional, comprobante,
-PDF tokenizado, calificación triple, incidencia de objeto olvidado, `/bienestar/[caso]`, `/admin/bienestar`, clasificador
-determinista en `packages/bienestar` y respuesta mínima del conductor por Realtime/push `conductor-{id}`. Mantener la
-regla: app pasajero nativa/OAuth pasajero siguen prohibidos en demo. Pendiente ambiental: Android físico/dev client para
-push real de incidencia y navegación desde notificación; Mapbox Directions real queda fuera del alcance demo. Verificación:
-`pnpm turbo run typecheck lint test build` 52/52, `pnpm e2e` 6/6, `expo export --platform android` EXIT 0 y smoke S8
-contra Supabase cerrado. Siguiente sprint: `docs/PROMPT_SPRINT_9_CODEX.md`.
+**Estado:** Sprint 9 **implementado y verificado localmente** (2026-06-04) — S1/S2/S3/S4/S5/S6/S7/S8/S9 verificados
+contra Supabase/local donde aplica. S9 agrega routing real con Mapbox Directions `driving-traffic` + fallback
+determinista en `packages/rutas`, endpoint `/api/rutas/calcular`, `/counter` con QR de un solo uso, landing `/`,
+`db:seed-guion`, `mobile-smoke.yml`, fail-fast runtime de secretos y fix de redirect PDF relativo. Verificación:
+`pnpm turbo run typecheck lint test build` 56/56, `pnpm e2e` 7/7, `expo export --platform android` EXIT 0, smoke ruta
+200 `fuente=mapbox`, QR consume/reuse 200/409 y DB restaurada con guion limpio. Deploy Railway manual:
+`2291ae23-1e18-436a-918b-4ecf29b5dc29` SUCCESS/RUNNING en `https://web-production-816a4.up.railway.app`.
+
+**Pendiente real post-S9:** el UUID visible del token Railway no es el secreto `RAILWAY_TOKEN`; GitHub Actions deploy
+queda pendiente hasta pegar el token completo en Secrets. Video respaldo y smoke físico Android/dev client son externos.
+RLS, Redis rate-limit, SUNAT/pago/WABA/RENIEC reales, geocoding libre y liquidación quedan en MVP.
+Pendiente de credenciales del usuario: `MAPBOX_SERVER_TOKEN` (puede ser el `pk.*` existente), `RAILWAY_TOKEN`,
+`EXPO_TOKEN` (opcional). Siguiente sprint: `docs/PROMPT_SPRINT_9_CODEX.md`.
 Al cerrar cada sprint: actualizar `docs/ESTADO_SPRINT_{n}.md`, registrar deuda en `docs/DEUDA_TECNICA.md` y dejar el
 prompt del siguiente.

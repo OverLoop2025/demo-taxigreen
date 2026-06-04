@@ -1,7 +1,7 @@
 # Guía de pruebas manuales — Taxi Green Demo
 
-**Última actualización:** 2026-06-03  
-**Cubre:** Sprint 0-8  
+**Última actualización:** 2026-06-04  
+**Cubre:** Sprint 0-9  
 **Objetivo:** que una persona no técnica pueda levantar la app, entrar a las pantallas y comprobar el flujo construido.
 
 ---
@@ -28,10 +28,16 @@ Hoy la demo ya permite comprobar este recorrido:
 16. Finalizar el viaje y probar comprobante/calificación desde el link pasajero.
 17. Reportar objeto olvidado y responderlo desde la app conductor.
 18. Ver el caso en `/bienestar/[caso]` y la bandeja `/admin/bienestar`.
+19. Abrir la landing pública `/` y entrar al flujo pasajero.
+20. Probar ruta/ETA real con Mapbox o fallback determinista.
+21. Entrar como supervisor counter y validar el QR una sola vez.
+22. Restaurar el guion completo con un solo comando antes de cada demo.
 
 La app conductor ya tiene login, sesión segura, Home, Perfil, push degradable, recepción Realtime de asignaciones,
 detalle activo, estados secuenciales, ubicación foreground, tracking pasajero, comprobante/calificación y objeto
-olvidado E2E básico. Todavía faltan counter final, landing, reset/deploy y video respaldo.
+olvidado E2E básico. Sprint 9 suma routing real, counter QR one-time, landing, reset de guion y CI mobile smoke.
+Todavía falta el video respaldo y, si se quiere deploy automático desde GitHub Actions, pegar el `RAILWAY_TOKEN`
+secreto real en GitHub.
 
 ---
 
@@ -78,13 +84,23 @@ Aplica migraciones a la base de datos:
 pnpm --filter @taxigreen/database db:deploy
 ```
 
-Carga o refresca datos demo:
+Carga o refresca datos demo base:
 
 ```bash
 pnpm --filter @taxigreen/database db:seed
 ```
 
 Este seed es idempotente: puedes correrlo varias veces y no debería duplicar la reserva protagonista.
+
+Para dejar la demo exactamente en el guion narrado de Sprint 9, usa este comando después del seed base o antes
+de presentar:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-guion
+```
+
+Ese comando deja la reserva protagonista en curso, precarga posiciones, limpia reservas de prueba y deja el QR listo
+para validar en counter.
 
 Construye la app web:
 
@@ -156,6 +172,21 @@ conductor6@taxigreen.demo / PIN 6789
 
 ## 5. Flujo principal para probar manualmente
 
+### Paso 0 — Revisa la landing pública
+
+Abre:
+
+```text
+http://localhost:3000/
+```
+
+Qué revisar:
+
+- Debe verse el título "Recojo en el Jorge Chávez".
+- Debe existir el botón "Pídelo por WhatsApp".
+- Debe existir el acceso "Ver link pasajero".
+- La página debe cargar una imagen real de Taxi Green, no una maqueta vacía.
+
 ### Paso 1 — Entra al panel admin
 
 Abre:
@@ -195,6 +226,37 @@ Qué revisar:
 
 - Debe verse una interfaz tipo WhatsApp Web.
 - La conversación Hilton/concierge debe mencionar Aeropuerto Jorge Chávez, Av. Pardo 123, Miraflores y vuelo LA2456.
+
+### Paso 2B — Revisa el link pasajero protagonista
+
+Abre:
+
+```text
+http://localhost:3000/p/tg_demo_passenger_001
+```
+
+Qué revisar:
+
+- Debe verse "Recojo en aeropuerto".
+- Debe verse el conductor Raúl Quispe y la unidad `ABC-123`.
+- Debe verse el punto "Salida 3, columna F2".
+- En la tarjeta de ruta debe aparecer distancia y ETA.
+- Si Mapbox está activo, puede aparecer ruta real; si falla o no hay token, la pantalla conserva una estimación textual.
+
+Smoke rápido de ruta real desde terminal:
+
+```bash
+curl -sS "http://localhost:3000/api/rutas/calcular?token=tg_demo_passenger_001&origen_lat=-12.0231&origen_lng=-77.112&destino_lat=-12.1196&destino_lng=-77.0365" | jq
+```
+
+Resultado esperado:
+
+```text
+fuente: "mapbox" o "estimacion"
+distanciaMetros: número mayor a 1000
+duracionSegundos: número mayor a 60
+geometry.type: "LineString"
+```
 
 ### Paso 3 — Extrae datos
 
@@ -299,7 +361,80 @@ Qué revisar:
 
 ---
 
-## 6. App conductor en Expo
+## 6. Counter aeropuerto — QR de un solo uso
+
+Antes de esta prueba, si ya consumiste el QR en otra sesión, restaura el guion:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-guion
+```
+
+Abre:
+
+```text
+http://localhost:3000/login-counter
+```
+
+Ingresa con:
+
+```text
+counter@taxigreen.demo
+demo1234
+```
+
+Debes llegar a:
+
+```text
+http://localhost:3000/counter
+```
+
+Qué revisar:
+
+- La pantalla debe verse como una herramienta de módulo/counter, no como página de marketing.
+- Debe existir un campo para ingresar QR o voucher manualmente.
+- Si el navegador soporta cámara vía `BarcodeDetector`, puedes intentar escaneo. Si no, usa manual.
+
+Prueba manual segura:
+
+1. Escribe:
+
+```text
+TG-2026-0001
+```
+
+2. Pulsa validar.
+3. Deben aparecer pasajero, vuelo, origen, destino y punto de encuentro.
+4. Pulsa confirmar validación.
+5. Debe quedar validado.
+6. Intenta validar otra vez el mismo QR.
+
+Resultado esperado:
+
+- Primera validación consumida: correcta.
+- Segundo intento: bloqueado como voucher ya validado.
+
+Importante: esta prueba quema el QR de la demo. Para volver a dejarlo disponible:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-guion
+```
+
+Smoke técnico opcional:
+
+```bash
+curl -I http://localhost:3000/counter
+```
+
+Sin sesión debe responder:
+
+```text
+307
+location: /login-counter?callbackUrl=%2Fcounter
+```
+
+---
+
+## 7. App conductor en Expo
 
 ### Paso 1 — Configura el entorno móvil
 
@@ -446,7 +581,7 @@ login, Realtime y estados de viaje no dependen de push.
 
 ---
 
-## 7. Link pasajero y bienestar
+## 8. Link pasajero y bienestar
 
 ### Paso 1 — Abre el link pasajero protagonista
 
@@ -597,7 +732,7 @@ Resultado esperado:
 
 ---
 
-## 8. Otras pantallas útiles
+## 9. Otras pantallas útiles
 
 Panel admin:
 
@@ -643,7 +778,7 @@ http://localhost:3000/api/voucher/TG-2026-0001/qr
 
 ---
 
-## 9. Cómo ver la base de datos
+## 10. Cómo ver la base de datos
 
 La forma más amigable:
 
@@ -674,7 +809,7 @@ Qué comprobar después de aceptar una sugerencia:
 
 ---
 
-## 10. Comandos de verificación técnica
+## 11. Comandos de verificación técnica
 
 Para correr todo el pipeline:
 
@@ -685,7 +820,7 @@ pnpm turbo run typecheck lint test build
 Debe terminar con:
 
 ```text
-52 successful, 52 total
+56 successful, 56 total
 ```
 
 Para correr pruebas end-to-end:
@@ -700,10 +835,10 @@ Antes de `pnpm e2e`, la app web debe estar levantada en:
 http://localhost:3000
 ```
 
-Resultado esperado al cierre de Sprint 8:
+Resultado esperado al cierre de Sprint 9:
 
 ```text
-6 passed
+7 passed
 ```
 
 Para comprobar que la app móvil bundlea de verdad:
@@ -717,7 +852,7 @@ Debe terminar con `Android Bundled` y `EXIT 0`.
 
 ---
 
-## 11. Cómo apagar y volver a levantar
+## 12. Cómo apagar y volver a levantar
 
 Si el servidor está corriendo en la terminal, presiona:
 
@@ -746,7 +881,7 @@ pnpm --filter @taxigreen/web start
 
 ---
 
-## 12. Limpieza de datos de prueba
+## 13. Limpieza de datos de prueba
 
 Durante pruebas manuales y E2E se crean reservas `TG-WA-*`.
 
@@ -805,21 +940,17 @@ No uses `db:reset` salvo que realmente quieras borrar y reconstruir la base comp
 
 ---
 
-## 13. Qué falta construir en próximos sprints
+## 14. Qué falta construir en próximos sprints
 
-### Sprint 9
+### Pendiente después de Sprint 9
 
-Cierre demo:
-
-- Counter final.
-- Landing pulida.
-- Reset demo.
-- Deploy.
-- Video de respaldo.
+- Pegar el `RAILWAY_TOKEN` real en GitHub Secrets para deploy automático desde GitHub Actions.
+- Grabar video respaldo de la demo.
+- Smoke físico Android con dev client/EAS si se quiere enseñar mapa nativo y push real en teléfono.
 
 ---
 
-## 14. Qué hacer si algo falla
+## 15. Qué hacer si algo falla
 
 Si no puedes entrar:
 

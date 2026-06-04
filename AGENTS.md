@@ -3,8 +3,8 @@
 - Use WSL as the only runtime for workspace paths under `/home/jose/dev`.
 - Repository root for this project: `/home/jose/dev/demo-taxigreen`.
 - Primary build authority: `CLAUDE.md`.
-- Current implementation status: Sprint 8 implemented. Read `docs/ESTADO_SPRINT_8.md` before starting more work.
-- Next sprint prompt: `docs/PROMPT_SPRINT_9_CODEX.md`.
+- Current implementation status: Sprint 9 implemented. Read `docs/ESTADO_SPRINT_9.md` before starting more work.
+- Sprint 9 closes the 10-sprint demo plan; next work is post-S9 hardening/MVP only if explicitly requested.
 - If `context7` is relevant or explicitly requested, use the MCP tool directly if exposed.
 - Do not probe `context7` with MCP resources/templates list methods; this server is tools-only.
 - If `context7` is configured in WSL but not surfaced as a tool, fallback:
@@ -12,7 +12,7 @@
   - Speak MCP over `http://localhost:3131/mcp`
 - If the user asks to avoid web browsing, do not replace `context7` with web search.
 
-## Sprint 8 Handoff
+## Sprint 9 Handoff
 
 - S1 DB smoke is closed against Supabase: migration, seed x2, login helpers, audit and protagonist reservation verified.
 - S2 added voucher QR HMAC, comprobante PDF visual, RENIEC lookup and `/admin/auditoria`.
@@ -35,7 +35,14 @@
 - S8 verification: `pnpm turbo run typecheck lint test build` 52/52 green, `pnpm e2e` 6/6 green, `expo export --platform android` EXIT 0 (1352 modules), `next start` + Supabase smoke `/p/tg_demo_passenger_001` 200, passenger API 200, incident `abierta -> en_resolucion -> cerrada` with 3 audit rows; smoke data cleaned.
 - DB baseline after S8: reservas=1, incidencias=1 seed, auditoria=1 seed_sprint_1, fcmTokens=0, protagonist `TG-2026-0001` assigned to Raúl Quispe with S7 trip timestamps null.
 - Push/location/map real still need Android physical + dev client/EAS + `EXPO_PUBLIC_EXPO_PROJECT_ID`/Mapbox tokens; without them S8 degrades visibly and login/Realtime/state/incident endpoints still work.
-- Before S9, read `docs/PROMPT_SPRINT_9_CODEX.md`; S9 owns `/counter`, final QR consumption, landing/demo reset, Railway deploy and video fallback. `ANTHROPIC_API_KEY` remains optional; deterministic first.
+- S9 added `packages/rutas`: deterministic estimator, Mapbox Directions `driving-traffic`, `withRutaFallback`, flag `RUTAS_HABILITADAS`, server-side `MAPBOX_SERVER_TOKEN`, no schema changes.
+- S9 added `GET/POST /api/rutas/calcular` with passenger token or conductor Bearer, destination guard, cache TTL and throttle; S5 assignment heuristic remains untouched and still uses haversine for scoring.
+- S9 updated `/p/[token]` and driver assignment screen to consume route geometry/ETA/distance with visible fallback.
+- S9 added `/counter` with manual/camera-progressive QR validation and single-use consumption through `POST /api/voucher/[id]/verify { consume:true }`, supervisor-only, transaction + advisory lock, reuse -> 409.
+- S9 added landing `/`, internal `/demo/guion-narrado`, `pnpm --filter @taxigreen/database db:seed-guion`, `.github/workflows/mobile-smoke.yml`, production runtime fail-fast for critical secrets, and fixed passenger PDF redirect to relative `Location`.
+- S9 verification: `pnpm turbo run typecheck lint test build` 56/56 green, `pnpm e2e` 7/7 green, `expo export --platform android` EXIT 0 (1354 modules), local `next start` route smoke 200 with `fuente=mapbox`, QR consume/reuse 200/409, PDF redirect 307 relative, DB restored with `db:seed-guion`.
+- Railway CLI is logged in and project `earnest-communication` is linked to web domain `https://web-production-816a4.up.railway.app`. Manual deploy `2291ae23-1e18-436a-918b-4ecf29b5dc29` is SUCCESS/RUNNING and production smoke passed (`/`, `/p/tg_demo_passenger_001`, `/api/rutas/calcular`, `/counter`, passenger PDF redirect). The UUID `f2c210ad-7d6a-431a-aea0-5ac95cfa9f6d` is not a valid `RAILWAY_TOKEN` secret (`railway whoami` with it returns Unauthorized); GitHub Actions deploy remains pending until the full token secret is copied once from Railway.
+- RLS, Redis/Upstash rate-limit, real SUNAT/payment/WABA/RENIEC, geocoding libre and settlement stay in MVP. `ANTHROPIC_API_KEY` remains optional; deterministic first.
 
 <claude-mem-context>
 # Memory Context
