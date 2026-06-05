@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { puntuarCandidatos } from './heuristica';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getPesosAsignacion, puntuarCandidatos } from './heuristica';
 import type {
   ConductorCandidatoInput,
   ReservaAsignacionInput,
@@ -140,5 +140,89 @@ describe('puntuarCandidatos', () => {
     });
 
     expect(candidatos).toEqual([]);
+  });
+
+  it('prefiere una van sobre una minivan cuando hay más de 4 pasajeros (cola/distancia iguales)', () => {
+    const van: VehiculoCandidatoInput = { ...minivan, id: 'vehiculo-van', tipo: 'van', capacidad: 11 };
+    const candidatos = puntuarCandidatos({
+      reserva: { ...baseReserva, pasajeros: 6 },
+      conductores: [
+        conductor('van-driver', 'Van Driver', 40, van.id),
+        conductor('mini-driver', 'Mini Driver', 40, minivan.id),
+      ],
+      vehiculos: [van, minivan],
+      now,
+    });
+
+    expect(candidatos[0]?.vehiculo.tipo).toBe('van');
+  });
+
+  it('penaliza la distancia: con cola y match iguales gana el más cercano', () => {
+    const lejos: ConductorCandidatoInput = { ...conductor('lejos', 'Lejos', 40, sedan.id), distanciaMockKm: 60 };
+    const cerca: ConductorCandidatoInput = { ...conductor('cerca', 'Cerca', 40, sedan.id), distanciaMockKm: 5 };
+    const candidatos = puntuarCandidatos({
+      reserva: baseReserva,
+      conductores: [lejos, cerca],
+      vehiculos: [sedan],
+      now,
+    });
+
+    expect(candidatos[0]?.conductor.id).toBe('cerca');
+  });
+
+  it('produce una distancia mock estable cuando no hay coordenadas ni distancia provista', () => {
+    const sinDistancia: ConductorCandidatoInput = {
+      id: 'sin-distancia',
+      nombre: 'Sin Distancia',
+      rating: 4.8,
+      totalViajes: 100,
+      vehiculoId: sedan.id,
+      tiempoEnColaDesde: new Date(now.getTime() - 30 * 60_000),
+    };
+
+    const correr = () =>
+      puntuarCandidatos({ reserva: baseReserva, conductores: [sinDistancia], vehiculos: [sedan], now });
+
+    expect(correr()[0]?.factores.distanciaKm).toBe(correr()[0]?.factores.distanciaKm);
+    expect(correr()[0]?.factores.distanciaKm).toBeGreaterThan(0);
+  });
+});
+
+describe('getPesosAsignacion — gobernado por entorno', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('usa los pesos por defecto cola 0.5 / distancia 0.3 / match 0.2', () => {
+    expect(getPesosAsignacion()).toEqual({ cola: 0.5, distancia: 0.3, match: 0.2 });
+  });
+
+  it('lee los pesos desde variables de entorno ASIGNACION_PESO_*', () => {
+    vi.stubEnv('ASIGNACION_PESO_COLA', '0.9');
+    vi.stubEnv('ASIGNACION_PESO_DISTANCIA', '0.05');
+    vi.stubEnv('ASIGNACION_PESO_MATCH', '0.05');
+
+    expect(getPesosAsignacion()).toEqual({ cola: 0.9, distancia: 0.05, match: 0.05 });
+  });
+
+  it('los overrides explícitos ganan sobre el entorno', () => {
+    vi.stubEnv('ASIGNACION_PESO_COLA', '0.9');
+    expect(getPesosAsignacion({ cola: 0.1 }).cola).toBe(0.1);
+  });
+
+  it('cambiar pesos por entorno se propaga a los factores del candidato', () => {
+    vi.stubEnv('ASIGNACION_PESO_COLA', '0.9');
+    const candidatos = puntuarCandidatos({
+      reserva: baseReserva,
+      conductores: [conductor('c1', 'C1', 30, sedan.id)],
+      vehiculos: [sedan],
+      now,
+    });
+    expect(candidatos[0]?.factores.pesos.cola).toBe(0.9);
+  });
+
+  it('ignora valores de entorno no numéricos y vuelve al default', () => {
+    vi.stubEnv('ASIGNACION_PESO_COLA', 'abc');
+    expect(getPesosAsignacion().cola).toBe(0.5);
   });
 });

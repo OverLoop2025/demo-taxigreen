@@ -1,6 +1,6 @@
 # Documentación Técnica — Demo Taxi Green
 
-**Versión:** 1.10 · **Fecha:** 2026-06-04 · **Cubre:** Sprint 0-9 — demo completa verificada localmente y en producción + auditoría de cierre.
+**Versión:** 1.11 · **Fecha:** 2026-06-05 · **Cubre:** Sprint 0-9 — demo completa verificada localmente y en producción + auditoría de cierre + endurecimiento de pruebas (§20).
 **Ámbito:** este documento describe **todo lo que existe hoy en el monorepo de software**. Para el *qué construir*
 y el *por qué de negocio*, la fuente de verdad es [`_FUENTE_DESARROLLO/`](../_FUENTE_DESARROLLO/) y
 [`07_PLAN_EJECUCION/`](../07_PLAN_EJECUCION/); este doc no los reemplaza, los **complementa con el estado real del código**.
@@ -671,5 +671,43 @@ token → fix: `railway up --service web --detach`) y se confirmó que el **bug 
 resuelto** en el deploy vivo (cadena 307 relativo → Supabase firmado → 200). Smoke de producción: `/` 200, ruta
 `fuente=mapbox` 691 puntos, mapa con token inlineado, counter 307 relativo. `RAILWAY_TOKEN` (project token) válido y
 en GitHub Secrets. Detalle en [`ESTADO_SPRINT_9.md §7`](ESTADO_SPRINT_9.md).
+
+---
+
+## 20. Endurecimiento de pruebas — caza de bugs ocultos (2026-06-05)
+
+Pase quirúrgico de cobertura sobre los puntos donde el sistema **aparenta funcionar por fuera** pero un cambio
+silencioso rompería la seguridad o la parte visual de la demo (los peores bugs viven en esos detalles). Foco: el
+contrato exacto de cada borde, no el "camino feliz". Todo lo nuevo corre en el **gate de CI** (`pnpm turbo run
+typecheck lint test`) salvo el E2E del counter (necesita pila viva + reseed) y la prueba física de APK (manual).
+
+**Antes → después:** web `11 → 51` tests unit (+40), `@taxigreen/asignacion` `6 → 14` (+8), `@taxigreen/rutas`
+`4 → 6` (+2) = **+50 unit** y **+1 E2E**. Gate completo: **53/53 tareas verdes** (`typecheck lint test`).
+
+### 20.1 Qué blinda cada archivo nuevo
+
+| Archivo | Qué garantiza (regresión = rojo en CI) |
+|---|---|
+| [`apps/web/src/middleware.test.ts`](../apps/web/src/middleware.test.ts) | Matriz de autorización por rol: `/admin` y `/wa-sim` sólo `admin_tenant`/`despachador`; `/counter` sólo `supervisor`. Cubre anónimo, rol cruzado (supervisor→/admin, despachador→/counter, conductor→/admin), subrutas profundas y preservación de `callbackUrl`. Invertir un `!==` se vuelve rojo. |
+| [`apps/web/src/lib/conductor-asignacion-repository.test.ts`](../apps/web/src/lib/conductor-asignacion-repository.test.ts) | **Contrato de aislamiento** (lo que separa "funciona" de "es seguro"): el `where` de Prisma filtra por `tenant_id`, `conductor_id`, `deleted_at`, usuario `rol=conductor` `activo` no borrado, y la activa excluye `cancelada` y ordena por servicio más reciente. Borrar cualquier eje del scope (un conductor vería reservas de otro, o de otro tenant, o desactivado) → rojo. |
+| [`apps/web/src/app/api/conductor/asignacion/activa/route.test.ts`](../apps/web/src/app/api/conductor/asignacion/activa/route.test.ts) | Endpoint clave de móvil (asignación al abrir sin push): `401` sin Bearer / token inválido, asignación serializada con token válido, `{ asignacion: null }` sin viaje, y que **no filtra** `password_hash`/`voucher_qr_payload`. Tokens Bearer **reales** (no mock del verificador). |
+| [`apps/web/src/lib/pasajero.test.ts`](../apps/web/src/lib/pasajero.test.ts) | **Anti-recta del servidor**: con estimación determinista NO entrega geometría (recta) pero sí ETA/distancia; con curva Mapbox real (100 vértices) sí; geometría Mapbox degenerada de 2 puntos NO se pinta (guard `>2`); sin coordenadas no calcula ruta ni inventa trazo (fallback textual); comprobante sólo disponible al finalizar. Protege que el link `/p/[token]` no mienta visualmente. Ver [[mapas-solo-ruta-real]]. |
+| [`apps/web/src/lib/auth/secret.test.ts`](../apps/web/src/lib/auth/secret.test.ts) | Fail-fast de `AUTH_SECRET`: lanza en runtime de producción sin secreto; NO lanza en build de producción ni en CI. Evita firmar sesiones JWT con la clave de desarrollo en producción. |
+| [`apps/web/src/lib/conductor-asignacion.test.ts`](../apps/web/src/lib/conductor-asignacion.test.ts) (ampliado) | Máquina de estados del viaje: recorrido completo hacia adelante, rechazo de retroceso, estado terminal (`finalizado`), `cancelado` fuera de la secuencia y prohibición de saltar un estado intermedio. |
+| [`packages/asignacion/src/heuristica.test.ts`](../packages/asignacion/src/heuristica.test.ts) (ampliado) | Van preferida sobre minivan con >4 pax; la distancia penaliza con cola/match iguales; distancia mock estable sin coordenadas; `getPesosAsignacion` lee `ASIGNACION_PESO_*` del entorno, los overrides ganan, valores no numéricos vuelven al default y el cambio se propaga a `factores.pesos`. |
+| [`packages/rutas/src/rutas.test.ts`](../packages/rutas/src/rutas.test.ts) (ampliado) | El proveedor real pasa a través cuando responde y el flag está activo; `calcularRutaEstimada` lanza `coordenadas_invalidas` (no degrada en silencio). Suma a los tests previos de `flag_off`, timeout y fallo del proveedor. |
+| [`tests/e2e/counter-qr.spec.ts`](../tests/e2e/counter-qr.spec.ts) | **QR de un solo uso (E2E):** consumir exige supervisor (`401` sin sesión), primer consumo `200 consumed=true`, reuso `409 voucher_ya_validado` con `consumedAt`. Verificado con `playwright --list`; corre con `pnpm e2e` sobre DB recién sembrada. |
+
+### 20.2 Qué queda deliberadamente fuera (manual o nivel de pila)
+
+- **Concurrencia real del QR** (dos consumos simultáneos → 1×200 / 1×409): exige una transacción Postgres real con
+  `pg_advisory_xact_lock`; no es comprobable con mocks. Queda como prueba E2E/manual sobre DB viva.
+- **E2E del counter:** es **destructivo** (consume el voucher del guion y escribe `voucher_qr_consumido`). Correr
+  `pnpm --filter @taxigreen/database db:seed-guion` antes de `pnpm e2e` (mismo requisito que la suite 7/7 tras reseed).
+- **Anti-recta del lado conductor** (`apps/driver`: `AssignmentMap.tsx`, `seguimiento-cliente.tsx`,
+  `features/routing/use-route.ts`): la misma regla `>2 vértices` está replicada en el cliente RN, pero `apps/driver`
+  no tiene runner de tests (su `build`/`test` es un `echo`); el guard se valida vía el contrato del servidor
+  (`pasajero.test.ts`) y el bundle Metro. Ver [[push-no-en-apk-standalone]].
+- **APK físico Android:** instala/login/Realtime/mapa nativo/cierre — checklist manual del usuario.
 
 *Fin. Este documento se actualiza al cierre de cada sprint para mantener la cobertura al 100% del avance.*

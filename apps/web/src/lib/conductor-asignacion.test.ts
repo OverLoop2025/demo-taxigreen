@@ -46,3 +46,45 @@ describe('transiciones de viaje conductor', () => {
     expect(timestampFieldForEstado(EstadoViaje.finalizado)).toBe('finalizado_en');
   });
 });
+
+describe('máquina de estados del viaje — blindaje de bordes', () => {
+  it('recorre la secuencia completa hacia adelante sin rechazos', () => {
+    const secuencia = [
+      EstadoViaje.asignado,
+      EstadoViaje.en_camino,
+      EstadoViaje.en_punto,
+      EstadoViaje.a_bordo,
+      EstadoViaje.finalizado,
+    ];
+    for (let i = 0; i < secuencia.length - 1; i += 1) {
+      expect(validarTransicionViaje(secuencia[i]!, secuencia[i + 1]!).ok).toBe(true);
+    }
+  });
+
+  it('rechaza retroceder (finalizado → en_camino, a_bordo → en_camino)', () => {
+    expect(validarTransicionViaje(EstadoViaje.finalizado, EstadoViaje.en_camino).ok).toBe(false);
+    expect(validarTransicionViaje(EstadoViaje.a_bordo, EstadoViaje.en_camino).ok).toBe(false);
+    expect(validarTransicionViaje(EstadoViaje.en_camino, EstadoViaje.asignado).ok).toBe(false);
+  });
+
+  it('no hay siguiente estado después de finalizado (estado terminal)', () => {
+    expect(siguienteEstadoViaje(EstadoViaje.finalizado)).toBeNull();
+    expect(validarTransicionViaje(EstadoViaje.finalizado, EstadoViaje.finalizado)).toEqual({
+      ok: false,
+      esperado: null,
+    });
+  });
+
+  it('cancelado queda fuera de la secuencia: no avanza a ningún estado', () => {
+    expect(siguienteEstadoViaje(EstadoViaje.cancelado)).toBeNull();
+    expect(validarTransicionViaje(EstadoViaje.cancelado, EstadoViaje.en_camino).ok).toBe(false);
+    expect(validarTransicionViaje(EstadoViaje.asignado, EstadoViaje.cancelado).ok).toBe(false);
+  });
+
+  it('no permite saltarse un estado intermedio (en_camino → a_bordo)', () => {
+    expect(validarTransicionViaje(EstadoViaje.en_camino, EstadoViaje.a_bordo)).toEqual({
+      ok: false,
+      esperado: EstadoViaje.en_punto,
+    });
+  });
+});

@@ -1,13 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import { calcularRutaEstimada } from './estimador';
 import { withRutaFallback } from './with-ruta-fallback';
-import type { RouteProvider, RouteRequest } from './types';
+import type { RouteProvider, RouteRequest, RouteResult } from './types';
 
 const request: RouteRequest = {
   origen: { lat: -12.0231, lng: -77.112 },
   destino: { lat: -12.1196, lng: -77.0365 },
   perfil: 'driving-traffic',
 };
+
+function mapboxResult(): RouteResult {
+  return {
+    distanciaMetros: 16_200,
+    duracionSegundos: 1_500,
+    duracionSinTraficoSegundos: 1_320,
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [-77.112, -12.0231],
+        [-77.09, -12.05],
+        [-77.0365, -12.1196],
+      ],
+    },
+    fuente: 'mapbox',
+    calculadoEn: '2026-06-01T00:00:00.000Z',
+  };
+}
 
 describe('packages/rutas', () => {
   it('calcula estimación determinista con sinuosidad y velocidad media', () => {
@@ -66,5 +84,26 @@ describe('packages/rutas', () => {
     expect(result.fuente).toBe('estimacion');
     expect(provider.calcular).toHaveBeenCalledOnce();
     vi.unstubAllEnvs();
+  });
+
+  it('entrega la ruta real cuando el proveedor responde y el flag está activo', async () => {
+    vi.stubEnv('RUTAS_HABILITADAS', 'true');
+    const provider: RouteProvider = { calcular: vi.fn().mockResolvedValue(mapboxResult()) };
+
+    const result = await withRutaFallback({ request, provider });
+
+    expect(result.fuente).toBe('mapbox');
+    expect(result.geometry.coordinates.length).toBeGreaterThan(2);
+    expect(provider.calcular).toHaveBeenCalledOnce();
+    vi.unstubAllEnvs();
+  });
+
+  it('lanza coordenadas_invalidas para puntos fuera de rango (no degrada en silencio)', () => {
+    expect(() =>
+      calcularRutaEstimada({ origen: { lat: 200, lng: -77 }, destino: { lat: -12, lng: -77 } }),
+    ).toThrow('coordenadas_invalidas');
+    expect(() =>
+      calcularRutaEstimada({ origen: { lat: -12, lng: -77 }, destino: { lat: Number.NaN, lng: -77 } }),
+    ).toThrow('coordenadas_invalidas');
   });
 });
