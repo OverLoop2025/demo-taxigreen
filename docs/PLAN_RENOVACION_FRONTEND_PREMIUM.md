@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 cerrado · F1 en curso · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -30,9 +30,9 @@ El prompt maestro es buena guía. Se adopta con **6 ajustes**:
 | Mini sprint | Foco | Estado |
 |---|---|---|
 | **F0** | Auditoría dirigida + este documento | ✅ |
-| **F1** | Fundamentos: **lenguaje humano** + **tema claro/oscuro** (infra + landing) | 🔄 |
-| F2 | Pasajero `/p/[token]` map-first + bottom sheet + fullscreen | ⏳ |
-| F3 | Conductor `asignacion/[id]` modo navegación full-screen | ⏳ |
+| **F1** | Fundamentos: **lenguaje humano** + **tema claro/oscuro** (infra + landing) | ✅ |
+| **F2** | Pasajero `/p/[token]` map-first + bottom sheet + fullscreen | ✅ |
+| F3 | Conductor `asignacion/[id]` modo navegación full-screen | 🔜 |
 | F4 | Counter premium + QR progresivo | ⏳ |
 | F5 | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | ⏳ |
 | F6 | Despacho `/admin` simplificado | ⏳ |
