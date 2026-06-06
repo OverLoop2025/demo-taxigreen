@@ -3,6 +3,7 @@
  * compartidos por apps/web y apps/driver. Placeholder de Sprint 0.
  */
 export * from './tokens';
+export * from './copy';
 
 /** Constantes canónicas del flujo protagonista (no invertir el flujo). */
 export const FLUJO_PROTAGONISTA = {
