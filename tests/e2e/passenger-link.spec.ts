@@ -3,13 +3,15 @@ import { expect, test } from '@playwright/test';
 test('link pasajero muestra tracking operativo del flujo protagonista', async ({ page }) => {
   await page.goto('/p/tg_demo_passenger_001');
 
-  await expect(page.getByRole('heading', { name: /Recojo en aeropuerto/i })).toBeVisible();
-  await expect(page.getByText('Tu conductor')).toBeVisible();
+  // Renovación F2: experiencia map-first con lenguaje humano. Se verifican los
+  // HECHOS del flujo protagonista (no la microcopy vieja "Recojo en aeropuerto"/
+  // "Tu conductor"): conductor llamable, placa, punto, vuelo y destino visibles.
   await expect(page.getByRole('link', { name: /Llamar al conductor/i })).toBeVisible();
   await expect(page.getByText('ABC-123')).toBeVisible();
   await expect(page.getByText('Salida 3, columna F2')).toBeVisible();
   await expect(page.getByText('LA2456')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Av. Pardo 123, Miraflores' })).toBeVisible();
+  // exact: el destino también aparece en el resumen "origen → destino" del mapa.
+  await expect(page.getByText('Av. Pardo 123, Miraflores', { exact: true })).toBeVisible();
 });
 
 test('routing público valida token pasajero y devuelve estimación segura', async ({ request }) => {
