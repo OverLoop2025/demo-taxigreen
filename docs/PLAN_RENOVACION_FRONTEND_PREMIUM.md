@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -32,12 +32,23 @@ El prompt maestro es buena guía. Se adopta con **6 ajustes**:
 | **F0** | Auditoría dirigida + este documento | ✅ |
 | **F1** | Fundamentos: **lenguaje humano** + **tema claro/oscuro** (infra + landing) | ✅ |
 | **F2** | Pasajero `/p/[token]` map-first + bottom sheet + fullscreen | ✅ |
-| F3 | Conductor `asignacion/[id]` modo navegación full-screen | 🔜 |
-| F4 | Counter premium + QR progresivo | ⏳ |
+| **F3** | Conductor `asignacion/[id]` modo navegación full-screen (mapa fill + banner + panel) | ✅ |
+| F4 | Counter premium + QR progresivo | 🔜 |
 | F5 | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | ⏳ |
 | F6 | Despacho `/admin` simplificado | ⏳ |
 | F7 | Soporte / calificación / comprobante progresivos | ⏳ |
 | F8 | Pruebas, smoke comercial, cierre y docs | ⏳ |
+
+**Cierre F3 (2026-06-05):** `apps/driver/app/(auth)/asignacion/[id].tsx` pasó de `ScrollView` + mapa `h-80`
+a navegación estilo Waze: mapa de fondo a pantalla completa (`AssignmentMap` con prop `fill`), banner
+superior con instrucción humana (`bannerConductor`) + llegada (`formatLlegada`, nunca "ETA"), y panel
+inferior con una sola acción (`accionConductor`) + detalles expandibles. Se cableó `@taxigreen/shared` en el
+driver (dependencia workspace) importando desde la **raíz** (no subpath: Expo SDK 51 no tiene
+`unstable_enablePackageExports`). Toda la lógica (carga, retry offline, 409, tracking, ruta, KeepAwake) se
+conservó intacta. Verde: `expo export android` EXIT 0 (1360 módulos), `turbo typecheck lint test` 53/53.
+**Regresión e2e cazada con Playwright:** F2 había roto `passenger-link.spec.ts` (afirmaba la microcopy vieja
+"Recojo en aeropuerto"/"Tu conductor"); se actualizó el spec a la copy nueva conservando los hechos del flujo
+protagonista (vuelo, punto, destino, placa, llamada). e2e web (smoke + passenger-link) 3/3.
 
 ---
 
