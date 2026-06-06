@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · F5 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -33,11 +33,21 @@ El prompt maestro es buena guía. Se adopta con **6 ajustes**:
 | **F1** | Fundamentos: **lenguaje humano** + **tema claro/oscuro** (infra + landing) | ✅ |
 | **F2** | Pasajero `/p/[token]` map-first + bottom sheet + fullscreen | ✅ |
 | **F3** | Conductor `asignacion/[id]` modo navegación full-screen (mapa fill + banner + panel) | ✅ |
-| F4 | Counter premium + QR progresivo | 🔜 |
-| F5 | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | ⏳ |
+| **F4** | Counter premium + QR progresivo (flujo guiado por estado, sin jerga, dark) | ✅ |
+| F5 | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | 🔜 |
 | F6 | Despacho `/admin` simplificado | ⏳ |
 | F7 | Soporte / calificación / comprobante progresivos | ⏳ |
 | F8 | Pruebas, smoke comercial, cierre y docs | ⏳ |
+
+**Cierre F4 (2026-06-06):** `/counter` pasó a un flujo guiado por estado (barra **Validar → Confirmar acceso
+→ Siguiente pasajero**): cámara como acción principal ("Escanear QR"), código manual como alternativa; el
+resultado del pasajero y "Confirmar acceso" solo aparecen tras validar; al confirmar muestra "Acceso
+confirmado". Se eliminó la jerga (HMAC, idempotente, token, "Walk-in aeropuerto", "Entrega y auditoría",
+"Validación operativa", "Fallback operativo") y se suavizó el `BrandHeader` ("operación trazable" → "Demo en
+vivo"). Dark-mode-aware por tokens. Lógica de validación/consumo/cámara intacta → el e2e de seguridad del QR
+(API) no cambia. Verificado con screenshots (idle claro/oscuro + estado de error) y `turbo typecheck lint
+test` 53/53. Nota: el voucher demo `TG-2026-0001` quedó consumido (2026-06-04); para ver el happy-path correr
+`pnpm --filter @taxigreen/database db:seed-guion`.
 
 **Hardening F2 (2026-06-05):** la vista map-first del pasajero se veía rota en desktop (mapa full-bleed →
 área vacía a pantalla ancha; en local sin `NEXT_PUBLIC_MAPBOX_TOKEN` se ve el `MapFallback`). Se contuvo en
