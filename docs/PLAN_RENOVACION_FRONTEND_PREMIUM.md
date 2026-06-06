@@ -1,8 +1,17 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · F5 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅ (1er pase)** · F5 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
+
+> **Estrategia de QA visual (no quedar ciegos) — añadida 2026-06-06.**
+> - **Web:** Playwright con servidor propio → `pnpm visual:web` deja capturas (móvil+desktop, claro+oscuro) en
+>   `artifacts/playwright/` + `report.html`. Es como se cazó la corrupción del pasajero y se afinó el counter.
+> - **Móvil (driver):** **dev client + Metro = código EN VIVO de la rama** sobre BlueStacks/ADB (NO el APK
+>   preview congelado que apunta a prod). Guía completa en `docs/QA_MOVIL_ANDROID_OJOS_REALES.md §0`.
+>   Herramienta elegida: **Maestro** para flows declarativos (`.maestro/`) cuando el device soporta su driver;
+>   **ADB directo** (`scripts/visual-driver-adb.mjs`) como ruta principal estable en BlueStacks. Detox/Appium
+>   se descartan por ahora (pesados; requieren build instrumentado / enterprise).
 
 Este documento es el entregable de **Mini Sprint F0** (auditoría read-only dirigida, sin tocar
 producto). No se leyó todo el repo: se usó `grep` dirigido sobre superficies visibles para minimizar
@@ -48,6 +57,22 @@ vivo"). Dark-mode-aware por tokens. Lógica de validación/consumo/cámara intac
 (API) no cambia. Verificado con screenshots (idle claro/oscuro + estado de error) y `turbo typecheck lint
 test` 53/53. Nota: el voucher demo `TG-2026-0001` quedó consumido (2026-06-04); para ver el happy-path correr
 `pnpm --filter @taxigreen/database db:seed-guion`.
+
+**F3.5 — Driver premium con ojos reales (2026-06-06):** primer pase de renovación del conductor verificado
+**en vivo** (dev client + Metro + backend local, capturas reales en BlueStacks):
+- **Home sin jerga:** fuera las tarjetas "REALTIME / Realtime activo" y "PUSH / Push no provisionado"; ahora un
+  indicador humano "● En línea / Conectando", estado Disponible/En pausa, unidad con icono, y CTA protagonista
+  "Tienes un viaje → Abrir viaje". Texto más medido (sin 3xl).
+- **Tabs:** iconos reales (`@expo/vector-icons` Ionicons) — antes salían como tofu (□).
+- **Navegación full-screen:** la barra de tabs se **oculta** en `asignacion/[id]` e `incidencia/[id]`
+  (`tabBarStyle: display:none`), eliminando el corte inferior que rompía la inmersión.
+- **Login balanceado:** centrado vertical (antes pegado abajo con vacío enorme en pantallas grandes) + error
+  humano ("Ese email o PIN no coincide…").
+- **Dato humanizado:** el seed usaba `pasajero_nombre: "Pasajero final del huésped"`; se unificó a **"Valeria
+  Mendoza"** (nombre canónico que ya usan tests y la conversación WhatsApp).
+- Pendiente (siguiente iteración del loop): mapa nativo no pinta en BlueStacks (GL del emulador; OK en device/
+  web) → cubrir con device físico; explorar acento/dopamina y panel inferior más rico en navegación.
+- Verde: `expo export android` EXIT 0 (4.48 MB), driver typecheck+lint.
 
 **Hardening F2 (2026-06-05):** la vista map-first del pasajero se veía rota en desktop (mapa full-bleed →
 área vacía a pantalla ancha; en local sin `NEXT_PUBLIC_MAPBOX_TOKEN` se ve el `MapFallback`). Se contuvo en

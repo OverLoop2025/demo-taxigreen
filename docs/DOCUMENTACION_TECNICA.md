@@ -711,3 +711,52 @@ typecheck lint test`) salvo el E2E del counter (necesita pila viva + reseed) y l
 - **APK físico Android:** instala/login/Realtime/mapa nativo/cierre — checklist manual del usuario.
 
 *Fin. Este documento se actualiza al cierre de cada sprint para mantener la cobertura al 100% del avance.*
+
+---
+
+## 21. QA movil con ojos reales (2026-06-06)
+
+Se instalo toolchain Android/Expo/Maestro en WSL y se valido una ruta real de capturas para `apps/driver`.
+Detalle operativo completo en [`QA_MOVIL_ANDROID_OJOS_REALES.md`](QA_MOVIL_ANDROID_OJOS_REALES.md).
+
+**Resultado:** BlueStacks expuesto por ADB en `127.0.0.1:5556` permitio instalar el APK preview EAS y generar
+captura real de la app nativa en `artifacts/maestro/driver-bluestacks-login.png` (`1080x1920`, login del conductor).
+
+**Script nuevo:** `pnpm visual:driver:adb` (`scripts/visual-driver-adb.mjs`) abre la app por ADB, captura login,
+ingresa PIN `1234`, captura home y, si existe una asignacion activa, captura la pantalla de asignacion.
+
+**Hallazgo ambiental:** los AVDs WSL (`taxigreen_pixel`, `taxigreen_atd`) quedaron instalados, pero sin permiso KVM
+(`/dev/kvm`) el emulador corre por software, produce ANR con `@rnmapbox/maps`/`Mapbox LifecycleService` y/o
+screenshots negros. Para usar AVDs como runner visual estable, ejecutar `sudo gpasswd -a "$USER" kvm` y reabrir WSL.
+Mientras tanto, el carril recomendado es BlueStacks abierto manualmente + `adb connect 127.0.0.1:5556` + script ADB.
+
+### 21.1 QA visual web (Playwright) — `pnpm visual:web`
+
+`scripts/visual-web.mjs` levanta `next dev` en un puerto propio, **pre-calienta rutas**, hace login de counter
+esperando hidratación y captura las superficies cliente (landing, pasajero, counter) en **móvil+desktop ×
+claro+oscuro** → `artifacts/playwright/*.png` + `report.html` (`artifacts/` está gitignored). Es evidencia visual
+real para no revisar "a ciegas": así se cazó la **corrupción del pasajero en desktop** (mapa full-bleed → se
+contuvo en columna 480px) y se afinó el **stepper del counter** que se cortaba en móvil. Gotchas aprendidos
+(documentados en el script): `next dev` (no `start`) porque las cookies `secure` de Auth.js no viajan sobre
+`http://localhost`; esperar hidratación antes de enviar el form (si no, hace GET nativo); y `waitForURL('**/X')`
+casa también con `?callbackUrl=/X` (usar matcher de pathname exacto). Por esto último se endureció
+`tests/e2e/admin-asignacion.spec.ts`.
+
+### 21.2 Driver EN VIVO (dev client + Metro) y renovación premium del conductor (F3.5)
+
+**Método recomendado para ver el código de la rama en el móvil** (no el APK preview, que es un snapshot que
+apunta a producción): **dev client + Metro + backend local**, con `adb reverse tcp:8081` y `tcp:3000` para que el
+`localhost` de Android llegue a WSL (red WSL en `mirrored`). Guía paso a paso en
+[`QA_MOVIL_ANDROID_OJOS_REALES.md §0`](QA_MOVIL_ANDROID_OJOS_REALES.md). Con esto se verificó en vivo (BlueStacks,
+Fast refresh ON) el flujo real del conductor y se aplicó el **primer pase premium**:
+
+- `apps/driver/app/(auth)/home.tsx`: se elimina la jerga (`Realtime`/`Push no provisionado`); indicador humano
+  "● En línea/Conectando", estado Disponible/En pausa, unidad con icono y CTA "Tienes un viaje → Abrir viaje".
+- `apps/driver/app/(auth)/_layout.tsx`: **iconos de tabs** reales (Ionicons; antes tofu) y **barra de tabs
+  oculta** en `asignacion/[id]`/`incidencia/[id]` para navegación full-screen.
+- `apps/driver/app/login.tsx`: layout centrado/balanceado + mensaje de error humano.
+- `packages/database/prisma/seed.ts`: `pasajero_nombre` del protagonista pasa de "Pasajero final del huésped" a
+  **"Valeria Mendoza"** (consistente con tests y conversación WhatsApp).
+- **Limitación conocida:** el mapa nativo `@rnmapbox/maps` no pinta en BlueStacks (GL del emulador) → queda área
+  oscura; en dispositivo físico y en la web sí pinta. Registrado en `DEUDA_TECNICA.md`.
+- Verde: `expo export android` EXIT 0 (4.48 MB), driver typecheck+lint.
