@@ -3,20 +3,24 @@
 import {
   Car,
   CheckCircle2,
-  Clock,
+  Crosshair,
   FileText,
   MapPin,
+  Maximize2,
   PackageSearch,
   Phone,
   Plane,
-  Route,
   Search,
   Send,
   Star,
   UserRound,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { estadoViajePasajero, formatLlegada, type EstadoViaje } from '@taxigreen/shared/copy';
+import { BottomSheet, type SheetLevel } from '@/components/product/bottom-sheet';
+import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { PassengerPosition, PassengerRating, PassengerTripData } from '@/lib/pasajero';
 
@@ -109,13 +113,18 @@ function formatDate(value: string) {
   });
 }
 
-function statusLabel(value: string | null) {
-  if (value === 'asignado') return 'Asignado';
-  if (value === 'en_camino') return 'En camino';
-  if (value === 'en_punto') return 'En el punto';
-  if (value === 'a_bordo') return 'A bordo';
-  if (value === 'finalizado') return 'Finalizado';
-  return 'Confirmado';
+/** Castea el estado de DB (string|null) al tipo de copy humano. */
+function toEstadoViaje(estado: string | null): EstadoViaje {
+  if (
+    estado === 'en_camino' ||
+    estado === 'en_punto' ||
+    estado === 'a_bordo' ||
+    estado === 'finalizado' ||
+    estado === 'cancelado'
+  ) {
+    return estado;
+  }
+  return 'asignado';
 }
 
 function isFinished(data: PassengerTripData) {
@@ -160,25 +169,13 @@ function distanceMeters(a: PassengerPosition, b: PassengerPosition) {
   const dLng = toRad(b.lng - a.lng);
   const lat1 = toRad(a.lat);
   const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return earth * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
-
-function formatDistance(value: number | null) {
-  if (typeof value !== 'number') return 'Distancia estimada';
-  if (value < 1000) return `${Math.round(value)} m`;
-  return `${(value / 1000).toFixed(1)} km`;
-}
-
-function routeLabel(route: RouteState) {
-  return route.fuente === 'mapbox' ? 'Ruta real' : 'Estimación';
 }
 
 // Anti-degradación de geometría: una vez que tenemos la curva real de Mapbox NO la
 // reemplazamos por la recta de la estimación. Sólo otra curva mapbox (o no tener
-// curva previa) cambia la geometría dibujada. Las métricas (distancia/ETA) sí se
+// curva previa) cambia la geometría dibujada. Las métricas (distancia/llegada) sí se
 // refrescan siempre. Esto elimina el salto curva→recta que producían el refresh de
 // 10 s y los recálculos que caían al fallback determinista.
 function preferRealGeometry(current: RouteState, incoming: Partial<RouteState>): RouteState {
@@ -217,64 +214,24 @@ function preferRealGeometry(current: RouteState, incoming: Partial<RouteState>):
   };
 }
 
-function RouteFallback({
-  data,
-  driverPosition,
-  route,
-}: {
-  data: PassengerTripData;
-  driverPosition: PassengerPosition | null;
-  route: RouteState;
-}) {
-  return (
-    <section className="rounded-md border border-border bg-white p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase text-neutral-500">Ruta</p>
-          <h2 className="mt-1 text-lg font-semibold text-product-deep">Seguimiento operativo</h2>
-        </div>
-        <span className="rounded-md bg-product-muted px-2 py-1 text-xs font-semibold text-product">
-          ETA {data.tracking.etaMinutos} min
-        </span>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-        <span className="rounded-md bg-product-muted px-2 py-1 text-product">{routeLabel(route)}</span>
-        <span className="rounded-md bg-neutral-100 px-2 py-1 text-neutral-600">
-          {formatDistance(route.distanciaMetros)}
-        </span>
-      </div>
-      <div className="mt-4 grid gap-3">
-        <RouteLineItem icon={<MapPin className="h-4 w-4" />} label="Recojo" value={data.ruta.origen.texto} />
-        <RouteLineItem
-          icon={<Clock className="h-4 w-4" />}
-          label="Conductor"
-          value={
-            driverPosition
-              ? `${driverPosition.lat.toFixed(5)}, ${driverPosition.lng.toFixed(5)}`
-              : 'Esperando primera posición'
-          }
-        />
-        <RouteLineItem icon={<MapPin className="h-4 w-4" />} label="Destino" value={data.ruta.destino.texto} />
-      </div>
-    </section>
-  );
+/** Minutos de llegada derivados de la ruta (o del tracking del servidor). */
+function minutosLlegada(route: RouteState, data: PassengerTripData) {
+  const segundos = route.duracionSegundos ?? data.tracking.etaMinutos * 60;
+  return Math.max(0, Math.ceil(segundos / 60));
 }
 
-function RouteLineItem({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
+/** Fondo a pantalla completa cuando el mapa no carga: humano, sin datos técnicos. */
+function MapFallback({ data }: { data: PassengerTripData }) {
   return (
-    <div className="flex gap-3 rounded-md bg-neutral-50 p-3">
-      <div className="mt-1 text-product">{icon}</div>
-      <div>
-        <p className="text-xs font-semibold uppercase text-neutral-500">{label}</p>
-        <p className="mt-1 text-sm font-medium text-neutral-900">{value}</p>
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-product-deep to-neutral-900 p-8 text-center">
+      <div className="max-w-xs">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+          <MapPin className="h-7 w-7 text-white" />
+        </div>
+        <p className="mt-4 text-lg font-semibold text-white">Estamos siguiendo tu viaje</p>
+        <p className="mt-2 text-sm leading-6 text-white/70">
+          {data.ruta.origen.texto} → {data.ruta.destino.texto}
+        </p>
       </div>
     </div>
   );
@@ -284,10 +241,12 @@ function PassengerMap({
   data,
   driverPosition,
   route,
+  recenterKey,
 }: {
   data: PassengerTripData;
   driverPosition: PassengerPosition | null;
   route: RouteState;
+  recenterKey: number;
 }) {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -306,18 +265,15 @@ function PassengerMap({
     [route.geometry],
   );
 
-  // Crear el mapa UNA sola vez (deps `[token]`). Antes este effect dependía de
-  // `driverPosition`/`line`, que cambian cada 3 s, así que el cleanup destruía y
-  // recreaba el mapa en cada posición → flicker y reset de zoom durante el
-  // tracking en vivo. Las actualizaciones de ruta/marcador van en el effect de
-  // abajo. (react-hooks/exhaustive-deps no está activo en este repo.)
+  // Crea el mapa UNA vez (deps `[token]`): el cleanup recreaba el mapa por cada
+  // posición y reseteaba el zoom durante el tracking. Las actualizaciones van abajo.
   useEffect(() => {
     if (!token || !containerRef.current || mapRef.current) return;
 
     let cancelled = false;
     void loadMapboxGl().then((mapboxgl) => {
       if (cancelled || !mapboxgl || !containerRef.current) {
-        if (!mapboxgl) setError('mapbox_no_disponible');
+        if (!mapboxgl) setError('mapa_no_disponible');
         return;
       }
 
@@ -328,8 +284,8 @@ function PassengerMap({
       mapboxgl.accessToken = token;
       const map = new mapboxgl.Map({
         container: containerRef.current,
-        // Tema oscuro sobrio (alineado a la paleta azul del producto): el chrome
-        // del mapa pasa a negro/azul profundo y la ruta resalta en cian brillante.
+        // Tema oscuro sobrio (alineado a la paleta azul): el chrome del mapa es
+        // negro/azul profundo y la ruta resalta en cian brillante.
         style: 'mapbox://styles/mapbox/dark-v11',
         center,
         zoom: 11.5,
@@ -341,21 +297,9 @@ function PassengerMap({
         if (cancelled) return;
         const routeData: RouteFeatureCollection = {
           type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: line,
-              },
-            },
-          ],
+          features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }],
         };
         map.addSource('route', { type: 'geojson', data: routeData });
-        // Capa inferior (casing): halo azul profundo de marca que da grosor y
-        // contraste sobre el mapa oscuro. El grosor escala con el zoom para que la
-        // ruta se vea consistente de lejos y de cerca.
         map.addLayer({
           id: 'route-casing',
           type: 'line',
@@ -368,7 +312,6 @@ function PassengerMap({
             'line-blur': 0.5,
           },
         });
-        // Capa superior: trazo cian brillante (refresca sobre el oscuro).
         map.addLayer({
           id: 'route-line',
           type: 'line',
@@ -381,12 +324,9 @@ function PassengerMap({
           },
         });
 
-        // Marcadores con colores que contrastan sobre el tema oscuro.
         if (origin) originMarkerRef.current = new mapboxgl.Marker({ color: '#22C55E' }).setLngLat(origin).addTo(map);
         if (destination) {
-          destinationMarkerRef.current = new mapboxgl.Marker({ color: '#E2E8F0' })
-            .setLngLat(destination)
-            .addTo(map);
+          destinationMarkerRef.current = new mapboxgl.Marker({ color: '#E2E8F0' }).setLngLat(destination).addTo(map);
         }
         if (driverPosition) {
           driverMarkerRef.current = new mapboxgl.Marker({ color: '#38BDF8' })
@@ -394,8 +334,6 @@ function PassengerMap({
             .addTo(map);
         }
 
-        // Encuadre: por la ruta real si existe; si aún no llega, por los marcadores
-        // (recojo/destino/conductor) para que el viaje se vea completo igualmente.
         const framePoints =
           line.length >= 2
             ? line
@@ -405,7 +343,7 @@ function PassengerMap({
         if (framePoints.length >= 2) {
           const bounds = new mapboxgl.LngLatBounds(framePoints[0]!, framePoints[0]!);
           framePoints.forEach((coordinates) => bounds.extend(coordinates));
-          map.fitBounds(bounds, { padding: 42, duration: 0 });
+          map.fitBounds(bounds, { padding: { top: 90, left: 40, right: 40, bottom: 320 }, duration: 0 });
         }
         setReady(true);
       });
@@ -421,166 +359,65 @@ function PassengerMap({
       mapRef.current = null;
       mapboxRef.current = null;
     };
-    // deps intencionalmente solo [token]: el mapa se crea una vez; ruta y conductor
-    // se actualizan en el effect siguiente sin recrearlo.
   }, [token]);
 
-  // Actualizar ruta y conductor SIN recrear el mapa. Crea el marcador del
-  // conductor si la primera posición llega después de cargar el mapa. No re-encaja
-  // los bounds en cada posición (evita el salto de zoom); el marcador se mueve solo.
+  // Actualiza ruta y conductor SIN recrear el mapa ni re-encajar (evita salto de zoom).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
 
-    const source = map.getSource('route');
-    source?.setData({
+    map.getSource('route')?.setData({
       type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates: line,
-          },
-        },
-      ],
+      features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }],
     });
 
     if (driverPosition) {
       if (driverMarkerRef.current) {
         driverMarkerRef.current.setLngLat([driverPosition.lng, driverPosition.lat]);
       } else if (mapboxRef.current) {
-        driverMarkerRef.current = new mapboxRef.current.Marker({ color: '#227FDE' })
+        driverMarkerRef.current = new mapboxRef.current.Marker({ color: '#38BDF8' })
           .setLngLat([driverPosition.lng, driverPosition.lat])
           .addTo(map);
       }
     }
   }, [driverPosition, line, ready]);
 
+  // Recentrar bajo demanda (botón). No corre en el primer render (recenterKey=0).
+  useEffect(() => {
+    const map = mapRef.current;
+    const mapboxgl = mapboxRef.current;
+    if (!map || !mapboxgl || !ready || recenterKey === 0) return;
+    const origin = getCoordinates(data.ruta.origen);
+    const destination = getCoordinates(data.ruta.destino);
+    const framePoints =
+      line.length >= 2
+        ? line
+        : ([origin, destination, driverPosition ? [driverPosition.lng, driverPosition.lat] : null].filter(
+            Boolean,
+          ) as [number, number][]);
+    if (framePoints.length >= 2) {
+      const bounds = new mapboxgl.LngLatBounds(framePoints[0]!, framePoints[0]!);
+      framePoints.forEach((coordinates) => bounds.extend(coordinates));
+      map.fitBounds(bounds, { padding: { top: 90, left: 40, right: 40, bottom: 280 }, duration: 500 });
+    }
+  }, [recenterKey]);
+
   if (!token || error) {
-    return <RouteFallback data={data} driverPosition={driverPosition} route={route} />;
+    return <MapFallback data={data} />;
   }
 
-  return (
-    <section className="overflow-hidden rounded-md border border-border bg-white">
-      <div ref={containerRef} className="h-72 w-full bg-neutral-900" />
-      <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm">
-        <span className="font-medium text-product-deep">
-          ETA {Math.max(0, Math.ceil((route.duracionSegundos ?? data.tracking.etaMinutos * 60) / 60))} min
-        </span>
-        <span className="inline-flex items-center gap-2 text-neutral-500">
-          <Route className="h-4 w-4" />
-          {routeLabel(route)} · {formatDistance(route.distanciaMetros)}
-        </span>
-      </div>
-    </section>
-  );
+  return <div ref={containerRef} className="absolute inset-0 h-full w-full bg-neutral-900" />;
 }
 
-function DriverCard({ data }: { data: PassengerTripData }) {
+function InfoRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <section className="rounded-md border border-border bg-white p-4">
-      <div className="flex items-center gap-4">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-product-deep text-lg font-semibold text-white">
-          {initials(data.conductor.nombre) || <UserRound className="h-7 w-7" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase text-neutral-500">Tu conductor</p>
-          <h2 className="truncate text-xl font-semibold text-product-deep">{data.conductor.nombre}</h2>
-          <p className="mt-1 text-sm text-neutral-600">
-            ★ {data.conductor.rating?.toFixed(2) ?? '5.00'} · {data.conductor.totalViajes ?? 0} viajes
-          </p>
-        </div>
-        {data.conductor.telefono ? (
-          <a
-            aria-label="Llamar al conductor"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-product text-white"
-            href={callHref(data.conductor.telefono)}
-          >
-            <Phone className="h-5 w-5" />
-          </a>
-        ) : null}
+    <div className="flex gap-3 rounded-xl bg-surface-muted p-3">
+      <div className="mt-0.5 text-product">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">{label}</p>
+        <p className="mt-0.5 text-sm font-medium text-foreground">{value}</p>
       </div>
-    </section>
-  );
-}
-
-function VehicleCard({ data }: { data: PassengerTripData }) {
-  const unidad = data.unidad;
-  return (
-    <section className="rounded-md border border-border bg-white p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase text-neutral-500">Unidad</p>
-          <h2 className="mt-1 text-2xl font-semibold text-product-deep">{unidad?.placa ?? 'Por confirmar'}</h2>
-          <p className="mt-1 text-sm text-neutral-600">
-            {unidad ? `${unidad.marca} ${unidad.modelo} · ${unidad.color ?? 'Taxi Green'}` : 'Asignada por despacho'}
-          </p>
-        </div>
-        <div className="flex h-16 w-20 items-center justify-center rounded-md bg-product-muted text-product">
-          <Car className="h-8 w-8" />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function MeetingPointCard({ data }: { data: PassengerTripData }) {
-  return (
-    <section className="rounded-md border-2 border-product bg-white p-5">
-      <p className="text-xs font-semibold uppercase text-product">Punto de encuentro</p>
-      <h2 className="mt-2 text-3xl font-semibold leading-tight text-product-deep">
-        {data.ruta.puntoEncuentro ?? 'Salida 3, columna F2'}
-      </h2>
-      <p className="mt-3 text-sm leading-6 text-neutral-600">
-        Recojo físico en {data.ruta.origen.texto}. El hotel solicitó el servicio; no es el punto de recojo.
-      </p>
-    </section>
-  );
-}
-
-const timelineSteps = [
-  { key: 'asignado', label: 'Asignado' },
-  { key: 'en_camino', label: 'En camino' },
-  { key: 'en_punto', label: 'Llegó' },
-  { key: 'a_bordo', label: 'A bordo' },
-  { key: 'finalizado', label: 'Finalizado' },
-];
-
-function activeStepIndex(estado: string | null) {
-  const index = timelineSteps.findIndex((step) => step.key === estado);
-  if (index >= 0) return index;
-  return 0;
-}
-
-function TripTimeline({ data }: { data: PassengerTripData }) {
-  const index = activeStepIndex(data.viaje.estado);
-  return (
-    <section className="rounded-md border border-border bg-white p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase text-neutral-500">Estado del viaje</p>
-          <h2 className="mt-1 text-lg font-semibold text-product-deep">{statusLabel(data.viaje.estado)}</h2>
-        </div>
-        <span className="rounded-md bg-product-muted px-2 py-1 text-xs font-semibold text-product">
-          {data.reserva.estado.replaceAll('_', ' ')}
-        </span>
-      </div>
-      <div className="grid grid-cols-5 gap-2">
-        {timelineSteps.map((step, stepIndex) => {
-          const active = stepIndex <= index;
-          return (
-            <div className="min-w-0" key={step.key}>
-              <div className={`h-2 rounded-full ${active ? 'bg-product' : 'bg-neutral-200'}`} />
-              <p className={`mt-2 truncate text-[11px] font-semibold ${active ? 'text-product-deep' : 'text-neutral-400'}`}>
-                {step.label}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -595,20 +432,20 @@ function RatingButtons({
 }) {
   return (
     <div>
-      <p className="text-sm font-semibold text-product-deep">{label}</p>
+      <p className="text-sm font-semibold text-foreground">{label}</p>
       <div className="mt-2 grid grid-cols-5 gap-2">
-        {[1, 2, 3, 4, 5].map((score) => (
+        {[1, 2, 3, 4, 5].map((nivel) => (
           <button
-            className={`flex h-10 items-center justify-center rounded-md border text-sm font-semibold ${
-              value === score
+            className={`flex h-10 items-center justify-center rounded-lg border text-sm font-semibold ${
+              value === nivel
                 ? 'border-product bg-product text-white'
-                : 'border-border bg-white text-neutral-700 hover:bg-product-muted'
+                : 'border-border bg-surface text-foreground hover:bg-surface-muted'
             }`}
-            key={score}
+            key={nivel}
             type="button"
-            onClick={() => onChange(score)}
+            onClick={() => onChange(nivel)}
           >
-            {score}
+            {nivel}
           </button>
         ))}
       </div>
@@ -616,16 +453,12 @@ function RatingButtons({
   );
 }
 
-function CompletionPanel({
-  data,
-  refresh,
-}: {
-  data: PassengerTripData;
-  refresh: () => Promise<void>;
-}) {
+function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
   const [dni, setDni] = useState(data.pasajero.dni ?? '');
   const [nombreDocumento, setNombreDocumento] = useState('');
   const [documentStatus, setDocumentStatus] = useState<string | null>(null);
+  // Revelado progresivo: el PDF sólo se ofrece cuando el comprobante ya existe.
+  const [comprobanteListo, setComprobanteListo] = useState(Boolean(data.comprobante.tipo));
   const [rating, setRating] = useState<PassengerRating>(
     data.calificacion ?? { servicio: 5, conductor: 5, unidad: 5, motivo: '', comentario: '' },
   );
@@ -637,7 +470,7 @@ function CompletionPanel({
       setDocumentStatus('Ingresa un DNI de 8 dígitos o deja el campo vacío.');
       return;
     }
-    setDocumentStatus('Consultando RENIEC demo...');
+    setDocumentStatus('Consultando tus datos…');
     const response = await fetch('/api/reniec/lookup', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -650,108 +483,103 @@ function CompletionPanel({
       setDocumentStatus('No disponible; puedes continuar sin documento.');
       return;
     }
-    const fullName = [
-      payload.payload.nombres,
-      payload.payload.apellido_paterno,
-      payload.payload.apellido_materno,
-    ]
+    const fullName = [payload.payload.nombres, payload.payload.apellido_paterno, payload.payload.apellido_materno]
       .filter(Boolean)
       .join(' ');
     setNombreDocumento(fullName);
-    setDocumentStatus(`DNI validado: ${fullName}`);
+    setDocumentStatus(`Datos confirmados: ${fullName}`);
   };
 
   const emitirComprobante = async () => {
-    setDocumentStatus('Preparando comprobante...');
+    setDocumentStatus('Preparando tu comprobante…');
     const response = await fetch(`/api/pasajero/${data.token}/comprobante`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tipo: 'boleta',
-        dni: dni || null,
-        nombre: nombreDocumento || null,
-      }),
+      body: JSON.stringify({ tipo: 'boleta', dni: dni || null, nombre: nombreDocumento || null }),
     });
     if (!response.ok) {
       setDocumentStatus('No se pudo preparar el comprobante.');
       return;
     }
-    setDocumentStatus('Comprobante listo para descargar.');
+    setDocumentStatus('Comprobante listo.');
+    setComprobanteListo(true);
     await refresh();
   };
 
   const saveRating = async () => {
-    setRatingStatus('Guardando calificación...');
+    setRatingStatus('Guardando tu calificación…');
     const response = await fetch(`/api/pasajero/${data.token}/calificacion`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(rating),
     });
     if (!response.ok) {
-      setRatingStatus('Completa el motivo si algún eje tiene 3 o menos.');
+      setRatingStatus('Cuéntanos el motivo si algo estuvo en 3 o menos.');
       return;
     }
-    setRatingStatus('Gracias, calificación registrada.');
+    setRatingStatus('¡Gracias! Tu calificación quedó registrada.');
     await refresh();
   };
 
   return (
-    <section className="rounded-md border border-success/30 bg-white p-4">
+    <section className="rounded-2xl border border-success/30 bg-surface p-4">
       <div className="flex items-start gap-3">
         <CheckCircle2 className="mt-1 h-5 w-5 text-success" />
         <div>
-          <p className="text-xs font-semibold uppercase text-success">Viaje finalizado</p>
-          <h2 className="mt-1 text-xl font-semibold text-product-deep">Comprobante y calificación</h2>
+          <p className="text-xs font-semibold uppercase text-success">Viaje completado</p>
+          <h2 className="mt-1 text-lg font-semibold text-foreground">Comprobante y calificación</h2>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3">
-        <div className="rounded-md bg-neutral-50 p-3">
-          <p className="text-sm font-semibold text-product-deep">Boleta opcional</p>
+        <div className="rounded-xl bg-surface-muted p-3">
+          <p className="text-sm font-semibold text-foreground">¿Necesitas comprobante?</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
             <input
-              className="h-11 rounded-md border border-border px-3 text-sm"
+              className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
               inputMode="numeric"
               maxLength={8}
-              placeholder="DNI opcional"
+              placeholder="DNI (opcional)"
               value={dni}
               onChange={(event) => setDni(event.target.value.replace(/\D/g, ''))}
             />
             <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-product px-4 text-sm font-semibold text-product"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-product px-4 text-sm font-semibold text-product"
               type="button"
               onClick={lookupDni}
             >
               <Search className="h-4 w-4" />
-              RENIEC
+              Buscar
             </button>
           </div>
-          {documentStatus ? <p className="mt-2 text-sm text-neutral-600">{documentStatus}</p> : null}
+          {documentStatus ? <p className="mt-2 text-sm text-foreground-muted">{documentStatus}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-product px-4 text-sm font-semibold text-white"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white"
               type="button"
               onClick={emitirComprobante}
             >
               <FileText className="h-4 w-4" />
               Preparar comprobante
             </button>
-            <a
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-sm font-semibold text-product"
-              href={data.comprobante.pdfUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <FileText className="h-4 w-4" />
-              Descargar PDF
-            </a>
+            {comprobanteListo ? (
+              <a
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-product"
+                href={data.comprobante.pdfUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FileText className="h-4 w-4" />
+                Descargar PDF
+              </a>
+            ) : null}
           </div>
         </div>
 
-        <div className="rounded-md bg-neutral-50 p-3">
+        <div className="rounded-xl bg-surface-muted p-3">
           <div className="flex items-center gap-2">
             <Star className="h-4 w-4 text-product" />
-            <p className="text-sm font-semibold text-product-deep">Calificación triple</p>
+            <p className="text-sm font-semibold text-foreground">¿Cómo estuvo tu viaje?</p>
           </div>
           <div className="mt-4 grid gap-4">
             <RatingButtons
@@ -765,33 +593,33 @@ function CompletionPanel({
               onChange={(value) => setRating((current) => ({ ...current, conductor: value }))}
             />
             <RatingButtons
-              label="Unidad"
+              label="Vehículo"
               value={rating.unidad}
               onChange={(value) => setRating((current) => ({ ...current, unidad: value }))}
             />
             {needsReason ? (
               <input
-                className="h-11 rounded-md border border-border px-3 text-sm"
-                placeholder="Motivo breve"
+                className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+                placeholder="Cuéntanos qué pasó"
                 value={rating.motivo ?? ''}
                 onChange={(event) => setRating((current) => ({ ...current, motivo: event.target.value }))}
               />
             ) : null}
             <textarea
-              className="min-h-24 rounded-md border border-border px-3 py-2 text-sm"
-              placeholder="Comentario opcional"
+              className="min-h-20 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
+              placeholder="Comentario (opcional)"
               value={rating.comentario ?? ''}
               onChange={(event) => setRating((current) => ({ ...current, comentario: event.target.value }))}
             />
             <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-product px-4 text-sm font-semibold text-white"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white"
               type="button"
               onClick={saveRating}
             >
               <Send className="h-4 w-4" />
-              Guardar calificación
+              Enviar calificación
             </button>
-            {ratingStatus ? <p className="text-sm text-neutral-600">{ratingStatus}</p> : null}
+            {ratingStatus ? <p className="text-sm text-foreground-muted">{ratingStatus}</p> : null}
           </div>
         </div>
       </div>
@@ -799,30 +627,26 @@ function CompletionPanel({
   );
 }
 
-function IncidentPanel({
-  data,
-  refresh,
-}: {
-  data: PassengerTripData;
-  refresh: () => Promise<void>;
-}) {
+function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
   const [descripcion, setDescripcion] = useState('');
   const [status, setStatus] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const lastIncident = data.incidencias.find((item) => item.tipologia === 'objeto_olvidado');
 
   const submitIncident = async () => {
-    setStatus('Registrando incidencia...');
+    setStatus('Registrando tu caso…');
     const response = await fetch('/api/incidencias', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        token_pasajero: data.token,
-        descripcion,
-      }),
+      body: JSON.stringify({ token_pasajero: data.token, descripcion }),
     });
     const payload = (await response.json().catch(() => null)) as { caso_url?: string; error?: string } | null;
     if (!response.ok) {
-      setStatus(payload?.error === 'solo_objeto_olvidado_demo' ? 'Por ahora solo registramos objeto olvidado.' : 'No se pudo registrar.');
+      setStatus(
+        payload?.error === 'solo_objeto_olvidado_demo'
+          ? 'Por ahora solo registramos objetos olvidados.'
+          : 'No se pudo registrar.',
+      );
       return;
     }
     setDescripcion('');
@@ -831,37 +655,42 @@ function IncidentPanel({
   };
 
   return (
-    <section className="rounded-md border border-care/20 bg-white p-4">
-      <div className="flex items-start gap-3">
-        <PackageSearch className="mt-1 h-5 w-5 text-care" />
-        <div>
-          <p className="text-xs font-semibold uppercase text-care">Soporte de viaje</p>
-          <h2 className="mt-1 text-xl font-semibold text-product-deep">¿Olvidaste algo?</h2>
-        </div>
-      </div>
-      <textarea
-        className="mt-4 min-h-28 w-full rounded-md border border-border px-3 py-2 text-sm"
-        placeholder="Ej.: Olvidé una cartera/casaca en el asiento posterior."
-        value={descripcion}
-        onChange={(event) => setDescripcion(event.target.value)}
-      />
+    <section className="rounded-2xl border border-care/20 bg-surface p-4">
       <button
-        className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-care px-4 text-sm font-semibold text-white disabled:opacity-50"
-        disabled={descripcion.trim().length < 8}
         type="button"
-        onClick={submitIncident}
+        className="flex w-full items-center gap-3 text-left"
+        onClick={() => setOpen((value) => !value)}
       >
-        <Send className="h-4 w-4" />
-        Reportar objeto olvidado
+        <PackageSearch className="h-5 w-5 text-care" />
+        <span className="flex-1">
+          <span className="block text-sm font-semibold text-foreground">¿Olvidaste algo?</span>
+          <span className="block text-xs text-foreground-muted">Cuéntanos y lo buscamos</span>
+        </span>
       </button>
-      {status ? <p className="mt-2 text-sm text-neutral-600">{status}</p> : null}
-      {lastIncident ? (
-        <a
-          className="mt-3 inline-flex text-sm font-semibold text-care hover:text-product-deep"
-          href={lastIncident.casoUrl}
-        >
-          Ver caso {lastIncident.id.slice(0, 8)}
-        </a>
+      {open ? (
+        <div className="mt-3">
+          <textarea
+            className="min-h-24 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
+            placeholder="Ej.: Olvidé una cartera en el asiento de atrás."
+            value={descripcion}
+            onChange={(event) => setDescripcion(event.target.value)}
+          />
+          <button
+            className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-care px-4 text-sm font-semibold text-white disabled:opacity-50"
+            disabled={descripcion.trim().length < 8}
+            type="button"
+            onClick={submitIncident}
+          >
+            <Send className="h-4 w-4" />
+            Reportar objeto olvidado
+          </button>
+          {status ? <p className="mt-2 text-sm text-foreground-muted">{status}</p> : null}
+          {lastIncident ? (
+            <a className="mt-3 inline-flex text-sm font-semibold text-care" href={lastIncident.casoUrl}>
+              Ver mi caso
+            </a>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
@@ -886,11 +715,59 @@ function normalizePosition(payload: unknown): PassengerPosition | null {
   };
 }
 
+/** Resumen del conductor + placa + llegada + botón llamar (lo esencial, sin scroll). */
+function DriverSummary({
+  data,
+  route,
+  finished,
+}: {
+  data: PassengerTripData;
+  route: RouteState;
+  finished: boolean;
+}) {
+  const estado = toEstadoViaje(data.viaje.estado);
+  const placa = data.unidad?.placa ?? 'Por confirmar';
+  return (
+    <div>
+      <p className="text-sm font-medium text-foreground-muted">{estadoViajePasajero(estado)}</p>
+      <p className="mt-0.5 text-2xl font-semibold text-foreground">
+        {finished ? 'Viaje completado' : formatLlegada(minutosLlegada(route, data))}
+      </p>
+
+      <div className="mt-4 flex items-center gap-3">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-product-deep text-base font-semibold text-white">
+          {data.conductor.fotoUrl ? (
+            <img src={data.conductor.fotoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            initials(data.conductor.nombre) || <UserRound className="h-6 w-6" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-semibold text-foreground">{data.conductor.nombre}</p>
+          <p className="mt-0.5 flex items-center gap-2 text-sm text-foreground-muted">
+            <span>★ {data.conductor.rating?.toFixed(1) ?? '5.0'}</span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-0.5 font-semibold text-foreground">
+              <Car className="h-3.5 w-3.5" /> {placa}
+            </span>
+          </p>
+        </div>
+        {data.conductor.telefono ? (
+          <a
+            aria-label="Llamar al conductor"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-product text-white shadow-sm"
+            href={callHref(data.conductor.telefono)}
+          >
+            <Phone className="h-5 w-5" />
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function PassengerTrackingClient({ initialData }: Props) {
   const [data, setData] = useState(initialData);
-  const [driverPosition, setDriverPosition] = useState<PassengerPosition | null>(
-    initialData.tracking.posicion,
-  );
+  const [driverPosition, setDriverPosition] = useState<PassengerPosition | null>(initialData.tracking.posicion);
   const [route, setRoute] = useState<RouteState>({
     distanciaMetros: initialData.tracking.distanciaMetros,
     duracionSegundos: initialData.tracking.duracionSegundos,
@@ -898,9 +775,14 @@ export function PassengerTrackingClient({ initialData }: Props) {
     geometry: initialData.tracking.geometry,
     fuente: initialData.tracking.fuente,
   });
-  const [realtimeStatus, setRealtimeStatus] = useState('Conectando');
+  // Indicador humano de actualización en vivo (nunca "Realtime"/"Polling").
+  const [liveStatus, setLiveStatus] = useState<'en_vivo' | 'actualizando'>('actualizando');
+  const [sheetLevel, setSheetLevel] = useState<SheetLevel>('collapsed');
+  const [immersive, setImmersive] = useState(false);
+  const [recenterKey, setRecenterKey] = useState(0);
   const lastRouteCalcRef = useRef<{ position: PassengerPosition; ts: number } | null>(null);
   const finished = isFinished(data);
+  const estado = toEstadoViaje(data.viaje.estado);
 
   const refresh = useCallback(async () => {
     const next = await fetchPassengerData(initialData.token);
@@ -922,8 +804,6 @@ export function PassengerTrackingClient({ initialData }: Props) {
   useEffect(() => {
     if (!driverPosition || finished) return;
     const target = routeTarget(data);
-    // Sin tramo activo (en_punto/finalizado): no recalculamos y conservamos la
-    // geometría real ya cargada. No se toca la línea.
     if (!target) return;
 
     const last = lastRouteCalcRef.current;
@@ -977,7 +857,7 @@ export function PassengerTrackingClient({ initialData }: Props) {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
-      setRealtimeStatus('Polling');
+      setLiveStatus('actualizando');
       return;
     }
 
@@ -989,8 +869,7 @@ export function PassengerTrackingClient({ initialData }: Props) {
           ...current,
           reserva: {
             ...current.reserva,
-            estado:
-              typeof payload.estado_reserva === 'string' ? payload.estado_reserva : current.reserva.estado,
+            estado: typeof payload.estado_reserva === 'string' ? payload.estado_reserva : current.reserva.estado,
           },
           viaje: {
             ...current.viaje,
@@ -1008,8 +887,8 @@ export function PassengerTrackingClient({ initialData }: Props) {
         void refresh();
       })
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') setRealtimeStatus('En vivo');
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setRealtimeStatus('Polling');
+        if (status === 'SUBSCRIBED') setLiveStatus('en_vivo');
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setLiveStatus('actualizando');
       });
 
     return () => {
@@ -1024,70 +903,126 @@ export function PassengerTrackingClient({ initialData }: Props) {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
+  const llegadaTexto = finished ? 'Viaje completado' : formatLlegada(minutosLlegada(route, data));
+
   return (
-    <main className="min-h-screen bg-background">
-      <section className="mx-auto min-h-screen w-full max-w-xl px-4 py-5">
-        <div className="rounded-md bg-product-deep px-5 py-5 text-white">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <span className="rounded bg-brand-tenant px-2 py-1 text-xs font-semibold">Taxi Green</span>
-              <h1 className="mt-4 text-2xl font-semibold leading-tight">Recojo en aeropuerto</h1>
-              <p className="mt-2 text-sm text-white/75">
-                {data.reserva.voucherCodigo} · {formatDate(data.reserva.fechaHoraServicio)}
+    <main className="relative h-[100dvh] w-full overflow-hidden bg-background">
+      <PassengerMap data={data} driverPosition={driverPosition} route={route} recenterKey={recenterKey} />
+
+      {/* Controles del mapa (siempre visibles) */}
+      <div className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex flex-col gap-2">
+        <button
+          type="button"
+          aria-label="Centrar el mapa"
+          onClick={() => setRecenterKey((value) => value + 1)}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/95 text-foreground shadow-md backdrop-blur"
+        >
+          <Crosshair className="h-5 w-5" />
+        </button>
+        {!immersive ? (
+          <button
+            type="button"
+            aria-label="Ver el mapa en pantalla completa"
+            onClick={() => setImmersive(true)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/95 text-foreground shadow-md backdrop-blur"
+          >
+            <Maximize2 className="h-5 w-5" />
+          </button>
+        ) : null}
+      </div>
+
+      {immersive ? (
+        <>
+          {/* Modo inmersivo: solo mapa + barra inferior breve. */}
+          <button
+            type="button"
+            onClick={() => setImmersive(false)}
+            className="absolute left-4 top-[max(1rem,env(safe-area-inset-top))] z-20 inline-flex h-11 items-center gap-2 rounded-full border border-border bg-surface/95 px-4 text-sm font-semibold text-foreground shadow-md backdrop-blur"
+          >
+            <X className="h-4 w-4" /> Cerrar
+          </button>
+          <div className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex items-center gap-3 rounded-2xl border border-border bg-surface/95 p-3 shadow-lg backdrop-blur">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">{llegadaTexto}</p>
+              <p className="truncate text-xs text-foreground-muted">
+                {data.conductor.nombre} · {data.unidad?.placa ?? 'Por confirmar'}
               </p>
             </div>
-            <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold">{realtimeStatus}</span>
+            {data.conductor.telefono ? (
+              <a
+                aria-label="Llamar al conductor"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-product text-white"
+                href={callHref(data.conductor.telefono)}
+              >
+                <Phone className="h-5 w-5" />
+              </a>
+            ) : null}
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-md bg-white/10 p-3">
-              <Plane className="h-5 w-5 text-white/80" />
-              <p className="mt-2 text-xs text-white/65">Vuelo</p>
-              <p className="text-lg font-semibold">{data.ruta.vueloCodigo ?? 'Por confirmar'}</p>
+        </>
+      ) : (
+        <>
+          {/* Banner superior breve */}
+          <div className="absolute inset-x-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex items-center gap-2">
+            <div className="flex flex-1 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-2 shadow-md backdrop-blur">
+              <span className="rounded bg-brand-tenant px-2 py-0.5 text-xs font-semibold text-white">Taxi Green</span>
+              <span className="truncate text-sm font-medium text-foreground">{estadoViajePasajero(estado)}</span>
+              <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold text-foreground-muted">
+                <span
+                  className={`h-2 w-2 rounded-full ${liveStatus === 'en_vivo' ? 'bg-success' : 'bg-warning'}`}
+                />
+                {liveStatus === 'en_vivo' ? 'En vivo' : 'Actualizando'}
+              </span>
             </div>
-            <div className="rounded-md bg-white/10 p-3">
-              <Clock className="h-5 w-5 text-white/80" />
-              <p className="mt-2 text-xs text-white/65">Estado</p>
-              <p className="text-lg font-semibold">{statusLabel(data.viaje.estado)}</p>
-            </div>
+            <ThemeToggle className="bg-surface/95 shadow-md backdrop-blur" />
           </div>
-        </div>
 
-        <div className="mt-4 grid gap-4">
-          <DriverCard data={data} />
-          <VehicleCard data={data} />
-          <MeetingPointCard data={data} />
-          <PassengerMap data={data} driverPosition={driverPosition} route={route} />
-          <TripTimeline data={data} />
+          <BottomSheet level={sheetLevel} onLevelChange={setSheetLevel}>
+            <DriverSummary data={data} route={route} finished={finished} />
 
-          <section className="grid grid-cols-2 gap-3">
+            <div className="mt-4 rounded-2xl border-2 border-product/70 bg-product-muted/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-product">Punto de encuentro</p>
+              <p className="mt-1 text-xl font-semibold leading-snug text-foreground">
+                {data.ruta.puntoEncuentro ?? 'Salida 3, columna F2'}
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-2">
+              <InfoRow icon={<MapPin className="h-4 w-4" />} label="Recojo" value={data.ruta.origen.texto} />
+              <InfoRow icon={<MapPin className="h-4 w-4" />} label="Destino" value={data.ruta.destino.texto} />
+              <InfoRow
+                icon={<Plane className="h-4 w-4" />}
+                label="Vuelo"
+                value={data.ruta.vueloCodigo ?? 'Por confirmar'}
+              />
+              <InfoRow
+                icon={<UserRound className="h-4 w-4" />}
+                label="Pasajero"
+                value={`${data.pasajero.nombre} · ${formatDate(data.reserva.fechaHoraServicio)}`}
+              />
+            </div>
+
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-surface-muted px-3 py-2 text-sm">
+              <span className="text-foreground-muted">Tu código</span>
+              <span className="font-semibold tracking-wide text-foreground">{data.reserva.voucherCodigo}</span>
+            </div>
+
+            {finished ? (
+              <div className="mt-4 grid gap-3">
+                <CompletionPanel data={data} refresh={refresh} />
+                <IncidentPanel data={data} refresh={refresh} />
+              </div>
+            ) : null}
+
             <a
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-product text-sm font-semibold text-white"
-              href={callHref(data.conductor.telefono)}
-            >
-              <Phone className="h-4 w-4" />
-              Conductor
-            </a>
-            <a
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-product bg-white text-sm font-semibold text-product"
+              className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface text-sm font-semibold text-product"
               href="tel:+5116111111"
             >
               <Phone className="h-4 w-4" />
-              Taxi Green
+              Llamar a Taxi Green
             </a>
-          </section>
-
-          <section className="rounded-md border border-border bg-white p-4">
-            <p className="text-xs font-semibold uppercase text-neutral-500">Destino</p>
-            <h2 className="mt-1 text-lg font-semibold text-product-deep">{data.ruta.destino.texto}</h2>
-            <p className="mt-2 text-sm text-neutral-600">
-              Pasajero: {data.pasajero.nombre}. Solicitante: {data.solicitante.nombre ?? 'Hotel aliado'}.
-            </p>
-          </section>
-
-          {finished ? <CompletionPanel data={data} refresh={refresh} /> : null}
-          {finished ? <IncidentPanel data={data} refresh={refresh} /> : null}
-        </div>
-      </section>
+          </BottomSheet>
+        </>
+      )}
     </main>
   );
 }
