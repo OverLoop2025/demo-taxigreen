@@ -39,6 +39,14 @@ El prompt maestro es buena guía. Se adopta con **6 ajustes**:
 | F7 | Soporte / calificación / comprobante progresivos | ⏳ |
 | F8 | Pruebas, smoke comercial, cierre y docs | ⏳ |
 
+**Hardening F2 (2026-06-05):** la vista map-first del pasajero se veía rota en desktop (mapa full-bleed →
+área vacía a pantalla ancha; en local sin `NEXT_PUBLIC_MAPBOX_TOKEN` se ve el `MapFallback`). Se contuvo en
+**columna centrada (máx. 480px)** sobre fondo sobrio: full-screen en móvil, impecable en desktop como la
+versión de producción. La altura sigue siendo la del viewport, así el bottom sheet (mide con
+`window.innerHeight`) calza exacto. Mapa más fluido: `ResizeObserver → map.resize()` (el canvas desfasado del
+contenedor hacía sentir el paneo "duro") + `maxZoom` cómodo; el `MapFallback` ya no queda tapado por el sheet.
+Verificado con screenshots (desktop 1366×800 + móvil 390×844) y e2e (smoke + passenger-link) 3/3.
+
 **Cierre F3 (2026-06-05):** `apps/driver/app/(auth)/asignacion/[id].tsx` pasó de `ScrollView` + mapa `h-80`
 a navegación estilo Waze: mapa de fondo a pantalla completa (`AssignmentMap` con prop `fill`), banner
 superior con instrucción humana (`bannerConductor`) + llegada (`formatLlegada`, nunca "ETA"), y panel
