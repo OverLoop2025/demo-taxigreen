@@ -15,6 +15,10 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "visual:web": "node scripts/visual-web.mjs",
+    "visual:driver": "maestro test .maestro",
+    "visual:driver:adb": "node scripts/visual-driver-adb.mjs",
+    "visual:all": "pnpm visual:web && pnpm visual:driver",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

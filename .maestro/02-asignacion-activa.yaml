@@ -1,0 +1,16 @@
+# Maestro flow — Abrir la asignación activa y capturar el modo navegación (F3).
+# Genera artifacts/maestro/driver-home-asignacion-activa.png y driver-asignacion-activa.png
+#
+# Asume sesión ya iniciada (corre 01-login.yaml antes, o el flow relanza y reusa sesión).
+# Requiere que conductor1 tenga una reserva asignada en la DB del guion.
+appId: pe.taxigreen.driver
+---
+- launchApp
+- assertVisible: "Turno conductor"
+- takeScreenshot: artifacts/maestro/driver-home-asignacion-activa
+- tapOn: "Abrir asignación"
+# Pantalla de navegación full-screen: banner de instrucción + panel inferior + acción única.
+- assertVisible:
+    text: "Punto de encuentro|Destino"
+    enabled: true
+- takeScreenshot: artifacts/maestro/driver-asignacion-activa

@@ -29,6 +29,9 @@ coverage/
 playwright-report/
 test-results/
 
+# Evidencia visual generada (visual:all) — artefactos, no fuente
+artifacts/
+
 # Sistema / editores
 .DS_Store
 Thumbs.db

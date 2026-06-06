@@ -1,0 +1,28 @@
+# Maestro flow — Recorrido de estados del viaje en modo navegación (F3).
+# Captura cada fase: en camino, en punto, a bordo y finalizado.
+# Genera driver-en-camino / driver-en-punto / driver-a-bordo / driver-finalizado.
+#
+# La acción única cambia por estado (helper accionConductor del shared):
+#   asignado -> "Voy al punto" -> en_camino
+#   en_camino -> "Ya llegué"   -> en_punto
+#   en_punto  -> "Iniciar viaje" -> a_bordo
+#   a_bordo   -> "Finalizar"    -> finalizado
+# Cada transición pega al backend (necesita web API + reserva del guion). Destructivo:
+# reseed con `pnpm --filter @taxigreen/database db:seed-guion` para repetir.
+appId: pe.taxigreen.driver
+---
+- launchApp
+- tapOn: "Abrir asignación"
+- assertVisible: "Voy al punto"
+- tapOn: "Voy al punto"
+- assertVisible: "Ya llegué"
+- takeScreenshot: artifacts/maestro/driver-en-camino
+- tapOn: "Ya llegué"
+- assertVisible: "Iniciar viaje"
+- takeScreenshot: artifacts/maestro/driver-en-punto
+- tapOn: "Iniciar viaje"
+- assertVisible: "Finalizar"
+- takeScreenshot: artifacts/maestro/driver-a-bordo
+- tapOn: "Finalizar"
+- assertVisible: "Volver al inicio"
+- takeScreenshot: artifacts/maestro/driver-finalizado

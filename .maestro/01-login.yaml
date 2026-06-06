@@ -1,0 +1,25 @@
+# Maestro flow — Login del conductor (app/driver).
+# Genera artifacts/maestro/driver-login.png
+#
+# appId = android.package del dev build / standalone (app.json). En Expo Go el
+# appId es host.exp.exponent y hay que abrir por deep link; ver docs §21.
+#
+# Requisitos para correr (ver DOCUMENTACION_TECNICA §21):
+#   - JDK + Android SDK + emulador (o Android físico via adb).
+#   - Maestro: curl -Ls https://get.maestro.mobile.dev | bash
+#   - App instalada (dev build/EAS) y backend web accesible (EXPO_PUBLIC_API_URL).
+#   - DB con guion sembrado: pnpm --filter @taxigreen/database db:seed-guion
+appId: pe.taxigreen.driver
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Ingreso de conductor"
+# El email viene pre-rellenado (conductor1@taxigreen.demo). PIN 1234 vía NumPad.
+- tapOn: "1"
+- tapOn: "2"
+- tapOn: "3"
+- tapOn: "4"
+- takeScreenshot: artifacts/maestro/driver-login
+- tapOn: "Entrar"
+- assertVisible: "Turno conductor"
+- takeScreenshot: artifacts/maestro/driver-home
