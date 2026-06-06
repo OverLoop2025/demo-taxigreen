@@ -77,14 +77,16 @@ function stepFromStatus(status: Status): 0 | 1 | 2 {
 }
 
 function Stepper({ current }: { current: 0 | 1 | 2 }) {
-  const steps = ['Validar', 'Confirmar acceso', 'Listo'];
+  // Etiquetas cortas para que las 3 quepan sin cortarse en móvil (la acción completa
+  // "Confirmar acceso" vive en el botón). min-w-0 + truncate evitan overflow.
+  const steps = ['Validar', 'Confirmar', 'Listo'];
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       {steps.map((label, index) => {
         const active = index === current;
         const done = index < current;
         return (
-          <div key={label} className="flex flex-1 items-center gap-2">
+          <div key={label} className="flex min-w-0 flex-1 items-center gap-1.5">
             <span
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                 done
@@ -97,7 +99,7 @@ function Stepper({ current }: { current: 0 | 1 | 2 }) {
               {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
             </span>
             <span
-              className={`truncate text-sm font-semibold ${active || done ? 'text-foreground' : 'text-foreground-muted'}`}
+              className={`truncate text-xs font-semibold sm:text-sm ${active || done ? 'text-foreground' : 'text-foreground-muted'}`}
             >
               {label}
             </span>

@@ -746,7 +746,7 @@ function DriverSummary({
     <div>
       <p className="text-sm font-medium text-foreground-muted">{estadoViajePasajero(estado)}</p>
       <p className="mt-0.5 text-2xl font-semibold text-foreground">
-        {finished ? 'Viaje completado' : formatLlegada(minutosLlegada(route, data))}
+        {finished ? 'Llegaste a tu destino' : formatLlegada(minutosLlegada(route, data))}
       </p>
 
       <div className="mt-4 flex items-center gap-3">
