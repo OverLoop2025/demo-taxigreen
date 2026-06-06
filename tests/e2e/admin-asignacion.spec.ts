@@ -6,8 +6,10 @@ test('admin asigna conductor y unidad, y auditoría registra reserva_asignada', 
   await page.getByLabel('Contraseña').fill('demo1234');
   await page.getByRole('button', { name: /Ingresar/i }).click();
 
-  await page.waitForURL('**/admin');
-  await expect(page.getByRole('heading', { name: /Despacho operativo/i })).toBeVisible();
+  // pathname exacto: el glob '**/admin' también casa con '?callbackUrl=/admin' y
+  // retornaría antes de autenticar. Timeout amplio: /admin hace query a Supabase.
+  await page.waitForURL((url) => new URL(url).pathname === '/admin', { timeout: 20000 });
+  await expect(page.getByRole('heading', { name: /Despacho operativo/i })).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('TG-2026-0001')).toBeVisible();
 
   await page.getByText('TG-2026-0001').click();
