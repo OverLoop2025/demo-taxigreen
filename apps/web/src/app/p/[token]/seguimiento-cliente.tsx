@@ -50,6 +50,7 @@ type RouteState = {
 
 type MapboxMap = {
   remove: () => void;
+  resize: () => void;
   on: (event: 'load', callback: () => void) => void;
   addSource: (id: string, source: Record<string, unknown>) => void;
   addLayer: (layer: Record<string, unknown>) => void;
@@ -223,7 +224,7 @@ function minutosLlegada(route: RouteState, data: PassengerTripData) {
 /** Fondo a pantalla completa cuando el mapa no carga: humano, sin datos técnicos. */
 function MapFallback({ data }: { data: PassengerTripData }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-product-deep to-neutral-900 p-8 text-center">
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-product-deep to-neutral-900 px-8 pb-[42dvh] pt-8 text-center">
       <div className="max-w-xs">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
           <MapPin className="h-7 w-7 text-white" />
@@ -255,6 +256,7 @@ function PassengerMap({
   const driverMarkerRef = useRef<MapboxMarker | null>(null);
   const originMarkerRef = useRef<MapboxMarker | null>(null);
   const destinationMarkerRef = useRef<MapboxMarker | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Sólo se dibuja geometría REAL de Mapbox (>2 vértices = trazado por calles).
@@ -289,9 +291,20 @@ function PassengerMap({
         style: 'mapbox://styles/mapbox/dark-v11',
         center,
         zoom: 11.5,
+        // Zoom máximo cómodo: evita "perderse" haciendo zoom al vacío.
+        maxZoom: 17,
         attributionControl: false,
       });
       mapRef.current = map;
+
+      // Mantener el canvas sincronizado con el tamaño real del contenedor. Sin
+      // esto, si el mapa se inicializa antes de que el layout (columna/dvh) se
+      // asiente, los gestos quedan desfasados y el paneo se siente "duro".
+      if (containerRef.current && typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(() => map.resize());
+        observer.observe(containerRef.current);
+        resizeObserverRef.current = observer;
+      }
 
       map.on('load', () => {
         if (cancelled) return;
@@ -351,6 +364,8 @@ function PassengerMap({
 
     return () => {
       cancelled = true;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       driverMarkerRef.current?.remove();
       driverMarkerRef.current = null;
       originMarkerRef.current?.remove();
@@ -906,8 +921,13 @@ export function PassengerTrackingClient({ initialData }: Props) {
   const llegadaTexto = finished ? 'Viaje completado' : formatLlegada(minutosLlegada(route, data));
 
   return (
-    <main className="relative h-[100dvh] w-full overflow-hidden bg-background">
-      <PassengerMap data={data} driverPosition={driverPosition} route={route} recenterKey={recenterKey} />
+    <div className="relative flex h-[100dvh] w-full justify-center overflow-hidden bg-neutral-100 dark:bg-neutral-950">
+      {/* Columna centrada (máx. 480px) en desktop: la experiencia map-first se
+          mantiene contenida y limpia como en móvil, sin área vacía a pantalla
+          ancha. h-full = altura de viewport, así el bottom sheet (que mide con
+          window.innerHeight) sigue calzando exacto. */}
+      <main className="relative h-full w-full max-w-[480px] overflow-hidden bg-background shadow-2xl">
+        <PassengerMap data={data} driverPosition={driverPosition} route={route} recenterKey={recenterKey} />
 
       {/* Controles del mapa (siempre visibles) */}
       <div className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex flex-col gap-2">
@@ -1023,6 +1043,7 @@ export function PassengerTrackingClient({ initialData }: Props) {
           </BottomSheet>
         </>
       )}
-    </main>
+      </main>
+    </div>
   );
 }
