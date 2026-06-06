@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { NumPad } from '@/components/NumPad';
 import { TouchButton } from '@/components/TouchButton';
 import { useAuth } from '@/features/auth/use-auth';
@@ -36,7 +36,7 @@ export default function LoginScreen() {
       router.replace('/(auth)/home');
     } catch {
       setPin('');
-      setError('Email o PIN incorrecto.');
+      setError('Ese email o PIN no coincide. Inténtalo de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -47,41 +47,45 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       className="flex-1 bg-product-deep"
     >
-      <View className="flex-1 justify-end px-5 pb-6 pt-12">
-        <View className="mb-6">
-          <Text className="text-3xl font-bold text-white">Taxi Green</Text>
-          <Text className="mt-1 text-lg font-semibold text-white/75">Ingreso de conductor</Text>
-        </View>
-
-        <View className="rounded-2xl bg-gray-50 px-5 py-5">
-          <Text className="text-sm font-bold uppercase tracking-wide text-gray-500">Email</Text>
-          <TextInput
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            value={email}
-            editable={!loading}
-            onChangeText={setEmail}
-            className="mt-2 min-h-16 rounded-lg border border-gray-200 bg-white px-4 text-lg font-semibold text-product-deep"
-          />
-
-          <Text className="mt-5 text-sm font-bold uppercase tracking-wide text-gray-500">PIN de 4 digitos</Text>
-          <View className="mt-3 h-16 items-center justify-center rounded-lg bg-white">
-            <Text className="text-3xl font-bold text-product">{pinDots}</Text>
+      <ScrollView contentContainerClassName="min-h-full justify-center px-5 py-10">
+        <View className="mx-auto w-full max-w-md">
+          <View className="mb-6 items-center">
+            <View className="rounded-2xl bg-brand-tenant px-4 py-2">
+              <Text className="text-xl font-bold text-white">Taxi Green</Text>
+            </View>
+            <Text className="mt-3 text-base font-semibold text-white/75">Ingreso de conductor</Text>
           </View>
 
-          {error ? <Text className="mt-3 text-base font-semibold text-red-600">{error}</Text> : null}
+          <View className="rounded-3xl bg-gray-50 px-5 py-6">
+            <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">Email</Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              value={email}
+              editable={!loading}
+              onChangeText={setEmail}
+              className="mt-2 min-h-14 rounded-xl border border-gray-200 bg-white px-4 text-base font-semibold text-product-deep"
+            />
 
-          <NumPad value={pin} onChange={setPin} disabled={loading} />
-          <TouchButton
-            label="Entrar"
-            loading={loading}
-            disabled={pin.length !== 4}
-            className="mt-5"
-            onPress={submit}
-          />
+            <Text className="mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">PIN de 4 dígitos</Text>
+            <View className="mt-2 h-14 items-center justify-center rounded-xl bg-white">
+              <Text className="text-2xl font-bold tracking-widest text-product">{pinDots}</Text>
+            </View>
+
+            {error ? <Text className="mt-3 text-sm font-semibold text-red-600">{error}</Text> : null}
+
+            <NumPad value={pin} onChange={setPin} disabled={loading} />
+            <TouchButton
+              label="Entrar"
+              loading={loading}
+              disabled={pin.length !== 4}
+              className="mt-5"
+              onPress={submit}
+            />
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
