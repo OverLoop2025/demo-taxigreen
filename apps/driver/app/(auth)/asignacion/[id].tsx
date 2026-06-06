@@ -1,7 +1,8 @@
+import { bannerConductor, accionConductor, formatLlegada } from '@taxigreen/shared';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, Text, ToastAndroid, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, ToastAndroid, View } from 'react-native';
 import { TouchButton } from '@/components/TouchButton';
 import { AssignmentMap } from '@/components/map/AssignmentMap';
 import { ApiError } from '@/features/api/client';
@@ -44,42 +45,37 @@ function serviceTimeLabel(value: string) {
   });
 }
 
-function etaLabel(estado: EstadoViaje | null | undefined) {
-  if (estado === 'en_camino') return 'ETA 8 min al punto';
-  if (estado === 'en_punto') return 'Esperando pasajero';
-  if (estado === 'a_bordo') return 'ETA 23 min al destino';
+// Línea grande de llegada en el banner. Nunca "ETA": lenguaje de cliente.
+function etaHumano(estado: EstadoViaje | null | undefined, duracionSegundos: number | null) {
+  if (estado === 'en_punto') return 'Esperando al pasajero';
   if (estado === 'finalizado') return 'Servicio cerrado';
-  return 'Listo para iniciar';
+  const minutos = typeof duracionSegundos === 'number' ? Math.ceil(duracionSegundos / 60) : null;
+  return formatLlegada(minutos);
 }
 
-function dynamicEtaLabel(estado: EstadoViaje | null | undefined, duracionSegundos: number | null) {
-  if (estado === 'en_punto') return 'Esperando pasajero';
-  if (estado === 'finalizado') return 'Servicio cerrado';
-  if (typeof duracionSegundos === 'number') {
-    const minutes = Math.max(0, Math.ceil(duracionSegundos / 60));
-    if (estado === 'a_bordo') return `ETA ${minutes} min al destino`;
-    return `ETA ${minutes} min al punto`;
-  }
-  return etaLabel(estado);
+// Origen de la ruta en lenguaje humano (sin "Mapbox"/"estimación").
+function rutaFuenteHumano(fuente: 'mapbox' | 'estimacion') {
+  return fuente === 'mapbox' ? 'En vivo con tráfico' : 'Calculando la mejor ruta';
 }
 
-function routeSourceLabel(source: 'mapbox' | 'estimacion') {
-  return source === 'mapbox' ? 'Ruta real con tráfico' : 'Estimación de respaldo';
-}
-
-function StatusPill({ label }: { label: string }) {
+function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <View className="rounded-full bg-white/15 px-4 py-2">
-      <Text className="text-sm font-bold text-white">{label}</Text>
+    <View className="flex-row items-baseline justify-between gap-3">
+      <Text className="text-sm font-semibold text-gray-500">{label}</Text>
+      <Text className="flex-1 text-right text-base font-bold text-product-deep" numberOfLines={1}>
+        {value || 'Pendiente'}
+      </Text>
     </View>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <View className="rounded-lg bg-gray-50 px-4 py-3">
+    <View className="flex-1 rounded-xl bg-gray-50 px-3 py-3">
       <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">{label}</Text>
-      <Text className="mt-1 text-base font-bold text-product-deep">{value || 'Pendiente'}</Text>
+      <Text className="mt-1 text-sm font-bold text-product-deep" numberOfLines={1}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -96,6 +92,7 @@ export default function AssignmentScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<NextTripAction | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const autoRetryArmed = useRef(false);
   const prevOnlineRef = useRef<boolean | null>(null);
 
@@ -190,9 +187,9 @@ export default function AssignmentScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-100 px-6">
-        <ActivityIndicator color="#227FDE" size="large" />
-        <Text className="mt-4 text-lg font-bold text-product-deep">Cargando asignación</Text>
+      <View className="flex-1 items-center justify-center bg-product-deep px-6">
+        <ActivityIndicator color="#FFFFFF" size="large" />
+        <Text className="mt-4 text-lg font-bold text-white">Cargando viaje</Text>
       </View>
     );
   }
@@ -201,9 +198,9 @@ export default function AssignmentScreen() {
     return (
       <View className="flex-1 justify-center bg-gray-100 px-6">
         <View className="rounded-2xl bg-white px-5 py-6">
-          <Text className="text-2xl font-bold text-product-deep">No se encontró esta asignación</Text>
+          <Text className="text-2xl font-bold text-product-deep">No se encontró este viaje</Text>
           <Text className="mt-3 text-base leading-6 text-gray-600">
-            Puede que haya sido reasignada o no pertenezca a tu conductor.
+            Puede que haya sido reasignado o no pertenezca a tu conductor.
           </Text>
           {error ? <Text className="mt-3 text-base font-semibold text-red-600">{error}</Text> : null}
           <TouchButton label="Volver al inicio" className="mt-5" onPress={() => router.replace('/(auth)/home')} />
@@ -212,119 +209,129 @@ export default function AssignmentScreen() {
     );
   }
 
+  const estadoBanner: EstadoViaje = estadoViaje ?? 'asignado';
+  const punto = assignment.puntoEncuentro ?? 'Salida 3, columna F2';
+  const destino = assignment.destino.texto;
+  const mostrandoDestino = estadoViaje === 'a_bordo' || estadoViaje === 'finalizado';
+  const focalLabel = mostrandoDestino ? 'Destino' : 'Punto de encuentro';
+  const focalValue = mostrandoDestino ? destino : punto;
+  const unidadLabel = assignment.unidad
+    ? `${assignment.unidad.placa} · ${assignment.unidad.marca} ${assignment.unidad.modelo}`
+    : 'Unidad pendiente';
+  const ubicacionLabel = tracking.status === 'tracking' ? 'Enviando posición' : tracking.status.replaceAll('_', ' ');
+
   return (
-    <>
+    <View className="flex-1 bg-product-deep">
       {trackingActive ? <KeepAwakeGate /> : null}
-      <ScrollView className="flex-1 bg-gray-100" contentContainerClassName="px-5 pb-8 pt-10">
-        <View className="rounded-2xl bg-product-deep px-5 py-5">
-          <View className="flex-row flex-wrap items-center justify-between gap-3">
-            <Text className="text-base font-semibold text-white/70">Viaje activo</Text>
-            <StatusPill label={tripStatusLabel(estadoViaje)} />
+
+      {/* Mapa de fondo a pantalla completa (estilo navegación). */}
+      <View className="absolute inset-0">
+        <AssignmentMap fill assignment={assignment} driverLocation={tracking.lastLocation} route={route.route} />
+      </View>
+
+      {/* Banner superior: instrucción de navegación + llegada. */}
+      <View className="absolute inset-x-0 top-0 px-4 pb-3 pt-12">
+        <View className="rounded-2xl bg-product-deep/95 px-4 py-4 shadow-lg">
+          <View className="flex-row items-center gap-3">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Volver al inicio"
+              onPress={() => router.replace('/(auth)/home')}
+              className="h-10 w-10 items-center justify-center rounded-full bg-white/15"
+            >
+              <Text className="text-3xl font-bold leading-7 text-white">‹</Text>
+            </Pressable>
+            <View className="flex-1">
+              <Text className="text-xs font-semibold uppercase tracking-wide text-white/60">
+                {tripStatusLabel(estadoViaje)}
+              </Text>
+              <Text className="text-xl font-bold leading-7 text-white" numberOfLines={2}>
+                {bannerConductor(estadoBanner, { punto, destino })}
+              </Text>
+            </View>
           </View>
-          <Text className="mt-4 text-3xl font-bold leading-9 text-white">{assignment.pasajero.nombre}</Text>
-          <Text className="mt-2 text-lg font-semibold text-white/80">
-            {assignment.vuelo.codigo ?? 'Vuelo por confirmar'} · {assignment.voucherCodigo}
-          </Text>
-          <Text className="mt-3 text-base font-semibold text-white">
-            {dynamicEtaLabel(estadoViaje, route.route.duracionSegundos)}
-          </Text>
-          <Text className="mt-1 text-sm font-semibold text-white/70">{routeSourceLabel(route.route.fuente)}</Text>
-        </View>
-
-        <View className="mt-4 rounded-2xl bg-white px-5 py-5">
-          <Text className="text-sm font-bold uppercase tracking-wide text-gray-500">Punto de encuentro</Text>
-          <Text className="mt-2 text-3xl font-bold leading-9 text-product-deep">
-            {assignment.puntoEncuentro ?? 'Salida 3, columna F2'}
-          </Text>
-          <Text className="mt-2 text-base leading-6 text-gray-600">
-            Recoge en {assignment.origen.texto}. El hotel es solicitante, no origen físico.
-          </Text>
-        </View>
-
-        <View className="mt-4">
-          <AssignmentMap assignment={assignment} driverLocation={tracking.lastLocation} route={route.route} />
-        </View>
-
-        <View className="mt-4 gap-3">
-          <InfoRow label="Origen físico" value={assignment.origen.texto} />
-          <InfoRow label="Destino" value={assignment.destino.texto} />
-          <InfoRow label="Hora servicio" value={serviceTimeLabel(assignment.fechaHoraServicio)} />
-          <InfoRow
-            label="Unidad"
-            value={
-              assignment.unidad
-                ? `${assignment.unidad.placa} · ${assignment.unidad.marca} ${assignment.unidad.modelo}`
-                : 'Unidad pendiente'
-            }
-          />
-        </View>
-
-        <View className="mt-4 flex-row gap-3">
-          <View className="min-h-20 flex-1 rounded-2xl bg-white px-4 py-4">
-            <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">Ubicación</Text>
-            <Text className="mt-1 text-base font-bold text-product-deep">
-              {tracking.status === 'tracking' ? 'Enviando posición' : tracking.status.replaceAll('_', ' ')}
-            </Text>
-          </View>
-          <View className="min-h-20 flex-1 rounded-2xl bg-white px-4 py-4">
-            <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">Red</Text>
-            <Text className="mt-1 text-base font-bold text-product-deep">{network.label}</Text>
+          <View className="mt-3 flex-row items-center justify-between rounded-xl bg-white/10 px-3 py-2">
+            <Text className="text-base font-bold text-white">{etaHumano(estadoViaje, route.route.duracionSegundos)}</Text>
+            <Text className="text-xs font-semibold text-white/70">{rutaFuenteHumano(route.route.fuente)}</Text>
           </View>
         </View>
+      </View>
+
+      {/* Panel inferior: foco de la fase + una acción principal. */}
+      <View className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white px-5 pb-8 pt-3 shadow-2xl">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Ver menos' : 'Ver más detalles'}
+          onPress={() => setExpanded((value) => !value)}
+          className="items-center pb-3"
+        >
+          <View className="h-1.5 w-12 rounded-full bg-gray-300" />
+        </Pressable>
+
+        <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">{focalLabel}</Text>
+        <Text className="mt-1 text-2xl font-bold leading-8 text-product-deep" numberOfLines={2}>
+          {focalValue}
+        </Text>
+        <Text className="mt-1 text-base text-gray-600" numberOfLines={1}>
+          {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
+        </Text>
+
+        {expanded ? (
+          <View className="mt-4 gap-3">
+            <DetailRow label="Recojo en" value={assignment.origen.texto} />
+            <DetailRow label="Destino" value={assignment.destino.texto} />
+            <DetailRow label="Hora" value={serviceTimeLabel(assignment.fechaHoraServicio)} />
+            <DetailRow label="Unidad" value={unidadLabel} />
+            <DetailRow label="Código" value={assignment.voucherCodigo} />
+            <View className="mt-1 flex-row gap-3">
+              <MiniStat label="Ubicación" value={ubicacionLabel} />
+              <MiniStat label="Red" value={network.label} />
+            </View>
+          </View>
+        ) : null}
 
         {notice ? (
           <View className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-            <Text className="text-base font-semibold text-product-deep">{notice}</Text>
+            <Text className="text-sm font-semibold text-product-deep">{notice}</Text>
           </View>
         ) : null}
 
         {error || tracking.error ? (
           <View className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-            <Text className="text-base font-semibold text-red-700">{error ?? tracking.error}</Text>
+            <Text className="text-sm font-semibold text-red-700">{error ?? tracking.error}</Text>
           </View>
         ) : null}
 
-        <View className="mt-5 rounded-2xl bg-white px-5 py-5">
-          <Text className="text-xl font-bold text-product-deep">Siguiente acción</Text>
+        <View className="mt-5">
           {estadoViaje === 'finalizado' ? (
             <>
-              <Text className="mt-3 text-base leading-6 text-gray-600">
+              <Text className="mb-3 text-sm leading-5 text-gray-600">
                 Servicio terminado. La reserva quedó por liquidar; el cierre comercial sigue en el link del pasajero.
               </Text>
-              <TouchButton label="Volver al inicio" className="mt-5" onPress={() => router.replace('/(auth)/home')} />
+              <TouchButton label="Volver al inicio" onPress={() => router.replace('/(auth)/home')} />
             </>
           ) : pendingRetry ? (
             <>
-              <Text className="mt-3 text-base leading-6 text-gray-600">
+              <Text className="mb-3 text-sm leading-5 text-gray-600">
                 Hay una acción pendiente. Se reintentará cuando vuelva la conexión, o puedes forzar el intento.
               </Text>
               <TouchButton
-                label={`Reintentar: ${pendingRetry.label}`}
+                label={`Reintentar: ${accionConductor(estadoBanner) ?? pendingRetry.label}`}
                 loading={submitting}
-                className="mt-5"
                 onPress={() => submitAction(pendingRetry)}
               />
             </>
           ) : nextAction ? (
-            <>
-              <Text className="mt-3 text-base leading-6 text-gray-600">{nextAction.helper}</Text>
-              <TouchButton
-                label={nextAction.label}
-                loading={submitting}
-                className="mt-5"
-                onPress={() => submitAction(nextAction)}
-              />
-            </>
+            <TouchButton
+              label={(estadoViaje ? accionConductor(estadoViaje) : null) ?? nextAction.label}
+              loading={submitting}
+              onPress={() => submitAction(nextAction)}
+            />
           ) : (
-            <>
-              <Text className="mt-3 text-base leading-6 text-gray-600">
-                El viaje no tiene una acción disponible. Actualiza la asignación o vuelve al inicio.
-              </Text>
-              <TouchButton label="Actualizar" tone="secondary" className="mt-5" onPress={() => loadAssignment()} />
-            </>
+            <TouchButton label="Actualizar" tone="secondary" onPress={() => loadAssignment()} />
           )}
         </View>
-      </ScrollView>
-    </>
+      </View>
+    </View>
   );
 }

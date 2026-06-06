@@ -16,6 +16,7 @@
     "@babel/runtime": "^7.24.0",
     "@rnmapbox/maps": "10.1.33",
     "@supabase/supabase-js": "^2.106.2",
+    "@taxigreen/shared": "workspace:*",
     "expo": "~51.0.39",
     "expo-camera": "~15.0.16",
     "expo-constants": "~16.0.2",

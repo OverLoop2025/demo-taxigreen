@@ -79,10 +79,13 @@ export function AssignmentMap({
   assignment,
   driverLocation,
   route,
+  fill = false,
 }: {
   assignment: DriverAssignment;
   driverLocation: DriverLocation | null;
   route: DriverRouteResult;
+  /** Modo navegación: el mapa ocupa todo el contenedor padre (sin tarjeta ni borde). */
+  fill?: boolean;
 }) {
   const token = env.EXPO_PUBLIC_MAPBOX_TOKEN;
   const { api: Mapbox, error } = useMapboxApi(Boolean(token));
@@ -111,7 +114,13 @@ export function AssignmentMap({
 
   if (!token || !Mapbox) {
     return (
-      <View className="min-h-72 rounded-xl border border-product/20 bg-blue-50 px-5 py-5">
+      <View
+        className={
+          fill
+            ? 'flex-1 justify-center bg-blue-50 px-5 py-5'
+            : 'min-h-72 rounded-xl border border-product/20 bg-blue-50 px-5 py-5'
+        }
+      >
         <Text className="text-sm font-bold uppercase tracking-wide text-product">Ruta operativa</Text>
         <Text className="mt-2 text-2xl font-bold text-product-deep">{'Aeropuerto -> Miraflores'}</Text>
         <Text className="mt-2 text-base font-bold text-product">
@@ -132,7 +141,11 @@ export function AssignmentMap({
   const { Camera, LineLayer, MapView, MarkerView, ShapeSource } = Mapbox;
 
   return (
-    <View className="h-80 overflow-hidden rounded-xl border border-product/20 bg-gray-200">
+    <View
+      className={
+        fill ? 'flex-1 bg-gray-200' : 'h-80 overflow-hidden rounded-xl border border-product/20 bg-gray-200'
+      }
+    >
       <MapView style={styles.map} styleURL="mapbox://styles/mapbox/dark-v11">
         <Camera centerCoordinate={center} zoomLevel={11.5} animationMode="easeTo" animationDuration={800} />
         {hasRoute ? (
@@ -179,14 +192,16 @@ export function AssignmentMap({
           </MarkerView>
         ) : null}
       </MapView>
-      <View className="absolute bottom-3 left-3 right-3 rounded-xl bg-white/95 px-4 py-3">
-        <Text className="text-sm font-bold text-product-deep">
-          {etaLabel(route.duracionSegundos)} · {distanceLabel(route.distanciaMetros)}
-        </Text>
-        <Text className="mt-1 text-xs font-semibold text-gray-500">
-          {route.fuente === 'mapbox' ? 'Ruta real por calles' : 'Estimación operativa'}
-        </Text>
-      </View>
+      {fill ? null : (
+        <View className="absolute bottom-3 left-3 right-3 rounded-xl bg-white/95 px-4 py-3">
+          <Text className="text-sm font-bold text-product-deep">
+            {etaLabel(route.duracionSegundos)} · {distanceLabel(route.distanciaMetros)}
+          </Text>
+          <Text className="mt-1 text-xs font-semibold text-gray-500">
+            {route.fuente === 'mapbox' ? 'Ruta real por calles' : 'Estimación operativa'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
