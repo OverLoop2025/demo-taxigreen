@@ -9,9 +9,9 @@ export function BrandHeader() {
       <div className="flex items-center gap-3">
         {/* Chip de tenant: único lugar donde aparece el verde de marca. */}
         <span className="rounded bg-brand-tenant px-2 py-1 text-xs font-semibold">Taxi Green</span>
-        <span className="text-sm opacity-80">Demo · operación trazable</span>
+        <span className="text-sm opacity-80">Demo en vivo</span>
       </div>
-      <span className="text-xs opacity-60">Demo final · operación en vivo</span>
+      <span className="text-xs opacity-60">Demo final</span>
     </header>
   );
 }
