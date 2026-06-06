@@ -2,12 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Superficies semánticas como variables CSS (Renovación F1 — modo claro/oscuro).
+ * Light = valores actuales de los tokens neutrales (cero regresión).
+ * Dark = extremo oscuro de la misma escala neutral (paleta azul cerrada intacta).
+ */
 :root {
-  --color-product: #227fde;
-  --color-product-deep: #0b0952;
   --color-background: #f9fafb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f3f4f6;
   --color-foreground: #1f2937;
+  --color-foreground-muted: #6b7280;
   --color-border: #e5e7eb;
+}
+
+.dark {
+  --color-background: #0b1120;
+  --color-surface: #111827;
+  --color-surface-muted: #1f2937;
+  --color-foreground: #e5e7eb;
+  --color-foreground-muted: #9ca3af;
+  --color-border: #1f2937;
 }
 
 body {

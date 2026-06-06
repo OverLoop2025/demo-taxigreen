@@ -14,6 +14,8 @@ const fontSize = Object.fromEntries(
  */
 const config: Config = {
   content: ['./src/**/*.{ts,tsx,mdx}'],
+  // Modo claro/oscuro por clase `.dark` en <html> (ThemeProvider). Renovación F1.
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -25,10 +27,14 @@ const config: Config = {
         warning: colors.semantic.warning,
         danger: colors.semantic.danger,
         info: colors.semantic.info,
-        background: colors.neutral.background,
-        border: colors.neutral.border,
-        foreground: colors.neutral.text,
-        surface: colors.neutral.surface,
+        // Superficies semánticas = variables CSS para que floten entre claro/oscuro.
+        // Light mode conserva los valores actuales (cero regresión visual).
+        background: 'var(--color-background)',
+        border: 'var(--color-border)',
+        foreground: 'var(--color-foreground)',
+        surface: 'var(--color-surface)',
+        'surface-muted': 'var(--color-surface-muted)',
+        'foreground-muted': 'var(--color-foreground-muted)',
       },
       fontFamily: {
         sans: [...typography.fontFamily.sans],
