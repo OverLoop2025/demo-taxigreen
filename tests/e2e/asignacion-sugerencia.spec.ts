@@ -14,17 +14,17 @@ test('copiloto sugiere asignación y el operador la acepta con auditoría', asyn
   await page.waitForURL('**/admin/reservas/**');
   await expect(page.getByRole('heading', { name: /Reserva TG-WA-/i })).toBeVisible();
 
-  await expect(page.getByRole('heading', { name: /Copiloto recomienda/i })).toBeVisible();
-  await expect(page.getByText(/Score \d+\/100/i)).toBeVisible();
-  await expect(page.getByRole('button', { name: /Aceptar sugerencia/i })).toBeEnabled();
+  await expect(page.getByRole('heading', { name: /Conductor sugerido/i })).toBeVisible();
+  await expect(page.getByText(/Modo seguro/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Confirmar recomendación/i })).toBeEnabled();
 
-  await page.getByRole('button', { name: /Aceptar sugerencia/i }).click();
-  await expect(page.getByRole('button', { name: /Aceptar sugerencia/i })).toBeHidden({
+  await page.getByRole('button', { name: /Confirmar recomendación/i }).click();
+  await expect(page.getByRole('button', { name: /Confirmar recomendación/i })).toBeHidden({
     timeout: 20_000,
   });
-  await expect(page.getByText(/Asignación vigente/i)).toBeVisible();
+  await expect(page.getByText(/Conductor asignado/i).first()).toBeVisible();
 
   await page.goto('/admin/auditoria?action=reserva_asignada');
-  await expect(page.getByText('reserva_asignada').first()).toBeVisible();
-  await expect(page.getByText('sugerencia_copiloto').first()).toBeVisible();
+  await expect(page.getByText('Conductor asignado').first()).toBeVisible();
+  await expect(page.getByText(/sugerencia copiloto/i).first()).toBeVisible();
 });
