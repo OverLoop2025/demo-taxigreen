@@ -58,6 +58,20 @@ vivo"). Dark-mode-aware por tokens. Lógica de validación/consumo/cámara intac
 test` 53/53. Nota: el voucher demo `TG-2026-0001` quedó consumido (2026-06-04); para ver el happy-path correr
 `pnpm --filter @taxigreen/database db:seed-guion`.
 
+**F3.7 — Identidad de color UNIFICADA: esmeralda + noche negra (2026-06-07):** se extendió el verde a **todo el
+sistema** (no solo el driver) de forma coherente, centralizado en los tokens:
+- `packages/shared/src/tokens/colors.ts`: `product` pasa de azul a **esmeralda** (DEFAULT `#059669` legible con
+  texto blanco; `deep` `#053226` para héroes/títulos; `400/500` = acentos brillantes `#34D399`/`#10B981` de
+  dopamina). `brand/tenant` a esmeralda vivo; `semantic.info` a verde. Propaga a TODA la web (clases semánticas).
+- `apps/web/src/app/globals.css`: **modo noche = NEGRO + grises neutros** (`#0a0a0b…#2a2a2e`), no navy → el verde
+  resalta al máximo. Light mode limpio (legibilidad).
+- Coherencia de detalle: degradado del hero de la landing a esmeralda; ruta del mapa pasajero a verde
+  (línea `#34D399`, casing `#053226`, marcador `#10B981`); mapa/fallback del driver a verde+oscuro.
+- Tests de tokens actualizados (shared + web smoke). Verde: `turbo typecheck lint test` 53/53, e2e 7/7 (dos fases),
+  `expo export` EXIT 0. Verificado con `visual:web` (landing/pasajero/counter, claro+oscuro): legible y coherente.
+- Pendiente menor: en modo oscuro, la etiqueta "PUNTO DE ENCUENTRO" del pasajero (verde sobre tinte verde) gana
+  con un acento más claro; perfil/incidencia del driver siguen en claro (migrar a oscuro en otra pasada).
+
 **F3.6 — Tonalidad móvil: dark-first + verde dopamina (2026-06-06):** por feedback del usuario ("el azul es
 simplista y genera cero dopamina; modo noche en negro/gris; mejor verde"). Se **reabre la decisión AZUL cerrada**
 (autorizada por el usuario) para `apps/driver`:

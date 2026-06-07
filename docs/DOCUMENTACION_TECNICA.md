@@ -87,20 +87,25 @@ Identidad visual = **paleta AZUL** (sistema dual). Detalle y justificación en `
 
 ---
 
-## 4. Identidad visual — paleta AZUL (decisión cerrada)
+## 4. Identidad visual — paleta VERDE esmeralda (renovación 2026-06-07)
 
-Sistema **dual** (cerrado el 2026-05-29):
+> **Cambio de decisión:** la paleta AZUL "cerrada" (2026-05-29) fue **reabierta por pedido explícito del usuario**
+> durante la renovación frontend (azul = poca dopamina; coherencia con la marca "Taxi Green"). El sistema pasa a
+> **verde esmeralda + modo noche negro/gris**, de forma coherente en web y app conductor.
 
 | Rol | Token | Color | Uso |
 |---|---|---|---|
-| Chrome del producto | `product.DEFAULT` / `product.deep` | `#227FDE` / `#0B0952` (azul) | **Toda la UI** (botones, headers, foco) |
-| Marca / tenant | `brand.tenant` | `#0B7A3B` (verde) | **Solo** logo y chip de tenant |
+| Chrome del producto | `product.DEFAULT` / `product.deep` | `#059669` / `#053226` (esmeralda) | **Toda la UI** (botones, headers, foco) |
+| Acentos dopamina | `product.400` / `product.500` | `#34D399` / `#10B981` | Glows, estados activos, pops sobre oscuro |
+| Marca / tenant | `brand.tenant` | `#10B981` (esmeralda vivo) | Logo y chip de tenant |
 | Bienestar / soporte | `care.DEFAULT` | `#6D28D9` (púrpura) | Superficie de incidencias |
-| Semánticos | `success/warning/danger/info` | — | Estados |
+| Semánticos | `success/warning/danger/info` | — (`info` ahora verde) | Estados |
 
-No se usa "verde total". Tokens en [`packages/shared/src/tokens/colors.ts`](../packages/shared/src/tokens/colors.ts),
-consumidos por Tailwind en web. Escalas completas + tipografía/spacing definitivos quedaron implementados en Sprint 1.
-Registro de la decisión: `_FUENTE_DESARROLLO/04_DECISIONES_ABIERTAS §A1`.
+**Modo noche = negro + grises neutros** (CSS vars en `apps/web/src/app/globals.css`: `#0a0a0b…#2a2a2e`), no navy,
+para máxima dopamina del verde. Light mode conserva legibilidad. Tokens en
+[`packages/shared/src/tokens/colors.ts`](../packages/shared/src/tokens/colors.ts) (web) y
+`apps/driver/tailwind.config.js` (driver, `brand`/`ink`). Verificado con `pnpm visual:web` (claro+oscuro) y en
+vivo en el driver. Detalle en `PLAN_RENOVACION_FRONTEND_PREMIUM.md` (F3.6/F3.7).
 
 ---
 
