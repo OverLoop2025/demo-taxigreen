@@ -628,8 +628,9 @@ adapter **Mapbox Directions `driving-traffic`**, (c) `withRutaFallback()` gobern
 Sin token o flag off ⇒ estimación; con token ⇒ ruta real.
 
 **Flujo de datos:** `GET /api/rutas/calcular` server-side (token pasajero o Bearer conductor) con **caché
-in-memory + throttle**; el token de Directions (`MAPBOX_SERVER_TOKEN`) **no sale al cliente** (los tiles siguen
-con `NEXT_PUBLIC_MAPBOX_TOKEN`). Recálculo cliente-side debounced: umbral **120 m y 6 s**; tramo según fase
+in-memory + throttle**; el token de Directions (`MAPBOX_SERVER_TOKEN`) queda server-side salvo cuando es un
+`pk.*` público reutilizable para tiles del navegador; nunca se expone un `sk.*`. Los tiles prefieren
+`NEXT_PUBLIC_MAPBOX_TOKEN` y usan ese `pk.*` como respaldo seguro. Recálculo cliente-side debounced: umbral **120 m y 6 s**; tramo según fase
 (`en_camino`→punto, `a_bordo`→destino). Geometría se actualiza con `setData` **sin recrear el mapa** (respeta el
 fix de auditoría S8).
 

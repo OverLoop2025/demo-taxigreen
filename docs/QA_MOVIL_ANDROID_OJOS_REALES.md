@@ -2,7 +2,8 @@
 
 Estado: creado el 2026-06-06 tras instalar toolchain Android/Expo/Maestro y validar capturas reales de
 `apps/driver`. **Actualizado 2026-06-06 (tarde):** método recomendado = **dev client + Metro** (ver §0),
-no el APK preview congelado.
+no el APK preview congelado. **Actualizado 2026-06-07:** `scrcpy` quedó instalado en Windows; la ruta
+realista para validar Mapbox nativo es Android físico por Wi-Fi ADB + mirror.
 
 Objetivo: que Claude/Codex pueda revisar la app del conductor con pantallas reales, no solo por lectura de codigo.
 
@@ -36,6 +37,63 @@ Objetivo: que Claude/Codex pueda revisar la app del conductor con pantallas real
 usa la misma geometría/anti-recta; `pnpm visual:web` lo captura. Sirve para validar la *ruta/geometría*, no el
 look nativo. **Recomendación final: opción 1 (físico + scrcpy) o, sin hardware, opción 2 (AVD+KVM).** BlueStacks
 queda sólo para UI no-mapa.
+
+### Estado verificado el 2026-06-07
+
+- `adb devices -l` ve sólo BlueStacks como `emulator-5554` (`SM-S908E`). Sirve para UI general; no sirve para
+  validar Mapbox nativo porque el render GL queda negro/vacío.
+- `scrcpy` 4.0 está instalado por `winget` en Windows. En esta sesión el PATH de Windows no lo tomó todavía, así
+  que usar ruta absoluta:
+  `/mnt/c/Users/User/AppData/Local/Microsoft/WinGet/Packages/Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe/scrcpy-win64-v4.0/scrcpy.exe`.
+- `/dev/kvm` existe y el usuario `jose` ya fue agregado al grupo `kvm`. En la sesion actual `groups` puede no mostrarlo
+  hasta reiniciar WSL, pero `sg kvm -c 'emulator -accel-check'` devuelve `KVM ... usable`.
+- AVD+KVM fue probado con `taxigreen_pixel` en `emulator-5580`: login, home y pantalla de viaje cargan correctamente.
+  Mapbox nativo sigue quedando negro con `-gpu swiftshader_indirect` y tambien con `-gpu host` (WSLg expone `llvmpipe`,
+  no GPU real). La red del emulador funciona (`ping api.mapbox.com = 0`) y la ruta llega como `En vivo con trafico`,
+  por lo que el bloqueo restante es renderer/GL nativo del emulador, no backend.
+- En la pantalla nativa de asignación se ocultó el `StatusBar` sólo durante navegación para evitar que los iconos/
+  números del sistema se dibujen encima del mapa full-screen.
+
+### Loop exacto para Android físico + scrcpy
+
+En el teléfono:
+
+1. Activar Opciones de desarrollador.
+2. Activar Depuración USB y Depuración inalámbrica.
+3. En Android 11+, abrir "Emparejar dispositivo con código" y copiar `IP:PUERTO_DE_PAIRING`, `código` y luego el
+   puerto normal de conexión ADB que muestra "Depuración inalámbrica".
+
+En WSL:
+
+```bash
+export JAVA_HOME="$HOME/.local/share/jdks/temurin-17"
+export ANDROID_HOME="$HOME/.local/share/android-sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$HOME/.maestro/bin:$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+
+adb pair <IP_DEL_TELEFONO>:<PUERTO_PAIRING>
+adb connect <IP_DEL_TELEFONO>:<PUERTO_ADB>
+adb -s <IP_DEL_TELEFONO>:<PUERTO_ADB> reverse tcp:8081 tcp:8081
+adb -s <IP_DEL_TELEFONO>:<PUERTO_ADB> reverse tcp:3000 tcp:3000
+```
+
+Para verlo en vivo en Windows:
+
+```bash
+/mnt/c/Users/User/AppData/Local/Microsoft/WinGet/Packages/Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe/scrcpy-win64-v4.0/scrcpy.exe -s <IP_DEL_TELEFONO>:<PUERTO_ADB>
+```
+
+Luego usar el mismo dev-client de §0: backend local en `:3000`, Metro en `:8081`, deep link
+`taxigreendriver://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
+
+Artefactos de esta verificacion:
+
+- `artifacts/maestro/avd-kvm-05-after-login.png` — home real en AVD+KVM.
+- `artifacts/maestro/avd-kvm-08-map-final.png` — mapa negro con `swiftshader_indirect`.
+- `artifacts/maestro/avd-kvm-10-map-gpu-host-final.png` — mapa negro con `-gpu host`/`llvmpipe`.
+
+Veredicto actualizado: para validar el mapa nativo de verdad, la ruta ganadora sigue siendo **Android físico + Wi-Fi
+ADB + scrcpy**. AVD+KVM queda útil para QA visual de toda la UI salvo Mapbox.
 
 ---
 

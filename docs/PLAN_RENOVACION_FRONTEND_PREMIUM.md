@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅ (1er pase)** · F5 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · F5 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -44,7 +44,7 @@ El prompt maestro es buena guía. Se adopta con **6 ajustes**:
 | **F3** | Conductor `asignacion/[id]` modo navegación full-screen (mapa fill + banner + panel) | ✅ |
 | **F4** | Counter premium + QR progresivo (flujo guiado por estado, sin jerga, dark) | ✅ |
 | F5 | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | 🔜 |
-| F6 | Despacho `/admin` simplificado | ⏳ |
+| **F6** | Despacho `/admin` simplificado | ✅ 1er pase |
 | F7 | Soporte / calificación / comprobante progresivos | ⏳ |
 | F8 | Pruebas, smoke comercial, cierre y docs | ⏳ |
 
@@ -71,6 +71,33 @@ sistema** (no solo el driver) de forma coherente, centralizado en los tokens:
   `expo export` EXIT 0. Verificado con `visual:web` (landing/pasajero/counter, claro+oscuro): legible y coherente.
 - Pendiente menor: en modo oscuro, la etiqueta "PUNTO DE ENCUENTRO" del pasajero (verde sobre tinte verde) gana
   con un acento más claro; perfil/incidencia del driver siguen en claro (migrar a oscuro en otra pasada).
+
+**F8 — Tema coherente con el sistema + cero tecnicismos (2026-06-07):** segundo pase de coherencia tras el F6/F3.7.
+(1) **Tema = sistema + override discreto, nunca pantallas mezcladas.** Web ya seguía `prefers-color-scheme`; se
+añadió el cambio claro/oscuro discreto en `BrandHeader` (cubre admin/counter) y se migraron las superficies que
+quedaban en claro forzado (admin/*, bienestar, audit-table, login, ui/input·label) a tokens semánticos
+(`bg-surface`, `text-foreground`, `border-border`, con variante `dark:text-product-200` en títulos). El **driver**
+pasó de "dark-first hardcodeado" (con `perfil`/`incidencia` en claro = mezcla) a **tokens semánticos vía
+`global.css` + `darkMode:'class'`**: una sola definición controla ambos modos, así que es imposible que una pantalla
+quede clara y otra oscura. Sigue al sistema por defecto y el conductor fuerza modo en **Perfil → Apariencia**
+(`ThemeProvider` + `expo-secure-store`); la `StatusBar` y la tab bar se adaptan; el mapa del conductor usa estilo
+**día/noche** según el tema (igual que el pasajero). (2) **Sin JSON ni jerga visible:** se eliminó el `JSON.stringify`
+del simulador de WhatsApp y el `payload` crudo del detalle de reserva; la auditoría muestra un **resumen legible**
+("Nuevo estado: en camino · Origen: sugerencia copiloto") en vez de JSON. wa-sim: "WA Sim/Sprint 4"→"WhatsApp/Reservas",
+"Extracción"→"Lectura del mensaje". (3) **Login del conductor limpio:** email usa el teclado del sistema; el PIN abre
+el teclado numérico propio **solo al tocarlo** y nunca coexisten (se descarta el del sistema) → sin redundancia ni
+pantalla corrompida. (4) **Solape del toggle:** medido con Playwright (móvil/desktop/landing) → **0 px²**.
+Verificación: `typecheck`+`lint` web/driver ✅, `turbo test` 51 ✅, `expo export android` EXIT 0, `pnpm e2e` **8/8**
+en dos fases (specs `wa-sim`/`admin-asignacion`/`asignacion-sugerencia` realineados a la copy humanizada).
+
+**F6 — Despacho simplificado, primer pase (2026-06-07):** `/admin`, detalle de reserva, actividad, resumen y
+bienestar se humanizaron para despacho real: se retiraron rutas internas visibles (`/admin`), "Realtime/Polling",
+"Algoritmo", "score", "cola" como dato principal, JSON/payload abierto y etiquetas densas. La recomendación de
+asignación ahora se presenta como **Conductor sugerido**; los criterios internos viven en **Ver motivos**. La
+actividad deja el detalle técnico colapsado; Bienestar habla de **casos por resolver** y no de incidencias. En
+paralelo, pasajero recibió controles de mapa separados por modo normal/fullscreen, mapa claro/oscuro, tráfico
+atenuado y acciones ordenadas (mensaje + llamada + valoración por 5 estrellas). Driver conserva navegación
+full-screen y copy humana ("Conexión", "En vivo con tráfico", sin "Push fallido").
 
 **F3.6 — Tonalidad móvil: dark-first + verde dopamina (2026-06-06):** por feedback del usuario ("el azul es
 simplista y genera cero dopamina; modo noche en negro/gris; mejor verde"). Se **reabre la decisión AZUL cerrada**
