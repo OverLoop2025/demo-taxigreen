@@ -99,7 +99,7 @@ export default function IncidentScreen() {
         </View>
 
         {message ? <Text className="mt-4 text-base font-semibold text-product-deep">{message}</Text> : null}
-        {submitting ? <ActivityIndicator className="mt-4" color="#227FDE" /> : null}
+        {submitting ? <ActivityIndicator className="mt-4" color="#10B981" /> : null}
       </View>
 
       <TouchButton label="Volver al inicio" tone="secondary" className="mt-5" onPress={() => router.replace('/(auth)/home')} />

@@ -34,8 +34,8 @@ function distanceLabel(value: number | null) {
 }
 
 function etaLabel(value: number | null) {
-  if (typeof value !== 'number') return 'ETA calculándose';
-  return `ETA ${Math.max(0, Math.ceil(value / 60))} min`;
+  if (typeof value !== 'number') return 'Calculando llegada';
+  return `Llega en ${Math.max(0, Math.ceil(value / 60))} min`;
 }
 
 function useMapboxApi(enabled: boolean) {
@@ -117,21 +117,20 @@ export function AssignmentMap({
       <View
         className={
           fill
-            ? 'flex-1 justify-center bg-blue-50 px-5 py-5'
-            : 'min-h-72 rounded-xl border border-product/20 bg-blue-50 px-5 py-5'
+            ? 'flex-1 justify-center bg-ink-900 px-5 py-5'
+            : 'min-h-72 rounded-xl border border-ink-line bg-ink-800 px-5 py-5'
         }
       >
-        <Text className="text-sm font-bold uppercase tracking-wide text-product">Ruta operativa</Text>
-        <Text className="mt-2 text-2xl font-bold text-product-deep">{'Aeropuerto -> Miraflores'}</Text>
-        <Text className="mt-2 text-base font-bold text-product">
-          {etaLabel(route.duracionSegundos)} · {distanceLabel(route.distanciaMetros)} ·{' '}
-          {route.fuente === 'mapbox' ? 'Ruta real' : 'Estimación'}
+        <Text className="text-sm font-bold uppercase tracking-wide text-brand-glow">Tu ruta</Text>
+        <Text className="mt-2 text-2xl font-bold text-white">{'Aeropuerto → Miraflores'}</Text>
+        <Text className="mt-2 text-base font-bold text-brand-glow">
+          {etaLabel(route.duracionSegundos)} · {distanceLabel(route.distanciaMetros)}
         </Text>
-        <Text className="mt-3 text-base leading-6 text-gray-700">{fallbackRoute(assignment)}</Text>
-        <View className="mt-4 rounded-lg bg-white px-4 py-4">
-          <Text className="text-base font-bold text-product-deep">{assignment.puntoEncuentro ?? 'Punto pendiente'}</Text>
-          <Text className="mt-1 text-sm leading-5 text-gray-600">
-            {error ?? 'Configura Mapbox/dev client para ver el mapa nativo. Las acciones del viaje siguen operativas.'}
+        <Text className="mt-3 text-base leading-6 text-zinc-400">{fallbackRoute(assignment)}</Text>
+        <View className="mt-4 rounded-2xl border border-ink-line bg-ink-700 px-4 py-4">
+          <Text className="text-base font-bold text-white">{assignment.puntoEncuentro ?? 'Punto pendiente'}</Text>
+          <Text className="mt-1 text-sm leading-5 text-zinc-400">
+            {error ?? 'El mapa se está preparando. Puedes seguir con el viaje sin problema.'}
           </Text>
         </View>
       </View>
@@ -153,7 +152,7 @@ export function AssignmentMap({
             <LineLayer
               id="taxigreen-route-line"
               style={{
-                lineColor: '#38BDF8',
+                lineColor: '#34D399',
                 lineWidth: 5,
                 lineCap: 'round',
                 lineJoin: 'round',
