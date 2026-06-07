@@ -31,7 +31,7 @@ export default function HomePage() {
           alt="Taxi Green"
           className="absolute inset-0 h-full w-full object-cover opacity-20 mix-blend-screen"
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(11,9,82,0.98),rgba(11,9,82,0.84),rgba(34,127,222,0.46))]" />
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(5,50,38,0.97),rgba(6,95,70,0.88),rgba(16,185,129,0.5))]" />
         <div className="relative mx-auto w-full max-w-7xl">
           <nav className="flex items-center justify-between">
             <span className="rounded bg-brand-tenant px-3 py-2 text-sm font-semibold">Taxi Green</span>

@@ -3,26 +3,27 @@
 @tailwind utilities;
 
 /*
- * Superficies semánticas como variables CSS (Renovación F1 — modo claro/oscuro).
- * Light = valores actuales de los tokens neutrales (cero regresión).
- * Dark = extremo oscuro de la misma escala neutral (paleta azul cerrada intacta).
+ * Superficies semánticas como variables CSS (modo claro/oscuro).
+ * Light = neutros claros (legibilidad/orden).
+ * Dark = NEGRO + grises neutros (renovación 2026-06-06: modo noche negro/gris,
+ * no azul), para que el verde esmeralda resalte con máxima dopamina.
  */
 :root {
-  --color-background: #f9fafb;
+  --color-background: #f7f8f7;
   --color-surface: #ffffff;
-  --color-surface-muted: #f3f4f6;
-  --color-foreground: #1f2937;
-  --color-foreground-muted: #6b7280;
-  --color-border: #e5e7eb;
+  --color-surface-muted: #f1f5f3;
+  --color-foreground: #0f1a16;
+  --color-foreground-muted: #64726b;
+  --color-border: #e3e8e5;
 }
 
 .dark {
-  --color-background: #0b1120;
-  --color-surface: #111827;
-  --color-surface-muted: #1f2937;
-  --color-foreground: #e5e7eb;
-  --color-foreground-muted: #9ca3af;
-  --color-border: #1f2937;
+  --color-background: #0a0a0b;
+  --color-surface: #141416;
+  --color-surface-muted: #1c1c20;
+  --color-foreground: #f4f4f5;
+  --color-foreground-muted: #a1a1aa;
+  --color-border: #2a2a2e;
 }
 
 body {

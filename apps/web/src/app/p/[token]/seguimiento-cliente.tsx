@@ -319,7 +319,7 @@ function PassengerMap({
           source: 'route',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#0B0952',
+            'line-color': '#053226',
             'line-width': ['interpolate', ['linear'], ['zoom'], 9, 7, 14, 12, 18, 18],
             'line-opacity': 0.55,
             'line-blur': 0.5,
@@ -331,7 +331,7 @@ function PassengerMap({
           source: 'route',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#38BDF8',
+            'line-color': '#34D399',
             'line-width': ['interpolate', ['linear'], ['zoom'], 9, 3, 14, 6, 18, 9],
             'line-opacity': 0.95,
           },
@@ -342,7 +342,7 @@ function PassengerMap({
           destinationMarkerRef.current = new mapboxgl.Marker({ color: '#E2E8F0' }).setLngLat(destination).addTo(map);
         }
         if (driverPosition) {
-          driverMarkerRef.current = new mapboxgl.Marker({ color: '#38BDF8' })
+          driverMarkerRef.current = new mapboxgl.Marker({ color: '#10B981' })
             .setLngLat([driverPosition.lng, driverPosition.lat])
             .addTo(map);
         }
@@ -390,7 +390,7 @@ function PassengerMap({
       if (driverMarkerRef.current) {
         driverMarkerRef.current.setLngLat([driverPosition.lng, driverPosition.lat]);
       } else if (mapboxRef.current) {
-        driverMarkerRef.current = new mapboxRef.current.Marker({ color: '#38BDF8' })
+        driverMarkerRef.current = new mapboxRef.current.Marker({ color: '#10B981' })
           .setLngLat([driverPosition.lng, driverPosition.lat])
           .addTo(map);
       }
