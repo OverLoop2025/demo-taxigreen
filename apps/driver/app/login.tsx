@@ -45,19 +45,19 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-product-deep"
+      className="flex-1 bg-ink-900"
     >
       <ScrollView contentContainerClassName="min-h-full justify-center px-5 py-10">
         <View className="mx-auto w-full max-w-md">
-          <View className="mb-6 items-center">
-            <View className="rounded-2xl bg-brand-tenant px-4 py-2">
-              <Text className="text-xl font-bold text-white">Taxi Green</Text>
+          <View className="mb-7 items-center">
+            <View className="rounded-2xl bg-brand px-4 py-2">
+              <Text className="text-xl font-bold text-ink-900">Taxi Green</Text>
             </View>
-            <Text className="mt-3 text-base font-semibold text-white/75">Ingreso de conductor</Text>
+            <Text className="mt-3 text-base font-semibold text-zinc-400">Ingreso de conductor</Text>
           </View>
 
-          <View className="rounded-3xl bg-gray-50 px-5 py-6">
-            <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">Email</Text>
+          <View className="rounded-3xl border border-ink-line bg-ink-800 px-5 py-6">
+            <Text className="text-xs font-bold uppercase tracking-wide text-zinc-400">Email</Text>
             <TextInput
               autoCapitalize="none"
               autoCorrect={false}
@@ -65,15 +65,16 @@ export default function LoginScreen() {
               value={email}
               editable={!loading}
               onChangeText={setEmail}
-              className="mt-2 min-h-14 rounded-xl border border-gray-200 bg-white px-4 text-base font-semibold text-product-deep"
+              placeholderTextColor="#71717A"
+              className="mt-2 min-h-14 rounded-xl border border-ink-line bg-ink-700 px-4 text-base font-semibold text-white"
             />
 
-            <Text className="mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">PIN de 4 dígitos</Text>
-            <View className="mt-2 h-14 items-center justify-center rounded-xl bg-white">
-              <Text className="text-2xl font-bold tracking-widest text-product">{pinDots}</Text>
+            <Text className="mt-5 text-xs font-bold uppercase tracking-wide text-zinc-400">PIN de 4 dígitos</Text>
+            <View className="mt-2 h-14 items-center justify-center rounded-xl border border-ink-line bg-ink-700">
+              <Text className="text-2xl font-bold tracking-widest text-brand">{pinDots}</Text>
             </View>
 
-            {error ? <Text className="mt-3 text-sm font-semibold text-red-600">{error}</Text> : null}
+            {error ? <Text className="mt-3 text-sm font-semibold text-red-400">{error}</Text> : null}
 
             <NumPad value={pin} onChange={setPin} disabled={loading} />
             <TouchButton

@@ -13,13 +13,14 @@ export default function AuthLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#227FDE',
-        tabBarInactiveTintColor: '#94A3B8',
+        tabBarActiveTintColor: '#10B981',
+        tabBarInactiveTintColor: '#71717A',
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700', paddingBottom: 6 },
         tabBarStyle: {
           height: 64,
           paddingTop: 6,
-          borderTopColor: '#E5E7EB',
+          backgroundColor: '#0A0A0B',
+          borderTopColor: '#1C1C20',
         },
       }}
     >

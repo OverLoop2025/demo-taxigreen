@@ -31,11 +31,11 @@ export function NumPad({ value, onChange, maxLength = 4, disabled }: NumPadProps
             accessibilityRole={blank ? undefined : 'button'}
             disabled={disabled || blank}
             onPress={() => press(key)}
-            className={`h-16 w-[31%] items-center justify-center rounded-lg border ${
-              blank ? 'border-transparent bg-transparent' : 'border-gray-200 bg-white'
+            className={`h-16 w-[31%] items-center justify-center rounded-2xl border ${
+              blank ? 'border-transparent bg-transparent' : 'border-ink-line bg-ink-700 active:bg-ink-600'
             }`}
           >
-            <Text className="text-2xl font-bold text-product-deep">{key === 'delete' ? 'Borrar' : blank ? '' : key}</Text>
+            <Text className="text-2xl font-bold text-white">{key === 'delete' ? 'Borrar' : blank ? '' : key}</Text>
           </Pressable>
         );
       })}

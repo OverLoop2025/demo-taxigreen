@@ -7,17 +7,17 @@ type TouchButtonProps = PressableProps & {
 };
 
 function toneClass(tone: TouchButtonProps['tone'], disabled?: boolean) {
-  if (disabled) return 'bg-gray-200 border-gray-200';
-  if (tone === 'secondary') return 'bg-white border-product';
-  if (tone === 'danger') return 'bg-red-600 border-red-600';
+  if (disabled) return 'bg-ink-700 border-ink-line';
+  if (tone === 'secondary') return 'bg-ink-700 border-brand';
+  if (tone === 'danger') return 'bg-red-500 border-red-500';
   if (tone === 'ghost') return 'bg-transparent border-transparent';
-  return 'bg-product border-product';
+  return 'bg-brand border-brand';
 }
 
 function labelClass(tone: TouchButtonProps['tone'], disabled?: boolean) {
-  if (disabled) return 'text-gray-500';
-  if (tone === 'secondary' || tone === 'ghost') return 'text-product';
-  return 'text-white';
+  if (disabled) return 'text-zinc-500';
+  if (tone === 'secondary' || tone === 'ghost') return 'text-brand';
+  return 'text-ink-900';
 }
 
 export function TouchButton({ label, tone = 'primary', loading, disabled, className = '', ...props }: TouchButtonProps) {
@@ -31,7 +31,7 @@ export function TouchButton({ label, tone = 'primary', loading, disabled, classN
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={tone === 'secondary' ? '#227FDE' : '#FFFFFF'} />
+        <ActivityIndicator color={tone === 'secondary' || tone === 'ghost' ? '#10B981' : '#0A0A0B'} />
       ) : (
         <Text className={`text-center text-lg font-bold ${labelClass(tone, isDisabled)}`}>{label}</Text>
       )}

@@ -61,8 +61,8 @@ function rutaFuenteHumano(fuente: 'mapbox' | 'estimacion') {
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <View className="flex-row items-baseline justify-between gap-3">
-      <Text className="text-sm font-semibold text-gray-500">{label}</Text>
-      <Text className="flex-1 text-right text-base font-bold text-product-deep" numberOfLines={1}>
+      <Text className="text-sm font-semibold text-zinc-400">{label}</Text>
+      <Text className="flex-1 text-right text-base font-bold text-white" numberOfLines={1}>
         {value || 'Pendiente'}
       </Text>
     </View>
@@ -71,9 +71,9 @@ function DetailRow({ label, value }: { label: string; value: string | null | und
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-1 rounded-xl bg-gray-50 px-3 py-3">
-      <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">{label}</Text>
-      <Text className="mt-1 text-sm font-bold text-product-deep" numberOfLines={1}>
+    <View className="flex-1 rounded-xl bg-ink-700 px-3 py-3">
+      <Text className="text-xs font-bold uppercase tracking-wide text-zinc-400">{label}</Text>
+      <Text className="mt-1 text-sm font-bold text-white" numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -187,8 +187,8 @@ export default function AssignmentScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-product-deep px-6">
-        <ActivityIndicator color="#FFFFFF" size="large" />
+      <View className="flex-1 items-center justify-center bg-ink-900 px-6">
+        <ActivityIndicator color="#10B981" size="large" />
         <Text className="mt-4 text-lg font-bold text-white">Cargando viaje</Text>
       </View>
     );
@@ -196,13 +196,13 @@ export default function AssignmentScreen() {
 
   if (!assignment) {
     return (
-      <View className="flex-1 justify-center bg-gray-100 px-6">
-        <View className="rounded-2xl bg-white px-5 py-6">
-          <Text className="text-2xl font-bold text-product-deep">No se encontró este viaje</Text>
-          <Text className="mt-3 text-base leading-6 text-gray-600">
+      <View className="flex-1 justify-center bg-ink-900 px-6">
+        <View className="rounded-2xl border border-ink-line bg-ink-800 px-5 py-6">
+          <Text className="text-2xl font-bold text-white">No se encontró este viaje</Text>
+          <Text className="mt-3 text-base leading-6 text-zinc-400">
             Puede que haya sido reasignado o no pertenezca a tu conductor.
           </Text>
-          {error ? <Text className="mt-3 text-base font-semibold text-red-600">{error}</Text> : null}
+          {error ? <Text className="mt-3 text-base font-semibold text-red-400">{error}</Text> : null}
           <TouchButton label="Volver al inicio" className="mt-5" onPress={() => router.replace('/(auth)/home')} />
         </View>
       </View>
@@ -221,7 +221,7 @@ export default function AssignmentScreen() {
   const ubicacionLabel = tracking.status === 'tracking' ? 'Enviando posición' : tracking.status.replaceAll('_', ' ');
 
   return (
-    <View className="flex-1 bg-product-deep">
+    <View className="flex-1 bg-ink-900">
       {trackingActive ? <KeepAwakeGate /> : null}
 
       {/* Mapa de fondo a pantalla completa (estilo navegación). */}
@@ -231,7 +231,7 @@ export default function AssignmentScreen() {
 
       {/* Banner superior: instrucción de navegación + llegada. */}
       <View className="absolute inset-x-0 top-0 px-4 pb-3 pt-12">
-        <View className="rounded-2xl bg-product-deep/95 px-4 py-4 shadow-lg">
+        <View className="rounded-2xl border border-ink-line bg-ink-800/95 px-4 py-4 shadow-lg">
           <View className="flex-row items-center gap-3">
             <Pressable
               accessibilityRole="button"
@@ -258,21 +258,21 @@ export default function AssignmentScreen() {
       </View>
 
       {/* Panel inferior: foco de la fase + una acción principal. */}
-      <View className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white px-5 pb-8 pt-3 shadow-2xl">
+      <View className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-ink-line bg-ink-800 px-5 pb-8 pt-3 shadow-2xl">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={expanded ? 'Ver menos' : 'Ver más detalles'}
           onPress={() => setExpanded((value) => !value)}
           className="items-center pb-3"
         >
-          <View className="h-1.5 w-12 rounded-full bg-gray-300" />
+          <View className="h-1.5 w-12 rounded-full bg-ink-600" />
         </Pressable>
 
-        <Text className="text-xs font-bold uppercase tracking-wide text-gray-500">{focalLabel}</Text>
-        <Text className="mt-1 text-2xl font-bold leading-8 text-product-deep" numberOfLines={2}>
+        <Text className="text-xs font-bold uppercase tracking-wide text-zinc-400">{focalLabel}</Text>
+        <Text className="mt-1 text-2xl font-bold leading-8 text-white" numberOfLines={2}>
           {focalValue}
         </Text>
-        <Text className="mt-1 text-base text-gray-600" numberOfLines={1}>
+        <Text className="mt-1 text-base text-zinc-400" numberOfLines={1}>
           {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
         </Text>
 
@@ -291,28 +291,28 @@ export default function AssignmentScreen() {
         ) : null}
 
         {notice ? (
-          <View className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-            <Text className="text-sm font-semibold text-product-deep">{notice}</Text>
+          <View className="mt-4 rounded-xl border border-brand/30 bg-brand/15 px-4 py-3">
+            <Text className="text-sm font-semibold text-brand-glow">{notice}</Text>
           </View>
         ) : null}
 
         {error || tracking.error ? (
-          <View className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-            <Text className="text-sm font-semibold text-red-700">{error ?? tracking.error}</Text>
+          <View className="mt-4 rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-3">
+            <Text className="text-sm font-semibold text-red-300">{error ?? tracking.error}</Text>
           </View>
         ) : null}
 
         <View className="mt-5">
           {estadoViaje === 'finalizado' ? (
             <>
-              <Text className="mb-3 text-sm leading-5 text-gray-600">
+              <Text className="mb-3 text-sm leading-5 text-zinc-400">
                 Servicio terminado. La reserva quedó por liquidar; el cierre comercial sigue en el link del pasajero.
               </Text>
               <TouchButton label="Volver al inicio" onPress={() => router.replace('/(auth)/home')} />
             </>
           ) : pendingRetry ? (
             <>
-              <Text className="mb-3 text-sm leading-5 text-gray-600">
+              <Text className="mb-3 text-sm leading-5 text-zinc-400">
                 Hay una acción pendiente. Se reintentará cuando vuelva la conexión, o puedes forzar el intento.
               </Text>
               <TouchButton
