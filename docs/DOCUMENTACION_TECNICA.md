@@ -760,3 +760,17 @@ Fast refresh ON) el flujo real del conductor y se aplicó el **primer pase premi
 - **Limitación conocida:** el mapa nativo `@rnmapbox/maps` no pinta en BlueStacks (GL del emulador) → queda área
   oscura; en dispositivo físico y en la web sí pinta. Registrado en `DEUDA_TECNICA.md`.
 - Verde: `expo export android` EXIT 0 (4.48 MB), driver typecheck+lint.
+
+### 21.3 Tonalidad móvil: dark-first + verde dopamina (2026-06-06)
+
+Por feedback del usuario (azul = simplista/cero dopamina; modo noche negro/gris; preferencia por verde) se
+**reabrió la decisión AZUL cerrada** (CLAUDE.md §0/§4) **sólo para `apps/driver`**: nueva paleta en
+`apps/driver/tailwind.config.js` con `brand` esmeralda (`#10B981`/glow `#34D399`) e `ink` negro/gris neutro
+(`#0A0A0B`…`#2E2E34`). La app conductor pasa a **dark-first** (login, home, navegación, tabs, `TouchButton`,
+`NumPad`); CTAs verde brillante con texto oscuro (alta dopamina). Verificado en vivo (dev client) y `expo export`
+EXIT 0. **La web sigue en azul**; migrar los tokens compartidos (`packages/shared/src/tokens/colors.ts`) + el dark
+mode web a negro/gris/verde queda **pendiente de confirmación** del usuario.
+
+**Ver el mapa nativo (crítico, no resuelto por BlueStacks):** plan robusto en
+[`QA_MOVIL_ANDROID_OJOS_REALES.md §00`](QA_MOVIL_ANDROID_OJOS_REALES.md) — Android físico por Wi-Fi ADB + `scrcpy`
+(mejor) o AVD con KVM (`sudo gpasswd -a "$USER" kvm` + reabrir WSL). Lo ejecuta el usuario.

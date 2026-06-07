@@ -8,6 +8,37 @@ Objetivo: que Claude/Codex pueda revisar la app del conductor con pantallas real
 
 ---
 
+## 00. VER EL MAPA NATIVO (Mapbox) — el punto que BlueStacks NO resuelve ⛔🗺️
+
+**Problema:** BlueStacks no soporta bien el GL de `@rnmapbox/maps` → el mapa nativo sale **vacío/negro**
+(el resto de la UI sí se ve). No sirve para validar el mapa, que es justo lo crítico.
+
+**Solución robusta recomendada (a ejecutar por el usuario), de mayor a menor robustez:**
+
+1. **Android físico por Wi-Fi ADB (+ `scrcpy` para mirror en vivo) — MEJOR.** GPU real → Mapbox pinta perfecto,
+   y es el hardware objetivo real. Pasos:
+   - Teléfono: Opciones de desarrollador → Depuración USB (y "Depuración inalámbrica" en Android 11+).
+   - Una vez por USB: `adb tcpip 5555`; luego inalámbrico: `adb connect <IP_DEL_TELÉFONO>:5555`
+     (mismo Wi-Fi; con WSL en `mirrored` la IP LAN es alcanzable). En Android 11+ se puede emparejar sin cable.
+   - Mirror en vivo para "ver en tiempo real": `scrcpy -s <IP>:5555` (instala `scrcpy` en Windows o WSL).
+   - Luego el **mismo loop §0** (dev client + Metro + `adb reverse tcp:8081`/`tcp:3000` + deep link). El mapa renderiza.
+   - Para que el dev client llegue al backend local por `127.0.0.1`, `adb reverse` ya lo cubre (no depende de mirrored).
+
+2. **Emulador AVD con KVM — buena, sin hardware extra.** Falta sólo el permiso de KVM:
+   - `sudo gpasswd -a "$USER" kvm` y **reabrir WSL** (cerrar todas las terminales / `wsl --shutdown`). Verificar: `groups` incluye `kvm` y `emulator -accel-check` OK.
+   - Arrancar con GPU: `emulator -avd taxigreen_pixel -gpu swiftshader_indirect` (o `-gpu host` si WSLg expone GPU).
+     Usar **imagen Google APIs** (no ATD) para Mapbox estable. Display por WSLg.
+   - Mismo loop §0 apuntando `--udid emulator-5554`.
+
+3. **Genymotion Desktop** — emulador comercial con buen GL (suele pintar Mapbox); otra herramienta/licencia.
+
+**Proxy mientras tanto:** el mapa **web** del pasajero (`/p/[token]`, Mapbox GL JS) **sí pinta** con token y
+usa la misma geometría/anti-recta; `pnpm visual:web` lo captura. Sirve para validar la *ruta/geometría*, no el
+look nativo. **Recomendación final: opción 1 (físico + scrcpy) o, sin hardware, opción 2 (AVD+KVM).** BlueStacks
+queda sólo para UI no-mapa.
+
+---
+
 ## 0. MÉTODO RECOMENDADO — dev client + Metro (código EN VIVO de la rama) ⭐
 
 > **Por qué.** El APK `preview`/`development` compilado por EAS es un **snapshot congelado** que además apunta

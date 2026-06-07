@@ -58,6 +58,19 @@ vivo"). Dark-mode-aware por tokens. Lógica de validación/consumo/cámara intac
 test` 53/53. Nota: el voucher demo `TG-2026-0001` quedó consumido (2026-06-04); para ver el happy-path correr
 `pnpm --filter @taxigreen/database db:seed-guion`.
 
+**F3.6 — Tonalidad móvil: dark-first + verde dopamina (2026-06-06):** por feedback del usuario ("el azul es
+simplista y genera cero dopamina; modo noche en negro/gris; mejor verde"). Se **reabre la decisión AZUL cerrada**
+(autorizada por el usuario) para `apps/driver`:
+- Nueva paleta del driver (`apps/driver/tailwind.config.js`): `brand` = esmeralda (#10B981 / glow #34D399) para
+  acción/energía; `ink` = negro/gris neutro (#0A0A0B…#2E2E34) para superficies. Se abandona el azul.
+- **App conductor DARK-first** (estilo Uber Driver/Waze de noche): login, home, navegación, tabs, `TouchButton`,
+  `NumPad` reescritos a negro + verde. CTAs verde brillante con texto oscuro = alta dopamina.
+- Verificado **en vivo** (dev client) los 3 screens core: login, home y navegación. `expo export` EXIT 0.
+- **Web aún en azul** (pendiente de confirmar dirección con el usuario antes de migrar tokens compartidos +
+  dark mode web a negro/gris/verde; ver `packages/shared/src/tokens/colors.ts`).
+- **Mapa nativo:** sigue sin pintar en BlueStacks (GL). Plan robusto para verlo (físico+scrcpy / AVD+KVM) en
+  `QA_MOVIL_ANDROID_OJOS_REALES.md §00` — lo ejecuta el usuario.
+
 **F3.5 — Driver premium con ojos reales (2026-06-06):** primer pase de renovación del conductor verificado
 **en vivo** (dev client + Metro + backend local, capturas reales en BlueStacks):
 - **Home sin jerga:** fuera las tarjetas "REALTIME / Realtime activo" y "PUSH / Push no provisionado"; ahora un
