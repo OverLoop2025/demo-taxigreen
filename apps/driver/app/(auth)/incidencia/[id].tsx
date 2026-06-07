@@ -53,25 +53,25 @@ export default function IncidentScreen() {
 
   if (!incidenciaId) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-100 px-6">
-        <Text className="text-2xl font-bold text-product-deep">Incidencia no encontrada</Text>
+      <View className="flex-1 items-center justify-center bg-background px-6">
+        <Text className="text-2xl font-bold text-foreground">Incidencia no encontrada</Text>
         <TouchButton label="Volver" className="mt-5" onPress={() => router.replace('/(auth)/home')} />
       </View>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-gray-100" contentContainerClassName="px-5 pb-8 pt-10">
-      <View className="rounded-2xl bg-product-deep px-5 py-5">
-        <Text className="text-base font-semibold text-white/70">Soporte de viaje</Text>
+    <ScrollView className="flex-1 bg-background" contentContainerClassName="px-5 pb-8 pt-10">
+      <View className="rounded-2xl bg-purple-600 px-5 py-5">
+        <Text className="text-base font-semibold text-white/80">Soporte de viaje</Text>
         <Text className="mt-2 text-3xl font-bold leading-9 text-white">Objeto olvidado</Text>
-        <Text className="mt-3 text-base leading-6 text-white/80">{descripcion}</Text>
-        {reservaId ? <Text className="mt-2 text-sm font-semibold text-white/60">Viaje {reservaId.slice(0, 8)}</Text> : null}
+        <Text className="mt-3 text-base leading-6 text-white/90">{descripcion}</Text>
+        {reservaId ? <Text className="mt-2 text-sm font-semibold text-white/70">Viaje {reservaId.slice(0, 8)}</Text> : null}
       </View>
 
-      <View className="mt-4 rounded-2xl bg-white px-5 py-5">
-        <Text className="text-xl font-bold text-product-deep">Respuesta al pasajero</Text>
-        <Text className="mt-3 text-base leading-6 text-gray-600">
+      <View className="mt-4 rounded-2xl border border-border bg-surface px-5 py-5">
+        <Text className="text-xl font-bold text-foreground">Respuesta al pasajero</Text>
+        <Text className="mt-3 text-base leading-6 text-foreground-muted">
           Revisa la unidad y responde con una sola acción. El pasajero verá el avance en su link.
         </Text>
 
@@ -98,7 +98,7 @@ export default function IncidentScreen() {
           />
         </View>
 
-        {message ? <Text className="mt-4 text-base font-semibold text-product-deep">{message}</Text> : null}
+        {message ? <Text className="mt-4 text-base font-semibold text-foreground">{message}</Text> : null}
         {submitting ? <ActivityIndicator className="mt-4" color="#10B981" /> : null}
       </View>
 

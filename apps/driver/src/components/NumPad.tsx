@@ -32,10 +32,10 @@ export function NumPad({ value, onChange, maxLength = 4, disabled }: NumPadProps
             disabled={disabled || blank}
             onPress={() => press(key)}
             className={`h-16 w-[31%] items-center justify-center rounded-2xl border ${
-              blank ? 'border-transparent bg-transparent' : 'border-ink-line bg-ink-700 active:bg-ink-600'
+              blank ? 'border-transparent bg-transparent' : 'border-border bg-surface-muted active:bg-surface'
             }`}
           >
-            <Text className="text-2xl font-bold text-white">{key === 'delete' ? 'Borrar' : blank ? '' : key}</Text>
+            <Text className="text-2xl font-bold text-foreground">{key === 'delete' ? 'Borrar' : blank ? '' : key}</Text>
           </Pressable>
         );
       })}

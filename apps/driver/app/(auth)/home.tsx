@@ -58,36 +58,36 @@ export default function HomeScreen() {
   const passengerName = lastAssignment ? null : (activeAssignment?.pasajero.nombre ?? null);
 
   return (
-    <ScrollView className="flex-1 bg-ink-900" contentContainerClassName="px-5 pb-10 pt-14">
+    <ScrollView className="flex-1 bg-background" contentContainerClassName="px-5 pb-10 pt-14">
       {/* Hero: saludo + turno */}
-      <View className="rounded-3xl border border-ink-line bg-ink-800 px-5 py-5">
+      <View className="rounded-3xl border border-border bg-surface px-5 py-5">
         <View className="flex-row items-center justify-between">
-          <Text className="text-sm font-semibold text-zinc-400">Conductor</Text>
+          <Text className="text-sm font-semibold text-foreground-muted">Conductor</Text>
           <View className="flex-row items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1">
             <View className={`h-2 w-2 rounded-full ${enLinea ? 'bg-brand-glow' : 'bg-amber-400'}`} />
-            <Text className="text-xs font-bold text-brand-glow">{enLinea ? 'En línea' : 'Conectando'}</Text>
+            <Text className="text-xs font-bold text-brand-deep">{enLinea ? 'En línea' : 'Conectando'}</Text>
           </View>
         </View>
-        <Text className="mt-1 text-2xl font-bold text-white">{conductor?.nombre ?? 'Conductor'}</Text>
+        <Text className="mt-1 text-2xl font-bold text-foreground">{conductor?.nombre ?? 'Conductor'}</Text>
 
-        <View className="mt-4 flex-row items-center justify-between rounded-2xl bg-ink-700 px-4 py-3">
+        <View className="mt-4 flex-row items-center justify-between rounded-2xl bg-surface-muted px-4 py-3">
           <View>
-            <Text className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Tu estado</Text>
-            <Text className="text-lg font-bold text-white">{onDuty ? 'Disponible' : 'En pausa'}</Text>
+            <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Tu estado</Text>
+            <Text className="text-lg font-bold text-foreground">{onDuty ? 'Disponible' : 'En pausa'}</Text>
           </View>
-          <Switch value={onDuty} onValueChange={setOnDuty} trackColor={{ false: '#3F3F46', true: '#10B981' }} thumbColor="#FFFFFF" />
+          <Switch value={onDuty} onValueChange={setOnDuty} trackColor={{ false: '#9CA3AF', true: '#10B981' }} thumbColor="#FFFFFF" />
         </View>
       </View>
 
       {/* Unidad */}
-      <View className="mt-4 flex-row items-center gap-4 rounded-2xl border border-ink-line bg-ink-800 px-5 py-4">
+      <View className="mt-4 flex-row items-center gap-4 rounded-2xl border border-border bg-surface px-5 py-4">
         <View className="h-12 w-12 items-center justify-center rounded-2xl bg-brand/15">
-          <Ionicons name="car-sport" size={24} color="#34D399" />
+          <Ionicons name="car-sport" size={24} color="#10B981" />
         </View>
         <View className="flex-1">
-          <Text className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Tu unidad</Text>
-          <Text className="text-xl font-bold text-white">{vehicle?.placa ?? 'Sin unidad'}</Text>
-          <Text className="text-sm font-medium text-zinc-400">
+          <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Tu unidad</Text>
+          <Text className="text-xl font-bold text-foreground">{vehicle?.placa ?? 'Sin unidad'}</Text>
+          <Text className="text-sm font-medium text-foreground-muted">
             {vehicle ? `${vehicle.marca} ${vehicle.modelo}` : 'Solicita una unidad al despacho.'}
           </Text>
         </View>
@@ -95,7 +95,7 @@ export default function HomeScreen() {
 
       {/* Viaje vigente — CTA protagonista */}
       {assignmentReservaId ? (
-        <View className="mt-4 overflow-hidden rounded-3xl border border-ink-line bg-ink-800">
+        <View className="mt-4 overflow-hidden rounded-3xl border border-border bg-surface">
           <View className="bg-brand px-5 py-4">
             <View className="flex-row items-center gap-2">
               <Ionicons name="navigate" size={18} color="#0A0A0B" />
@@ -103,8 +103,8 @@ export default function HomeScreen() {
             </View>
           </View>
           <View className="px-5 py-5">
-            <Text className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Pasajero</Text>
-            <Text className="mt-1 text-xl font-bold text-white">{passengerName ?? 'Listo para revisar'}</Text>
+            <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Pasajero</Text>
+            <Text className="mt-1 text-xl font-bold text-foreground">{passengerName ?? 'Listo para revisar'}</Text>
             <TouchButton
               label="Abrir viaje"
               className="mt-4"
@@ -118,12 +118,12 @@ export default function HomeScreen() {
           </View>
         </View>
       ) : (
-        <View className="mt-4 items-center rounded-3xl border border-ink-line bg-ink-800 px-5 py-8">
-          <View className="h-14 w-14 items-center justify-center rounded-full bg-ink-700">
-            <Ionicons name="time-outline" size={26} color="#71717A" />
+        <View className="mt-4 items-center rounded-3xl border border-border bg-surface px-5 py-8">
+          <View className="h-14 w-14 items-center justify-center rounded-full bg-surface-muted">
+            <Ionicons name="time-outline" size={26} color="#9CA3AF" />
           </View>
-          <Text className="mt-3 text-lg font-bold text-white">Sin viajes ahora</Text>
-          <Text className="mt-1 text-center text-sm leading-5 text-zinc-400">
+          <Text className="mt-3 text-lg font-bold text-foreground">Sin viajes ahora</Text>
+          <Text className="mt-1 text-center text-sm leading-5 text-foreground-muted">
             Mantente disponible. Te avisamos al instante cuando llegue tu próximo viaje.
           </Text>
         </View>
@@ -132,7 +132,7 @@ export default function HomeScreen() {
       {/* Objeto olvidado (soporte) */}
       {lastIncident ? (
         <Pressable
-          className="mt-4 flex-row items-center gap-3 rounded-2xl border border-ink-line bg-ink-800 px-5 py-4"
+          className="mt-4 flex-row items-center gap-3 rounded-2xl border border-border bg-surface px-5 py-4"
           onPress={() =>
             router.push({
               pathname: '/(auth)/incidencia/[id]' as never,
@@ -145,15 +145,15 @@ export default function HomeScreen() {
           }
         >
           <View className="h-11 w-11 items-center justify-center rounded-2xl bg-purple-500/20">
-            <Ionicons name="bag-handle-outline" size={22} color="#C4B5FD" />
+            <Ionicons name="bag-handle-outline" size={22} color="#A855F7" />
           </View>
           <View className="flex-1">
-            <Text className="text-sm font-bold text-purple-300">Objeto olvidado</Text>
-            <Text className="text-sm text-zinc-400" numberOfLines={1}>
+            <Text className="text-sm font-bold text-purple-500">Objeto olvidado</Text>
+            <Text className="text-sm text-foreground-muted" numberOfLines={1}>
               {lastIncident.descripcion}
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#71717A" />
+          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </Pressable>
       ) : null}
     </ScrollView>

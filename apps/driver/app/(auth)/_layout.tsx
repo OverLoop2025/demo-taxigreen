@@ -1,9 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs } from 'expo-router';
+import { useColorScheme } from 'nativewind';
 import { useAuth } from '@/features/auth/use-auth';
 
 export default function AuthLayout() {
   const { status } = useAuth();
+  const { colorScheme } = useColorScheme();
+  const dark = colorScheme === 'dark';
 
   if (status === 'anonymous') {
     return <Redirect href="/login" />;
@@ -14,13 +17,13 @@ export default function AuthLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#10B981',
-        tabBarInactiveTintColor: '#71717A',
+        tabBarInactiveTintColor: dark ? '#71717A' : '#9CA3AF',
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700', paddingBottom: 6 },
         tabBarStyle: {
           height: 64,
           paddingTop: 6,
-          backgroundColor: '#0A0A0B',
-          borderTopColor: '#1C1C20',
+          backgroundColor: dark ? '#0A0A0B' : '#FFFFFF',
+          borderTopColor: dark ? '#1C1C20' : '#E3E8E5',
         },
       }}
     >

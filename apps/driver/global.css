@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Superficies semánticas (claro/oscuro) — IDENTIDAD UNIFICADA con la web.
+ * Una sola definición controla ambos modos: las pantallas usan `bg-surface`,
+ * `text-foreground`, etc., así que NUNCA pueden quedar a medio camino (una clara
+ * y otra oscura). El modo lo decide el sistema; el conductor puede forzarlo desde
+ * Perfil → Apariencia. Light = neutros claros (legibilidad); dark = NEGRO + grises
+ * neutros para que el verde esmeralda resalte.
+ */
+@layer base {
+  :root {
+    --color-background: #f7f8f7;
+    --color-surface: #ffffff;
+    --color-surface-muted: #f1f5f3;
+    --color-foreground: #0f1a16;
+    --color-foreground-muted: #64726b;
+    --color-border: #e3e8e5;
+  }
+
+  .dark {
+    --color-background: #0a0a0b;
+    --color-surface: #141416;
+    --color-surface-muted: #1c1c20;
+    --color-foreground: #f4f4f5;
+    --color-foreground-muted: #a1a1aa;
+    --color-border: #2a2a2e;
+  }
+}

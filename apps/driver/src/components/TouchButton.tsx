@@ -7,15 +7,15 @@ type TouchButtonProps = PressableProps & {
 };
 
 function toneClass(tone: TouchButtonProps['tone'], disabled?: boolean) {
-  if (disabled) return 'bg-ink-700 border-ink-line';
-  if (tone === 'secondary') return 'bg-ink-700 border-brand';
+  if (disabled) return 'bg-surface-muted border-border';
+  if (tone === 'secondary') return 'bg-surface-muted border-brand';
   if (tone === 'danger') return 'bg-red-500 border-red-500';
   if (tone === 'ghost') return 'bg-transparent border-transparent';
   return 'bg-brand border-brand';
 }
 
 function labelClass(tone: TouchButtonProps['tone'], disabled?: boolean) {
-  if (disabled) return 'text-zinc-500';
+  if (disabled) return 'text-foreground-muted';
   if (tone === 'secondary' || tone === 'ghost') return 'text-brand';
   return 'text-ink-900';
 }
