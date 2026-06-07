@@ -1,27 +1,31 @@
 export const colors = {
-  // Chrome del producto: azul como sistema principal.
+  // Chrome del producto: VERDE ESMERALDA como sistema principal (renovación
+  // 2026-06-06; reabre la decisión AZUL por pedido del usuario — más dopamina,
+  // identidad coherente con la marca "Taxi Green"). DEFAULT legible con texto
+  // blanco; `deep` = verde casi-negro para héroes y títulos; 400/500 = acentos
+  // brillantes de alta dopamina para superficies oscuras.
   product: {
-    50: '#EAF4FF',
-    100: '#D7EAFE',
-    200: '#B8D9FC',
-    300: '#84BDF7',
-    400: '#4B9DF0',
-    500: '#227FDE',
-    600: '#1B65B2',
-    700: '#164F8B',
-    800: '#0F3668',
-    900: '#0B0952',
-    DEFAULT: '#227FDE',
-    deep: '#0B0952',
+    50: '#ECFDF5',
+    100: '#D1FAE5',
+    200: '#A7F3D0',
+    300: '#6EE7B7',
+    400: '#34D399',
+    500: '#10B981',
+    600: '#059669',
+    700: '#047857',
+    800: '#065F46',
+    900: '#053226',
+    DEFAULT: '#059669',
+    deep: '#053226',
     fg: '#FFFFFF',
-    muted: '#E8F1FC',
+    muted: '#D1FAE5',
   },
-  // Marca Taxi Green: verde reservado a logo y chip de tenant.
+  // Marca Taxi Green: chip de marca en esmeralda vivo (coherente con el chrome).
   brand: {
-    tenant: '#0B7A3B',
-    tenantDeep: '#075A2B',
-    tenantSoft: '#E6F4EC',
-    tenantFg: '#FFFFFF',
+    tenant: '#10B981',
+    tenantDeep: '#059669',
+    tenantSoft: '#D1FAE5',
+    tenantFg: '#053226',
   },
   care: {
     50: '#F5F3FF',
@@ -53,9 +57,9 @@ export const colors = {
       fg: '#450A0A',
     },
     info: {
-      DEFAULT: '#227FDE',
-      soft: '#E8F1FC',
-      fg: '#0B0952',
+      DEFAULT: '#059669',
+      soft: '#D1FAE5',
+      fg: '#053226',
     },
   },
   neutral: {

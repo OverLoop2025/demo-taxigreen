@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { colors, spacing, typography } from './index';
 import { FLUJO_PROTAGONISTA } from '../index';
 
-describe('design tokens (paleta AZUL dual)', () => {
-  it('el chrome del producto es azul', () => {
-    expect(colors.product.DEFAULT).toBe('#227FDE');
-    expect(colors.product.deep).toBe('#0B0952');
+describe('design tokens (paleta VERDE esmeralda)', () => {
+  it('el chrome del producto es verde esmeralda', () => {
+    expect(colors.product.DEFAULT).toBe('#059669');
+    expect(colors.product.deep).toBe('#053226');
   });
 
-  it('el verde queda reservado a la marca/tenant', () => {
-    expect(colors.brand.tenant).toBe('#0B7A3B');
+  it('la marca/tenant usa el verde esmeralda vivo', () => {
+    expect(colors.brand.tenant).toBe('#10B981');
   });
 
   it('expone semanticos, tipografia y spacing para Tailwind', () => {
