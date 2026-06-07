@@ -11,11 +11,11 @@ type RealtimeStatus = 'connecting' | 'subscribed' | 'polling' | 'error';
 function statusLabel(status: RealtimeStatus) {
   switch (status) {
     case 'subscribed':
-      return 'Realtime activo';
+      return 'En vivo';
     case 'polling':
-      return 'Polling 10s';
+      return 'Actualizando';
     case 'error':
-      return 'Realtime sin configurar';
+      return 'Conexión intermitente';
     default:
       return 'Conectando';
   }
@@ -25,7 +25,7 @@ function statusClasses(status: RealtimeStatus) {
   if (status === 'subscribed') return 'border-success/30 bg-success/10 text-success';
   if (status === 'polling') return 'border-warning/30 bg-warning/10 text-warning';
   if (status === 'error') return 'border-danger/30 bg-danger/10 text-danger';
-  return 'border-product/30 bg-product-muted text-product';
+  return 'border-product/30 bg-product-muted dark:bg-product-900/40 text-product';
 }
 
 function estadoClasses(estado: string) {
@@ -38,7 +38,20 @@ function estadoClasses(estado: string) {
   if (estado === 'cancelada') {
     return 'bg-danger/10 text-danger';
   }
-  return 'bg-product-muted text-product-deep';
+  return 'bg-product-muted dark:bg-product-900/40 text-product-deep dark:text-product-200';
+}
+
+function estadoLabel(estado: string) {
+  const labels: Record<string, string> = {
+    ingesta_pendiente: 'Por revisar',
+    necesita_revision: 'Necesita revisión',
+    confirmada: 'Confirmada',
+    asignada: 'Asignada',
+    en_curso: 'En camino',
+    por_liquidar: 'Cerrada',
+    cancelada: 'Cancelada',
+  };
+  return labels[estado] ?? estado.replaceAll('_', ' ');
 }
 
 export function AdminReservasLive({
@@ -129,14 +142,14 @@ export function AdminReservasLive({
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2 text-xs font-medium">
-          <span className="rounded-md bg-white px-3 py-2 text-neutral-600 ring-1 ring-border">
-            {reservas.length} reservas
+          <span className="rounded-md bg-surface px-3 py-2 text-foreground-muted ring-1 ring-border">
+            {reservas.length} servicios
           </span>
-          <span className="rounded-md bg-white px-3 py-2 text-neutral-600 ring-1 ring-border">
+          <span className="rounded-md bg-surface px-3 py-2 text-foreground-muted ring-1 ring-border">
             {totals.sinAsignar} sin asignar
           </span>
-          <span className="rounded-md bg-white px-3 py-2 text-neutral-600 ring-1 ring-border">
-            {totals.conVoucher} con voucher
+          <span className="rounded-md bg-surface px-3 py-2 text-foreground-muted ring-1 ring-border">
+            {totals.conVoucher} con QR
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -149,18 +162,18 @@ export function AdminReservasLive({
             {statusLabel(status)}
           </span>
           <button
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white px-3 text-xs font-medium text-product hover:bg-product-muted"
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-xs font-medium text-product hover:bg-surface-muted"
             onClick={() => void refreshReservas()}
             type="button"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Sincronizar
+            Actualizar
           </button>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-border bg-white">
-        <div className="grid grid-cols-[1.1fr_1.1fr_1.5fr_1fr_1fr_0.8fr] gap-4 border-b border-border bg-neutral-50 px-4 py-3 text-xs font-semibold uppercase text-neutral-500">
+      <div className="overflow-hidden rounded-md border border-border bg-surface">
+        <div className="grid grid-cols-[1.1fr_1.1fr_1.5fr_1fr_1fr_0.8fr] gap-4 border-b border-border bg-surface-muted px-4 py-3 text-xs font-semibold uppercase text-foreground-muted">
           <span>Reserva</span>
           <span>Pasajero</span>
           <span>Ruta</span>
@@ -171,44 +184,44 @@ export function AdminReservasLive({
         <div className="divide-y divide-border">
           {reservas.map((reserva) => (
             <Link
-              className="grid grid-cols-[1.1fr_1.1fr_1.5fr_1fr_1fr_0.8fr] gap-4 px-4 py-3 text-sm transition hover:bg-product-muted/70"
+              className="grid grid-cols-[1.1fr_1.1fr_1.5fr_1fr_1fr_0.8fr] gap-4 px-4 py-3 text-sm transition hover:bg-surface-muted/70"
               href={`/admin/reservas/${reserva.id}`}
               key={reserva.id}
             >
               <span className="min-w-0">
-                <span className="block font-semibold text-product-deep">{reserva.voucherCodigo}</span>
-                <span className="block text-xs text-neutral-500">
+                <span className="block font-semibold text-product-deep dark:text-product-200">{reserva.voucherCodigo}</span>
+                <span className="block text-xs text-foreground-muted">
                   {reserva.fechaHoraServicioLabel}
                   {reserva.vueloCodigo ? ` · ${reserva.vueloCodigo}` : ''}
                 </span>
               </span>
               <span className="min-w-0">
-                <span className="block truncate font-medium text-neutral-900">{reserva.pasajeroNombre}</span>
-                <span className="block truncate text-xs text-neutral-500">{reserva.pasajeroTelefono}</span>
+                <span className="block truncate font-medium text-foreground">{reserva.pasajeroNombre}</span>
+                <span className="block truncate text-xs text-foreground-muted">{reserva.pasajeroTelefono}</span>
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-neutral-900">{reserva.origenTexto}</span>
-                <span className="block truncate text-xs text-neutral-500">{reserva.destinoTexto}</span>
+                <span className="block truncate text-foreground">{reserva.origenTexto}</span>
+                <span className="block truncate text-xs text-foreground-muted">{reserva.destinoTexto}</span>
               </span>
-              <span className="truncate text-neutral-700">{reserva.conductorNombre ?? 'Pendiente'}</span>
-              <span className="truncate text-neutral-700">{reserva.vehiculoLabel ?? 'Pendiente'}</span>
+              <span className="truncate text-foreground-muted">{reserva.conductorNombre ?? 'Pendiente'}</span>
+              <span className="truncate text-foreground-muted">{reserva.vehiculoLabel ?? 'Pendiente'}</span>
               <span>
                 <span className={`rounded-md px-2 py-1 text-xs font-semibold ${estadoClasses(reserva.estado)}`}>
-                  {reserva.estado.replaceAll('_', ' ')}
+                  {estadoLabel(reserva.estado)}
                 </span>
               </span>
             </Link>
           ))}
           {reservas.length === 0 ? (
-            <div className="px-4 py-10 text-center text-sm text-neutral-500">
-              Aún no hay reservas operativas para este tenant.
+            <div className="px-4 py-10 text-center text-sm text-foreground-muted">
+              Aún no hay servicios para esta empresa.
             </div>
           ) : null}
         </div>
       </div>
 
-      <p className="text-xs text-neutral-500">
-        {lastSync ? `Última sincronización ${lastSync.toLocaleTimeString('es-PE')}` : 'Sincronización inicial lista'}
+      <p className="text-xs text-foreground-muted">
+        {lastSync ? `Actualizado ${lastSync.toLocaleTimeString('es-PE')}` : 'Lista actualizada'}
       </p>
     </section>
   );

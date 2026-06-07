@@ -17,21 +17,21 @@ export default async function AdminPage() {
       <section className="mx-auto max-w-7xl px-6 py-8">
         <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-product">/admin</p>
-            <h1 className="mt-1 text-2xl font-semibold text-product-deep">Despacho operativo</h1>
-            <p className="mt-2 text-sm text-neutral-600">
-              Sesión activa: {session.user.email ?? 'operador'} · reservas del tenant en vivo.
+            <p className="text-sm font-medium text-product">Panel de despacho</p>
+            <h1 className="mt-1 text-2xl font-semibold text-product-deep dark:text-product-200">Servicios de hoy</h1>
+            <p className="mt-2 text-sm text-foreground-muted">
+              {session.user.email ?? 'Operador'} está viendo los servicios de la empresa en tiempo real.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-md border border-border bg-white px-4 py-2 text-sm font-medium text-product hover:bg-product-muted" href="/admin/metricas">
-              Métricas
+            <Link className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-product hover:bg-surface-muted" href="/admin/metricas">
+              Resumen
             </Link>
-            <Link className="rounded-md border border-border bg-white px-4 py-2 text-sm font-medium text-product hover:bg-product-muted" href="/admin/bienestar">
+            <Link className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-product hover:bg-surface-muted" href="/admin/bienestar">
               Bienestar
             </Link>
-            <Link className="rounded-md border border-border bg-white px-4 py-2 text-sm font-medium text-product hover:bg-product-muted" href="/admin/auditoria">
-              Auditoría
+            <Link className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-product hover:bg-surface-muted" href="/admin/auditoria">
+              Actividad
             </Link>
           </div>
         </div>
@@ -39,17 +39,17 @@ export default async function AdminPage() {
         {tenantId ? (
           <AdminReservasLive initialReservas={reservas} tenantId={tenantId} />
         ) : (
-          <div className="rounded-md border border-border bg-white p-5 text-sm text-neutral-600">
-            No se encontró tenant en la sesión actual.
+          <div className="rounded-md border border-border bg-surface p-5 text-sm text-foreground-muted">
+            No se encontró una empresa para esta sesión.
           </div>
         )}
 
         <div className="mt-6 flex flex-wrap gap-3 text-sm">
-          <Link className="font-medium text-product hover:text-product-deep" href="/admin/auditoria?action=reserva_asignada">
-            Ver auditoría operativa
+          <Link className="font-medium text-product hover:text-product-deep dark:hover:text-product-200" href="/admin/auditoria?action=reserva_asignada">
+            Ver actividad del despacho
           </Link>
-          <Link className="font-medium text-product hover:text-product-deep" href="/admin/metricas">
-            Ver tablero de métricas
+          <Link className="font-medium text-product hover:text-product-deep dark:hover:text-product-200" href="/admin/metricas">
+            Ver resumen del día
           </Link>
         </div>
       </section>

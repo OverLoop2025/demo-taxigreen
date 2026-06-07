@@ -57,18 +57,18 @@ export default function DemoScriptPage() {
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {steps.map((step, index) => (
-            <article className="rounded-md border border-border bg-white p-5" key={step.title}>
+            <article className="rounded-md border border-border bg-surface p-5" key={step.title}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-product">Paso {index + 1}</p>
-                  <h2 className="mt-1 text-xl font-semibold text-product-deep">{step.title}</h2>
+                  <h2 className="mt-1 text-xl font-semibold text-product-deep dark:text-product-200">{step.title}</h2>
                 </div>
-                <span className="inline-flex items-center gap-2 rounded-md bg-product-muted px-2 py-1 text-xs font-semibold text-product">
+                <span className="inline-flex items-center gap-2 rounded-md bg-product-muted dark:bg-product-900/40 px-2 py-1 text-xs font-semibold text-product">
                   <Clock className="h-4 w-4" />
                   {step.duration}
                 </span>
               </div>
-              <p className="mt-3 text-sm leading-6 text-neutral-600">{step.body}</p>
+              <p className="mt-3 text-sm leading-6 text-foreground-muted">{step.body}</p>
               {step.command ? (
                 <code className="mt-4 block overflow-x-auto rounded-md bg-neutral-950 px-3 py-2 text-xs text-white">
                   {step.command}
@@ -79,33 +79,33 @@ export default function DemoScriptPage() {
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-md border border-border bg-white p-5">
+          <div className="rounded-md border border-border bg-surface p-5">
             <Route className="h-6 w-6 text-product" />
-            <h2 className="mt-3 text-lg font-semibold text-product-deep">Wow ruta</h2>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">
+            <h2 className="mt-3 text-lg font-semibold text-product-deep dark:text-product-200">Wow ruta</h2>
+            <p className="mt-2 text-sm leading-6 text-foreground-muted">
               Mostrar ruta por calles si Mapbox responde; si no, badge de estimación y operación intacta.
             </p>
           </div>
-          <div className="rounded-md border border-border bg-white p-5">
+          <div className="rounded-md border border-border bg-surface p-5">
             <QrCode className="h-6 w-6 text-product" />
-            <h2 className="mt-3 text-lg font-semibold text-product-deep">Wow counter</h2>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">
+            <h2 className="mt-3 text-lg font-semibold text-product-deep dark:text-product-200">Wow counter</h2>
+            <p className="mt-2 text-sm leading-6 text-foreground-muted">
               Validar QR, consumirlo y reintentar para enseñar bloqueo idempotente.
             </p>
           </div>
-          <div className="rounded-md border border-border bg-white p-5">
+          <div className="rounded-md border border-border bg-surface p-5">
             <MonitorPlay className="h-6 w-6 text-product" />
-            <h2 className="mt-3 text-lg font-semibold text-product-deep">Plan B</h2>
-            <p className="mt-2 text-sm leading-6 text-neutral-600">
+            <h2 className="mt-3 text-lg font-semibold text-product-deep dark:text-product-200">Plan B</h2>
+            <p className="mt-2 text-sm leading-6 text-foreground-muted">
               Si falla red, abrir video respaldo local o Drive en menos de 30 segundos.
             </p>
           </div>
         </div>
 
-        <section className="mt-6 rounded-md border border-border bg-white p-5">
+        <section className="mt-6 rounded-md border border-border bg-surface p-5">
           <div className="flex items-center gap-2">
             <Smartphone className="h-5 w-5 text-product" />
-            <h2 className="text-lg font-semibold text-product-deep">Checklist Android físico</h2>
+            <h2 className="text-lg font-semibold text-product-deep dark:text-product-200">Checklist Android físico</h2>
           </div>
           <div className="mt-4 grid gap-2">
             {[
@@ -115,17 +115,17 @@ export default function DemoScriptPage() {
               'Moverse con el teléfono y confirmar broadcast de posición.',
               'Probar fallback sin red y navegación desde push si hay token Expo.',
             ].map((item) => (
-              <div className="flex gap-3 rounded-md bg-neutral-50 p-3 text-sm" key={item}>
+              <div className="flex gap-3 rounded-md bg-surface-muted p-3 text-sm" key={item}>
                 <CheckCircle2 className="mt-0.5 h-4 w-4 text-success" />
-                <span className="font-medium text-neutral-700">{item}</span>
+                <span className="font-medium text-foreground-muted">{item}</span>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="mt-6 rounded-md border border-border bg-white p-5">
-          <h2 className="text-lg font-semibold text-product-deep">Objeciones frecuentes</h2>
-          <ul className="mt-3 grid gap-2 text-sm leading-6 text-neutral-600">
+        <section className="mt-6 rounded-md border border-border bg-surface p-5">
+          <h2 className="text-lg font-semibold text-product-deep dark:text-product-200">Objeciones frecuentes</h2>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-foreground-muted">
             {objections.map((objection) => (
               <li key={objection}>{objection}</li>
             ))}

@@ -13,11 +13,17 @@ import { asignarConductor, asignarVehiculo, marcarExcepcion } from './actions';
 import { SugerenciaCard } from './sugerencia-card';
 
 function queueLabel(minutes: number | null) {
-  if (minutes === null) return 'Sin cola registrada';
-  if (minutes < 60) return `${minutes} min en cola`;
+  if (minutes === null) return 'Turno por confirmar';
+  if (minutes < 60) return `${minutes} min en turno`;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return `${hours} h ${rest} min en cola`;
+  return `${hours} h ${rest} min en turno`;
+}
+
+function conductorOptionLabel(conductor: AdminConductorOption) {
+  return `${conductor.nombre} · Calificación ${conductor.rating.toFixed(1)} · ${conductor.totalViajes} viajes · ${queueLabel(
+    conductor.minutosEnCola,
+  )}`;
 }
 
 function resultText(result: { ok: boolean; message: string } | null) {
@@ -76,49 +82,48 @@ export function ReservaDetalleActions({
         </div>
       ) : null}
       <form
-        className="rounded-md border border-border bg-white p-5"
+        className="rounded-md border border-border bg-surface p-5"
         onSubmit={(event) => runAction(event, asignarConductor)}
       >
         <input name="reserva_id" type="hidden" value={reserva.id} />
         <div className="mb-4 flex items-center gap-2">
           <UserRound className="h-4 w-4 text-product" />
-          <h2 className="text-base font-semibold text-product-deep">Asignación manual</h2>
+          <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Elegir conductor</h2>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="space-y-2 text-sm">
-            <span className="font-medium text-neutral-700">Conductor</span>
+            <span className="font-medium text-foreground-muted">Conductor</span>
             <select
-              className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm outline-none focus:border-product focus:ring-2 focus:ring-product-muted"
+              className="h-11 w-full rounded-md border border-border bg-surface px-3 text-sm outline-none focus:border-product focus:ring-2 focus:ring-product-muted"
               defaultValue={reserva.conductorId ?? conductores[0]?.id ?? ''}
               name="conductor_id"
             >
               {conductores.map((conductor) => (
                 <option key={conductor.id} value={conductor.id}>
-                  {conductor.nombre} · {conductor.rating.toFixed(2)} ★ · {conductor.totalViajes} viajes ·{' '}
-                  {queueLabel(conductor.minutosEnCola)}
+                  {conductorOptionLabel(conductor)}
                 </option>
               ))}
             </select>
           </label>
           <label className="space-y-2 text-sm">
-            <span className="font-medium text-neutral-700">Unidad</span>
+            <span className="font-medium text-foreground-muted">Unidad</span>
             <select
-              className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm outline-none focus:border-product focus:ring-2 focus:ring-product-muted"
+              className="h-11 w-full rounded-md border border-border bg-surface px-3 text-sm outline-none focus:border-product focus:ring-2 focus:ring-product-muted"
               defaultValue={reserva.vehiculoId ?? vehiculos[0]?.id ?? ''}
               name="vehiculo_id"
             >
               {vehiculos.map((vehiculo) => (
                 <option key={vehiculo.id} value={vehiculo.id}>
-                  {vehiculo.placa} · {vehiculo.marca} {vehiculo.modelo} · {vehiculo.tipo} · {vehiculo.capacidad} pax
+                  {vehiculo.placa} · {vehiculo.marca} {vehiculo.modelo} · {vehiculo.tipo} · {vehiculo.capacidad} personas
                 </option>
               ))}
             </select>
           </label>
         </div>
-        <div className="mt-4 grid gap-2 text-xs text-neutral-500 lg:grid-cols-2">
+        <div className="mt-4 grid gap-2 text-xs text-foreground-muted lg:grid-cols-2">
           {conductores.slice(0, 3).map((conductor, index) => (
-            <div className="rounded-md bg-neutral-50 px-3 py-2" key={conductor.id}>
-              #{index + 1} cola · {conductor.nombre} · {queueLabel(conductor.minutosEnCola)}
+            <div className="rounded-md bg-surface-muted px-3 py-2" key={conductor.id}>
+              Turno #{index + 1} · {conductor.nombre} · {queueLabel(conductor.minutosEnCola)}
               {conductor.vehiculoActual ? ` · ${conductor.vehiculoActual}` : ''}
             </div>
           ))}
@@ -130,38 +135,38 @@ export function ReservaDetalleActions({
             type="submit"
           >
             <CheckCircle2 className="h-4 w-4" />
-            Asignar conductor y unidad
+            Confirmar conductor y unidad
           </button>
         </div>
       </form>
 
       <form
-        className="rounded-md border border-border bg-white p-5"
+        className="rounded-md border border-border bg-surface p-5"
         onSubmit={(event) => runAction(event, asignarVehiculo)}
       >
         <input name="reserva_id" type="hidden" value={reserva.id} />
         <div className="mb-4 flex items-center gap-2">
           <Car className="h-4 w-4 text-product" />
-          <h2 className="text-base font-semibold text-product-deep">Cambiar solo unidad</h2>
+          <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Cambiar unidad</h2>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <select
-            className="h-10 flex-1 rounded-md border border-border bg-white px-3 text-sm outline-none focus:border-product focus:ring-2 focus:ring-product-muted"
+            className="h-10 flex-1 rounded-md border border-border bg-surface px-3 text-sm outline-none focus:border-product focus:ring-2 focus:ring-product-muted"
             defaultValue={reserva.vehiculoId ?? vehiculos[0]?.id ?? ''}
             name="vehiculo_id"
           >
             {vehiculos.map((vehiculo) => (
               <option key={vehiculo.id} value={vehiculo.id}>
-                {vehiculo.placa} · {vehiculo.marca} {vehiculo.modelo} · {vehiculo.capacidad} pax
+                {vehiculo.placa} · {vehiculo.marca} {vehiculo.modelo} · {vehiculo.capacidad} personas
               </option>
             ))}
           </select>
           <button
-            className="h-10 rounded-md border border-product px-4 text-sm font-semibold text-product hover:bg-product-muted disabled:opacity-60"
+            className="h-10 rounded-md border border-product px-4 text-sm font-semibold text-product hover:bg-surface-muted disabled:opacity-60"
             disabled={isPending || !reserva.conductorId || vehiculos.length === 0}
             type="submit"
           >
-            Actualizar unidad
+            Actualizar
           </button>
         </div>
       </form>
@@ -173,10 +178,10 @@ export function ReservaDetalleActions({
         <input name="reserva_id" type="hidden" value={reserva.id} />
         <div className="mb-4 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-warning" />
-          <h2 className="text-base font-semibold text-product-deep">Marcar excepción</h2>
+          <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Necesita revisión</h2>
         </div>
         <textarea
-          className="min-h-24 w-full rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-warning focus:ring-2 focus:ring-warning/20"
+          className="min-h-24 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-warning focus:ring-2 focus:ring-warning/20"
           name="motivo"
           placeholder="Ej. Vuelo retrasado, pasajero pidió cambiar unidad, falta dato de contacto."
         />

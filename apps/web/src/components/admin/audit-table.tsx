@@ -18,10 +18,10 @@ export type AuditRow = {
 
 const columns: ColumnDef<AuditRow>[] = [
   { accessorKey: 'ts', header: 'Fecha' },
-  { accessorKey: 'actor', header: 'Actor' },
+  { accessorKey: 'actor', header: 'Responsable' },
   { accessorKey: 'action', header: 'Acción' },
-  { accessorKey: 'target', header: 'Destino' },
-  { accessorKey: 'payload', header: 'Payload' },
+  { accessorKey: 'target', header: 'Registro' },
+  { accessorKey: 'payload', header: 'Detalle' },
 ];
 
 export function AuditTable({ data }: { data: AuditRow[] }) {
@@ -32,9 +32,9 @@ export function AuditTable({ data }: { data: AuditRow[] }) {
   });
 
   return (
-    <div className="overflow-x-auto rounded-md border border-border bg-white">
+    <div className="overflow-x-auto rounded-md border border-border bg-surface">
       <table className="min-w-full text-left text-sm">
-        <thead className="bg-product-muted text-product-deep">
+        <thead className="bg-product-muted dark:bg-product-900/40 text-product-deep dark:text-product-200">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
@@ -49,7 +49,7 @@ export function AuditTable({ data }: { data: AuditRow[] }) {
           {table.getRowModel().rows.map((row) => (
             <tr key={row.id}>
               {row.getVisibleCells().map((cell) => (
-                <td className="max-w-xs px-3 py-2 align-top text-neutral-700" key={cell.id}>
+                <td className="max-w-xs px-3 py-2 align-top text-foreground-muted" key={cell.id}>
                   <span className="line-clamp-3 break-words">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </span>
@@ -60,7 +60,7 @@ export function AuditTable({ data }: { data: AuditRow[] }) {
         </tbody>
       </table>
       {data.length === 0 ? (
-        <div className="px-3 py-10 text-center text-sm text-neutral-500">Sin eventos para el filtro.</div>
+        <div className="px-3 py-10 text-center text-sm text-foreground-muted">Sin actividad para este filtro.</div>
       ) : null}
     </div>
   );

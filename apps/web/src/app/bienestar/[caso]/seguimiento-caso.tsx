@@ -109,37 +109,37 @@ export function BienestarCasoClient({ initialIncident, token }: Props) {
         </div>
 
         <div className="mt-4 grid gap-4">
-          <section className="rounded-md border border-border bg-white p-4">
+          <section className="rounded-md border border-border bg-surface p-4">
             <div className="flex gap-3">
               <PackageSearch className="mt-1 h-5 w-5 text-care" />
               <div>
-                <p className="text-xs font-semibold uppercase text-neutral-500">Descripción</p>
-                <h2 className="mt-1 text-lg font-semibold text-product-deep">{incident.descripcion}</h2>
-                <p className="mt-2 text-sm text-neutral-600">
+                <p className="text-xs font-semibold uppercase text-foreground-muted">Descripción</p>
+                <h2 className="mt-1 text-lg font-semibold text-product-deep dark:text-product-200">{incident.descripcion}</h2>
+                <p className="mt-2 text-sm text-foreground-muted">
                   Voucher {incident.voucherCodigo} · {incident.severidad}
                 </p>
               </div>
             </div>
           </section>
 
-          <section className="rounded-md border border-border bg-white p-4">
+          <section className="rounded-md border border-border bg-surface p-4">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-product" />
-              <h2 className="text-base font-semibold text-product-deep">Viaje relacionado</h2>
+              <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Viaje relacionado</h2>
             </div>
-            <div className="mt-3 grid gap-2 text-sm text-neutral-700">
+            <div className="mt-3 grid gap-2 text-sm text-foreground-muted">
               <p>{incident.ruta.origen}</p>
-              <p className="font-semibold text-product-deep">{incident.ruta.puntoEncuentro}</p>
+              <p className="font-semibold text-product-deep dark:text-product-200">{incident.ruta.puntoEncuentro}</p>
               <p>{incident.ruta.destino}</p>
             </div>
           </section>
 
-          <section className="rounded-md border border-border bg-white p-4">
+          <section className="rounded-md border border-border bg-surface p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase text-neutral-500">Conductor</p>
-                <h2 className="mt-1 text-lg font-semibold text-product-deep">{incident.conductor.nombre}</h2>
-                <p className="mt-1 text-sm text-neutral-600">{incident.conductor.unidad ?? 'Unidad asignada'}</p>
+                <p className="text-xs font-semibold uppercase text-foreground-muted">Conductor</p>
+                <h2 className="mt-1 text-lg font-semibold text-product-deep dark:text-product-200">{incident.conductor.nombre}</h2>
+                <p className="mt-1 text-sm text-foreground-muted">{incident.conductor.unidad ?? 'Unidad asignada'}</p>
               </div>
               {incident.conductor.telefono ? (
                 <a
@@ -152,18 +152,18 @@ export function BienestarCasoClient({ initialIncident, token }: Props) {
             </div>
           </section>
 
-          <section className="rounded-md border border-border bg-white p-4">
+          <section className="rounded-md border border-border bg-surface p-4">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-product" />
-              <h2 className="text-base font-semibold text-product-deep">Timeline</h2>
+              <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Timeline</h2>
             </div>
             <div className="mt-4 grid gap-3">
               {incident.timeline.map((item, index) => {
                 const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
                 return (
-                  <div className="rounded-md bg-neutral-50 p-3" key={`${index}-${String(record.action)}`}>
-                    <p className="text-sm font-semibold text-product-deep">{actionLabel(record.action)}</p>
-                    <p className="mt-1 text-xs text-neutral-500">
+                  <div className="rounded-md bg-surface-muted p-3" key={`${index}-${String(record.action)}`}>
+                    <p className="text-sm font-semibold text-product-deep dark:text-product-200">{actionLabel(record.action)}</p>
+                    <p className="mt-1 text-xs text-foreground-muted">
                       {typeof record.actor === 'string' ? record.actor : 'sistema'} ·{' '}
                       {typeof record.ts === 'string' ? record.ts : incident.updatedAt}
                     </p>
@@ -174,10 +174,10 @@ export function BienestarCasoClient({ initialIncident, token }: Props) {
           </section>
 
           {canChooseDelivery ? (
-            <section className="rounded-md border border-success/30 bg-white p-4">
+            <section className="rounded-md border border-success/30 bg-surface p-4">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-5 w-5 text-success" />
-                <h2 className="text-base font-semibold text-product-deep">Objeto encontrado</h2>
+                <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Objeto encontrado</h2>
               </div>
               <div className="mt-4 grid gap-2">
                 <button
@@ -188,14 +188,14 @@ export function BienestarCasoClient({ initialIncident, token }: Props) {
                   Entregar en recepción del hotel hoy
                 </button>
                 <button
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-product bg-white px-4 text-sm font-semibold text-product"
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-product bg-surface px-4 text-sm font-semibold text-product"
                   type="button"
                   onClick={() => closeCase('oficina_manana')}
                 >
                   Recoger en oficina Taxi Green mañana
                 </button>
                 <button
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-danger bg-white px-4 text-sm font-semibold text-danger"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-danger bg-surface px-4 text-sm font-semibold text-danger"
                   type="button"
                   onClick={() => closeCase('oficina_manana', false)}
                 >
@@ -206,7 +206,7 @@ export function BienestarCasoClient({ initialIncident, token }: Props) {
             </section>
           ) : null}
 
-          {status ? <p className="text-sm font-medium text-neutral-600">{status}</p> : null}
+          {status ? <p className="text-sm font-medium text-foreground-muted">{status}</p> : null}
         </div>
       </section>
     </main>

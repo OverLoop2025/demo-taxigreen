@@ -7,6 +7,7 @@ import {
   FileText,
   MapPin,
   Maximize2,
+  MessageCircle,
   PackageSearch,
   Phone,
   Plane,
@@ -21,11 +22,13 @@ import type { ReactNode } from 'react';
 import { estadoViajePasajero, formatLlegada, type EstadoViaje } from '@taxigreen/shared/copy';
 import { BottomSheet, type SheetLevel } from '@/components/product/bottom-sheet';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
+import { useTheme, type Theme } from '@/components/theme/theme-provider';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { PassengerPosition, PassengerRating, PassengerTripData } from '@/lib/pasajero';
 
 type Props = {
   initialData: PassengerTripData;
+  mapboxToken: string | null;
 };
 
 type RouteFeatureCollection = {
@@ -51,9 +54,11 @@ type RouteState = {
 type MapboxMap = {
   remove: () => void;
   resize: () => void;
-  on: (event: 'load', callback: () => void) => void;
+  on: (event: 'load' | 'idle' | 'error', callback: () => void) => void;
   addSource: (id: string, source: Record<string, unknown>) => void;
   addLayer: (layer: Record<string, unknown>) => void;
+  getStyle: () => { layers?: Array<{ id?: string; type?: string }> };
+  setPaintProperty: (layerId: string, property: string, value: unknown) => void;
   getSource: (id: string) => { setData: (data: RouteFeatureCollection) => void } | undefined;
   fitBounds: (bounds: MapboxBounds, options: Record<string, unknown>) => void;
 };
@@ -134,6 +139,12 @@ function isFinished(data: PassengerTripData) {
 
 function callHref(value: string | null | undefined) {
   return value ? `tel:${value.replace(/[^\d+]/g, '')}` : undefined;
+}
+
+function messageHref(value: string | null | undefined) {
+  const phone = value?.replace(/[^\d]/g, '');
+  if (!phone) return undefined;
+  return `https://wa.me/${phone}`;
 }
 
 function initials(name: string) {
@@ -221,18 +232,153 @@ function minutosLlegada(route: RouteState, data: PassengerTripData) {
   return Math.max(0, Math.ceil(segundos / 60));
 }
 
-/** Fondo a pantalla completa cuando el mapa no carga: humano, sin datos técnicos. */
-function MapFallback({ data }: { data: PassengerTripData }) {
+function RatingStars({ value }: { value: number | null | undefined }) {
+  const rating = Math.max(0, Math.min(5, value ?? 5));
+  const width = `${(rating / 5) * 100}%`;
+
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-product-deep to-neutral-900 px-8 pb-[42dvh] pt-8 text-center">
-      <div className="max-w-xs">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
-          <MapPin className="h-7 w-7 text-white" />
-        </div>
-        <p className="mt-4 text-lg font-semibold text-white">Estamos siguiendo tu viaje</p>
-        <p className="mt-2 text-sm leading-6 text-white/70">
-          {data.ruta.origen.texto} → {data.ruta.destino.texto}
-        </p>
+    <div className="flex items-center gap-2 text-sm">
+      <span aria-label={`Valoración ${rating.toFixed(1)} de 5`} className="relative inline-block leading-none">
+        <span aria-hidden="true" className="tracking-[1px] text-foreground-muted/35">
+          ★★★★★
+        </span>
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 left-0 overflow-hidden tracking-[1px] text-amber-400"
+          style={{ width }}
+        >
+          ★★★★★
+        </span>
+      </span>
+      <span className="font-medium tabular-nums text-foreground-muted">{rating.toFixed(1)}</span>
+    </div>
+  );
+}
+
+function mapboxStyleForTheme(theme: Theme) {
+  return theme === 'dark' ? 'mapbox://styles/mapbox/navigation-night-v1' : 'mapbox://styles/mapbox/navigation-day-v1';
+}
+
+function softenTrafficLayers(map: MapboxMap, theme: Theme) {
+  const layers = map.getStyle().layers ?? [];
+  for (const layer of layers) {
+    const layerId = layer.id?.toLowerCase() ?? '';
+    if (layer.type !== 'line' || !layerId.includes('traffic')) continue;
+
+    try {
+      map.setPaintProperty(layer.id!, 'line-opacity', theme === 'dark' ? 0.2 : 0.24);
+      map.setPaintProperty(layer.id!, 'line-width', ['interpolate', ['linear'], ['zoom'], 8, 0.35, 12, 0.75, 16, 1.3]);
+      map.setPaintProperty(layer.id!, 'line-blur', 0.45);
+    } catch {
+      // Algunas capas de estilo de Mapbox no exponen los mismos paint props.
+    }
+  }
+}
+
+function projectRouteToSvg(points: Array<[number, number]>, width: number, height: number) {
+  if (points.length === 0) return '';
+
+  const lngs = points.map(([lng]) => lng);
+  const lats = points.map(([, lat]) => lat);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const lngRange = Math.max(maxLng - minLng, 0.0001);
+  const latRange = Math.max(maxLat - minLat, 0.0001);
+  const padding = 34;
+  const scale = Math.min((width - padding * 2) / lngRange, (height - padding * 2) / latRange);
+  const usedWidth = lngRange * scale;
+  const usedHeight = latRange * scale;
+  const offsetX = (width - usedWidth) / 2;
+  const offsetY = (height - usedHeight) / 2;
+  const step = Math.max(1, Math.floor(points.length / 96));
+
+  return points
+    .filter((_, index) => index % step === 0 || index === points.length - 1)
+    .map(([lng, lat], index) => {
+      const x = offsetX + (lng - minLng) * scale;
+      const y = offsetY + usedHeight - (lat - minLat) * scale;
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
+function routePreviewPoints({
+  data,
+  driverPosition,
+  route,
+}: {
+  data: PassengerTripData;
+  driverPosition: PassengerPosition | null;
+  route: RouteState;
+}) {
+  const geometry = route.geometry?.coordinates ?? data.tracking.geometry?.coordinates ?? [];
+  if (geometry.length > 2) return geometry;
+
+  return [
+    driverPosition ? ([driverPosition.lng, driverPosition.lat] as [number, number]) : null,
+    getCoordinates(data.ruta.origen),
+    getCoordinates(data.ruta.destino),
+  ].filter(Boolean) as Array<[number, number]>;
+}
+
+/** Fondo a pantalla completa cuando Mapbox GL no carga: mantiene ruta visible y look de navegación. */
+function MapFallback({
+  data,
+  driverPosition,
+  mapTheme,
+  route,
+}: {
+  data: PassengerTripData;
+  driverPosition: PassengerPosition | null;
+  mapTheme: Theme;
+  route: RouteState;
+}) {
+  const width = 390;
+  const height = 620;
+  const points = routePreviewPoints({ data, driverPosition, route });
+  const path = projectRouteToSvg(points, width, height);
+  const dark = mapTheme === 'dark';
+
+  return (
+    <div className={`absolute inset-0 overflow-hidden pb-[42dvh] ${dark ? 'bg-[#08130f]' : 'bg-[#eaf2ee]'}`}>
+      <div
+        className={`absolute inset-0 opacity-80 [background-size:42px_42px] ${
+          dark
+            ? '[background-image:linear-gradient(90deg,rgba(164,244,215,0.06)_1px,transparent_1px),linear-gradient(0deg,rgba(164,244,215,0.06)_1px,transparent_1px)]'
+            : '[background-image:linear-gradient(90deg,rgba(9,74,57,0.08)_1px,transparent_1px),linear-gradient(0deg,rgba(9,74,57,0.08)_1px,transparent_1px)]'
+        }`}
+      />
+      <svg
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full"
+        preserveAspectRatio="xMidYMid slice"
+        viewBox={`0 0 ${width} ${height}`}
+      >
+        <path d="M -20 120 C 80 90 130 145 210 122 S 340 82 430 112" fill="none" stroke={dark ? '#18372f' : '#d1ded8'} strokeWidth="18" />
+        <path d="M 22 510 C 92 430 170 462 232 382 S 318 260 420 238" fill="none" stroke={dark ? '#18372f' : '#d1ded8'} strokeWidth="22" />
+        <path d="M 36 250 C 112 248 150 302 232 300 S 350 310 430 270" fill="none" stroke={dark ? '#21483e' : '#c5d6cf'} strokeWidth="14" />
+        {path ? (
+          <>
+            <path d={path} fill="none" stroke={dark ? '#001f19' : '#083d31'} strokeLinecap="round" strokeLinejoin="round" strokeWidth="15" opacity={dark ? '0.75' : '0.28'} />
+            <path d={path} fill="none" stroke={dark ? '#22f3b2' : '#00a876'} strokeLinecap="round" strokeLinejoin="round" strokeWidth="7" />
+            <path d={path} fill="none" stroke="#ffffff" strokeDasharray="2 18" strokeLinecap="round" strokeWidth="2" opacity="0.65" />
+          </>
+        ) : null}
+      </svg>
+      <div className="absolute left-1/2 top-[31%] flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-product text-white shadow-lg ring-4 ring-white">
+        <Car className="h-6 w-6" />
+      </div>
+      <div className="absolute left-[18%] top-[48%] flex h-9 w-9 items-center justify-center rounded-full bg-white text-product shadow ring-1 ring-product/20">
+        <MapPin className="h-5 w-5" />
+      </div>
+      <div className="absolute right-[18%] top-[21%] flex h-9 w-9 items-center justify-center rounded-full bg-product-deep text-white shadow ring-4 ring-white">
+        <MapPin className="h-5 w-5" />
+      </div>
+      <div className={`absolute left-5 top-[18%] rounded-2xl px-4 py-3 shadow-lg backdrop-blur ${dark ? 'bg-neutral-950/90' : 'bg-white/95'}`}>
+        <p className="text-xs font-semibold uppercase tracking-wide text-product">Taxi Green</p>
+        <p className={`mt-1 text-sm font-semibold ${dark ? 'text-white' : 'text-neutral-950'}`}>Ruta hacia tu punto</p>
       </div>
     </div>
   );
@@ -241,15 +387,22 @@ function MapFallback({ data }: { data: PassengerTripData }) {
 function PassengerMap({
   data,
   driverPosition,
+  immersive,
+  mapTheme,
   route,
+  mapboxToken,
   recenterKey,
 }: {
   data: PassengerTripData;
   driverPosition: PassengerPosition | null;
+  immersive: boolean;
+  mapTheme: Theme;
   route: RouteState;
+  mapboxToken: string | null;
   recenterKey: number;
 }) {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  const token = mapboxToken;
+  const styleUrl = mapboxStyleForTheme(mapTheme);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const mapboxRef = useRef<MapboxGL | null>(null);
@@ -258,6 +411,7 @@ function PassengerMap({
   const destinationMarkerRef = useRef<MapboxMarker | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [ready, setReady] = useState(false);
+  const [visualReady, setVisualReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Sólo se dibuja geometría REAL de Mapbox (>2 vértices = trazado por calles).
   // Si no hay ruta real todavía, `line` queda vacío y no se pinta ninguna línea
@@ -273,6 +427,10 @@ function PassengerMap({
     if (!token || !containerRef.current || mapRef.current) return;
 
     let cancelled = false;
+    let mapLoaded = false;
+    setReady(false);
+    setVisualReady(false);
+    setError(null);
     void loadMapboxGl().then((mapboxgl) => {
       if (cancelled || !mapboxgl || !containerRef.current) {
         if (!mapboxgl) setError('mapa_no_disponible');
@@ -286,9 +444,9 @@ function PassengerMap({
       mapboxgl.accessToken = token;
       const map = new mapboxgl.Map({
         container: containerRef.current,
-        // Tema oscuro sobrio (alineado a la paleta azul): el chrome del mapa es
-        // negro/azul profundo y la ruta resalta en cian brillante.
-        style: 'mapbox://styles/mapbox/dark-v11',
+        // Estilo navegación claro/oscuro según tema, cercano a Waze/inDrive.
+        style: styleUrl,
+        logoPosition: 'bottom-left',
         center,
         zoom: 11.5,
         // Zoom máximo cómodo: evita "perderse" haciendo zoom al vacío.
@@ -296,6 +454,9 @@ function PassengerMap({
         attributionControl: false,
       });
       mapRef.current = map;
+      map.on('error', () => {
+        if (!mapLoaded) setError('mapa_no_disponible');
+      });
 
       // Mantener el canvas sincronizado con el tamaño real del contenedor. Sin
       // esto, si el mapa se inicializa antes de que el layout (columna/dvh) se
@@ -308,6 +469,9 @@ function PassengerMap({
 
       map.on('load', () => {
         if (cancelled) return;
+        mapLoaded = true;
+        setError(null);
+        softenTrafficLayers(map, mapTheme);
         const routeData: RouteFeatureCollection = {
           type: 'FeatureCollection',
           features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }],
@@ -319,9 +483,9 @@ function PassengerMap({
           source: 'route',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#053226',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 7, 14, 12, 18, 18],
-            'line-opacity': 0.55,
+            'line-color': mapTheme === 'dark' ? '#001f19' : '#06382f',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 9, 14, 14, 18, 20],
+            'line-opacity': mapTheme === 'dark' ? 0.9 : 0.65,
             'line-blur': 0.5,
           },
         });
@@ -331,9 +495,9 @@ function PassengerMap({
           source: 'route',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#34D399',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 3, 14, 6, 18, 9],
-            'line-opacity': 0.95,
+            'line-color': mapTheme === 'dark' ? '#22F3B2' : '#00A876',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7, 18, 10],
+            'line-opacity': 1,
           },
         });
 
@@ -360,6 +524,9 @@ function PassengerMap({
         }
         setReady(true);
       });
+      map.on('idle', () => {
+        if (!cancelled) setVisualReady(true);
+      });
     });
 
     return () => {
@@ -374,7 +541,7 @@ function PassengerMap({
       mapRef.current = null;
       mapboxRef.current = null;
     };
-  }, [token]);
+  }, [token, styleUrl, mapTheme]);
 
   // Actualiza ruta y conductor SIN recrear el mapa ni re-encajar (evita salto de zoom).
   useEffect(() => {
@@ -418,10 +585,42 @@ function PassengerMap({
   }, [recenterKey]);
 
   if (!token || error) {
-    return <MapFallback data={data} />;
+    return <MapFallback data={data} driverPosition={driverPosition} mapTheme={mapTheme} route={route} />;
   }
 
-  return <div ref={containerRef} className="absolute inset-0 h-full w-full bg-neutral-900" />;
+  return (
+    <>
+      <style>
+        {`
+          .passenger-map .mapboxgl-ctrl-bottom-left {
+            bottom: calc(42dvh + 0.5rem);
+            left: 0.5rem;
+          }
+
+          .passenger-map.passenger-map--immersive .mapboxgl-ctrl-bottom-left {
+            bottom: calc(env(safe-area-inset-bottom) + 5.75rem);
+          }
+
+          .passenger-map .mapboxgl-ctrl-logo {
+            opacity: 0.62;
+            transform: scale(0.78);
+            transform-origin: left bottom;
+          }
+        `}
+      </style>
+      {!visualReady ? (
+        <MapFallback data={data} driverPosition={driverPosition} mapTheme={mapTheme} route={route} />
+      ) : null}
+      <div
+        ref={containerRef}
+        className={`passenger-map ${immersive ? 'passenger-map--immersive' : ''} absolute inset-0 h-full w-full transition-opacity duration-500 ${
+          mapTheme === 'dark' ? 'bg-[#08130f]' : 'bg-[#eaf2ee]'
+        } ${
+          visualReady ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+    </>
+  );
 }
 
 function InfoRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
@@ -742,6 +941,10 @@ function DriverSummary({
 }) {
   const estado = toEstadoViaje(data.viaje.estado);
   const placa = data.unidad?.placa ?? 'Por confirmar';
+  const unidad = data.unidad ? `${data.unidad.marca} ${data.unidad.modelo}` : 'Unidad por confirmar';
+  const phoneHref = callHref(data.conductor.telefono);
+  const chatHref = messageHref(data.conductor.telefono);
+
   return (
     <div>
       <p className="text-sm font-medium text-foreground-muted">{estadoViajePasajero(estado)}</p>
@@ -759,28 +962,46 @@ function DriverSummary({
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">{data.conductor.nombre}</p>
-          <p className="mt-0.5 flex items-center gap-2 text-sm text-foreground-muted">
-            <span>★ {data.conductor.rating?.toFixed(1) ?? '5.0'}</span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-0.5 font-semibold text-foreground">
-              <Car className="h-3.5 w-3.5" /> {placa}
-            </span>
-          </p>
+          <div className="mt-1">
+            <RatingStars value={data.conductor.rating} />
+          </div>
+          <div className="mt-2 flex max-w-full items-center gap-2 rounded-xl bg-surface-muted px-3 py-2 text-sm">
+            <Car className="h-4 w-4 shrink-0 text-product" />
+            <div className="min-w-0">
+              <p className="font-semibold leading-tight text-foreground">{placa}</p>
+              <p className="truncate text-xs leading-tight text-foreground-muted">{unidad}</p>
+            </div>
+          </div>
         </div>
-        {data.conductor.telefono ? (
+        <div className="flex shrink-0 flex-col gap-2">
+        {chatHref ? (
+          <a
+            aria-label="Enviar mensaje al conductor"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-product/20 bg-product-muted text-product shadow-sm"
+            href={chatHref}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <MessageCircle className="h-5 w-5" />
+          </a>
+        ) : null}
+        {phoneHref ? (
           <a
             aria-label="Llamar al conductor"
             className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-product text-white shadow-sm"
-            href={callHref(data.conductor.telefono)}
+            href={phoneHref}
           >
             <Phone className="h-5 w-5" />
           </a>
         ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
-export function PassengerTrackingClient({ initialData }: Props) {
+export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
+  const { theme } = useTheme();
   const [data, setData] = useState(initialData);
   const [driverPosition, setDriverPosition] = useState<PassengerPosition | null>(initialData.tracking.posicion);
   const [route, setRoute] = useState<RouteState>({
@@ -927,29 +1148,43 @@ export function PassengerTrackingClient({ initialData }: Props) {
           ancha. h-full = altura de viewport, así el bottom sheet (que mide con
           window.innerHeight) sigue calzando exacto. */}
       <main className="relative h-full w-full max-w-[480px] overflow-hidden bg-background shadow-2xl">
-        <PassengerMap data={data} driverPosition={driverPosition} route={route} recenterKey={recenterKey} />
+        <PassengerMap
+          data={data}
+          driverPosition={driverPosition}
+          immersive={immersive}
+          mapTheme={theme}
+          route={route}
+          mapboxToken={mapboxToken}
+          recenterKey={recenterKey}
+        />
 
-      {/* Controles del mapa (siempre visibles) */}
-      <div className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex flex-col gap-2">
-        <button
-          type="button"
-          aria-label="Centrar el mapa"
-          onClick={() => setRecenterKey((value) => value + 1)}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/95 text-foreground shadow-md backdrop-blur"
+        {/* Controles del mapa (siempre visibles) */}
+        <div
+          className={`absolute right-4 z-20 flex flex-col gap-2 ${
+            immersive
+              ? 'top-[max(1rem,env(safe-area-inset-top))]'
+              : 'top-[calc(max(1rem,env(safe-area-inset-top))+4.25rem)]'
+          }`}
         >
-          <Crosshair className="h-5 w-5" />
-        </button>
-        {!immersive ? (
           <button
             type="button"
-            aria-label="Ver el mapa en pantalla completa"
-            onClick={() => setImmersive(true)}
+            aria-label="Centrar el mapa"
+            onClick={() => setRecenterKey((value) => value + 1)}
             className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/95 text-foreground shadow-md backdrop-blur"
           >
-            <Maximize2 className="h-5 w-5" />
+            <Crosshair className="h-5 w-5" />
           </button>
-        ) : null}
-      </div>
+          {!immersive ? (
+            <button
+              type="button"
+              aria-label="Ver el mapa en pantalla completa"
+              onClick={() => setImmersive(true)}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/95 text-foreground shadow-md backdrop-blur"
+            >
+              <Maximize2 className="h-5 w-5" />
+            </button>
+          ) : null}
+        </div>
 
       {immersive ? (
         <>
@@ -969,13 +1204,24 @@ export function PassengerTrackingClient({ initialData }: Props) {
               </p>
             </div>
             {data.conductor.telefono ? (
-              <a
-                aria-label="Llamar al conductor"
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-product text-white"
-                href={callHref(data.conductor.telefono)}
-              >
-                <Phone className="h-5 w-5" />
-              </a>
+              <div className="flex shrink-0 gap-2">
+                <a
+                  aria-label="Enviar mensaje al conductor"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-product/20 bg-product-muted text-product"
+                  href={messageHref(data.conductor.telefono)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageCircle className="h-5 w-5" />
+                </a>
+                <a
+                  aria-label="Llamar al conductor"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-product text-white"
+                  href={callHref(data.conductor.telefono)}
+                >
+                  <Phone className="h-5 w-5" />
+                </a>
+              </div>
             ) : null}
           </div>
         </>
@@ -983,12 +1229,16 @@ export function PassengerTrackingClient({ initialData }: Props) {
         <>
           {/* Banner superior breve */}
           <div className="absolute inset-x-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex items-center gap-2">
-            <div className="flex flex-1 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-2 shadow-md backdrop-blur">
-              <span className="rounded bg-brand-tenant px-2 py-0.5 text-xs font-semibold text-white">Taxi Green</span>
-              <span className="truncate text-sm font-medium text-foreground">{estadoViajePasajero(estado)}</span>
-              <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold text-foreground-muted">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-2 shadow-md backdrop-blur">
+              <span className="shrink-0 whitespace-nowrap rounded bg-brand-tenant px-2 py-0.5 text-xs font-semibold text-white">
+                Taxi Green
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                {estadoViajePasajero(estado)}
+              </span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-foreground-muted">
                 <span
-                  className={`h-2 w-2 rounded-full ${liveStatus === 'en_vivo' ? 'bg-success' : 'bg-warning'}`}
+                  className={`h-2 w-2 shrink-0 rounded-full ${liveStatus === 'en_vivo' ? 'bg-success' : 'bg-warning'}`}
                 />
                 {liveStatus === 'en_vivo' ? 'En vivo' : 'Actualizando'}
               </span>

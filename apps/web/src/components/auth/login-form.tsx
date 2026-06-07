@@ -73,8 +73,8 @@ export function LoginForm({
           <div className="mb-4 inline-flex rounded bg-brand-tenant px-2 py-1 text-xs font-semibold text-white">
             Taxi Green
           </div>
-          <h1 className="text-2xl font-semibold text-product-deep">{title}</h1>
-          <p className="mt-2 text-sm text-neutral-600">{subtitle}</p>
+          <h1 className="text-2xl font-semibold text-product-deep dark:text-product-200">{title}</h1>
+          <p className="mt-2 text-sm text-foreground-muted">{subtitle}</p>
         </div>
 
         <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>

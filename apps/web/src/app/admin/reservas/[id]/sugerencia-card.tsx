@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useTransition, type FormEvent } from 'react';
-import { BadgeCheck, CarFront, Gauge, RotateCcw, Sparkles } from 'lucide-react';
+import { BadgeCheck, CarFront, RotateCcw, Sparkles } from 'lucide-react';
 import type { SugerenciaAsignacion } from '@taxigreen/asignacion';
 import { aceptarSugerenciaAsignacion, registrarOverrideSugerencia } from './actions';
 
@@ -22,18 +22,24 @@ function initials(name: string) {
     .join('');
 }
 
-function sourceLabel(fuente: SugerenciaAsignacion['fuente']) {
-  return fuente === 'llm' ? 'IA' : 'Algoritmo';
-}
-
-function sourceClasses(fuente: SugerenciaAsignacion['fuente']) {
-  return fuente === 'llm'
-    ? 'border-product/20 bg-product-muted text-product-deep'
-    : 'border-neutral-200 bg-neutral-50 text-neutral-700';
-}
-
 function pct(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function turnoLabel(minutes: number | null) {
+  if (minutes === null) return 'turno por confirmar';
+  if (minutes < 60) return `${minutes} min en turno`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} h ${rest} min en turno`;
+}
+
+function recommendationReason(sugerencia: SugerenciaAsignacion) {
+  const factores = sugerencia.factores;
+  const capacidad = `${factores.capacidadUnidad} espacios para ${factores.pasajerosRequeridos} personas`;
+  return `Está listo para salir: lleva ${turnoLabel(factores.minutosEnCola)}, está a ${factores.distanciaKm.toFixed(
+    1,
+  )} km del punto y la unidad encaja con el viaje (${capacidad}).`;
 }
 
 export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacion | null }) {
@@ -43,14 +49,13 @@ export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacio
 
   if (!sugerencia) {
     return (
-      <section className="rounded-md border border-border bg-white p-5">
+      <section className="rounded-md border border-border bg-surface p-5">
         <div className="mb-3 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-product" />
-          <h2 className="text-base font-semibold text-product-deep">Copiloto recomienda</h2>
+          <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Conductor sugerido</h2>
         </div>
-        <p className="text-sm text-neutral-600">
-          No hay suficientes candidatos compatibles para sugerir conductor y unidad. La asignación manual sigue
-          disponible.
+        <p className="text-sm text-foreground-muted">
+          Aún no hay una opción clara. Puedes elegir conductor y unidad manualmente.
         </p>
       </section>
     );
@@ -69,36 +74,29 @@ export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacio
   const factores = sugerencia.factores;
   const factorRows = [
     {
-      label: 'Cola',
-      value:
-        factores.ordenCola === null
-          ? 'Sin registro'
-          : `#${factores.ordenCola} · ${factores.minutosEnCola ?? 0}m`,
+      label: 'Turno',
+      value: factores.ordenCola === null ? 'Por confirmar' : `#${factores.ordenCola} · ${turnoLabel(factores.minutosEnCola)}`,
     },
     { label: 'Distancia', value: `${factores.distanciaKm.toFixed(1)} km` },
-    { label: 'Match', value: pct(factores.matchScore) },
+    { label: 'Encaja', value: pct(factores.matchScore) },
     {
-      label: 'Capacidad',
-      value: `${factores.capacidadUnidad}/${factores.pasajerosRequeridos} pax`,
+      label: 'Personas',
+      value: `${factores.capacidadUnidad}/${factores.pasajerosRequeridos}`,
     },
   ];
 
   return (
-    <section className="rounded-md border border-product/20 bg-white p-5 shadow-sm">
+    <section className="rounded-md border border-product/20 bg-surface p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-product" />
           <div>
-            <h2 className="text-base font-semibold text-product-deep">Copiloto recomienda</h2>
-            <p className="text-xs text-neutral-500">Humano confirma antes de despachar.</p>
+            <h2 className="text-base font-semibold text-product-deep dark:text-product-200">Conductor sugerido</h2>
+            <p className="text-xs text-foreground-muted">El operador confirma la salida.</p>
           </div>
         </div>
-        <span
-          className={`inline-flex h-7 items-center rounded-md border px-2 text-xs font-semibold ${sourceClasses(
-            sugerencia.fuente,
-          )}`}
-        >
-          {sourceLabel(sugerencia.fuente)}
+        <span className="inline-flex h-7 items-center rounded-md border border-product/20 bg-product-muted px-2 text-xs font-semibold text-product-deep dark:bg-product-900/40 dark:text-product-200">
+          Modo seguro
         </span>
       </div>
 
@@ -108,42 +106,44 @@ export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacio
             {initials(sugerencia.conductor.nombre)}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-product-deep">
+            <p className="truncate text-sm font-semibold text-product-deep dark:text-product-200">
               {sugerencia.conductor.nombre}
             </p>
-            <p className="text-xs text-neutral-500">
-              {sugerencia.conductor.rating.toFixed(2)} rating · {sugerencia.conductor.totalViajes} viajes
+            <p className="text-xs text-foreground-muted">
+              Calificación {sugerencia.conductor.rating.toFixed(1)} · {sugerencia.conductor.totalViajes} viajes
             </p>
           </div>
         </div>
-        <div className="rounded-md border border-border bg-neutral-50 px-3 py-2 text-sm">
-          <div className="flex items-center gap-2 font-semibold text-product-deep">
+        <div className="rounded-md border border-border bg-surface-muted px-3 py-2 text-sm">
+          <div className="flex items-center gap-2 font-semibold text-product-deep dark:text-product-200">
             <CarFront className="h-4 w-4 text-product" />
             {sugerencia.vehiculo.placa}
           </div>
-          <p className="mt-0.5 text-xs text-neutral-600">
+          <p className="mt-0.5 text-xs text-foreground-muted">
             {sugerencia.vehiculo.marca} {sugerencia.vehiculo.modelo} · {sugerencia.vehiculo.tipo}
           </p>
         </div>
       </div>
 
-      <div className="mt-4 rounded-md bg-product-muted px-3 py-3">
-        <p className="text-sm leading-6 text-product-deep">{sugerencia.razon}</p>
+      <div className="mt-4 rounded-md bg-product-muted dark:bg-product-900/40 px-3 py-3">
+        <p className="text-sm leading-6 text-product-deep dark:text-product-200">{recommendationReason(sugerencia)}</p>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-        {factorRows.map((row) => (
-          <div className="rounded-md border border-border bg-white px-3 py-2" key={row.label}>
-            <span className="block font-semibold uppercase text-neutral-500">{row.label}</span>
-            <span className="mt-1 block text-sm font-semibold text-product-deep">{row.value}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-4 flex items-center gap-2 text-xs text-neutral-500">
-        <Gauge className="h-4 w-4" />
-        <span>Score {sugerencia.score}/100 · pesos cola {factores.pesos.cola}, distancia {factores.pesos.distancia}, match {factores.pesos.match}</span>
-      </div>
+      <details className="mt-4 rounded-md border border-border bg-surface px-3 py-2 text-xs text-foreground-muted">
+        <summary className="cursor-pointer font-semibold text-foreground">Ver motivos</summary>
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+          {factorRows.map((row) => (
+            <div className="rounded-md bg-surface-muted px-3 py-2" key={row.label}>
+              <span className="block font-semibold uppercase text-foreground-muted">{row.label}</span>
+              <span className="mt-1 block text-sm font-semibold text-product-deep dark:text-product-200">{row.value}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 leading-5">
+          Prioriza el turno del conductor, la distancia al punto y que la unidad tenga espacio suficiente para el
+          viaje. Prioridad interna: {sugerencia.score}/100.
+        </p>
+      </details>
 
       {result ? (
         <div
@@ -175,7 +175,7 @@ export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacio
             type="submit"
           >
             <BadgeCheck className="h-4 w-4" />
-            Aceptar sugerencia
+            Confirmar recomendación
           </button>
         </form>
 
@@ -185,12 +185,12 @@ export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacio
           <input name="fuente_original" type="hidden" value={sugerencia.fuente} />
           <input name="score_original" type="hidden" value={sugerencia.score} />
           <button
-            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-product px-4 text-sm font-semibold text-product hover:bg-product-muted disabled:opacity-60"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-product px-4 text-sm font-semibold text-product hover:bg-surface-muted disabled:opacity-60"
             disabled={isPending}
             type="submit"
           >
             <RotateCcw className="h-4 w-4" />
-            Asignar otro
+            Elegir otro
           </button>
         </form>
       </div>

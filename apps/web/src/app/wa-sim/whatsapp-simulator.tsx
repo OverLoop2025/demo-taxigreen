@@ -5,7 +5,6 @@ import {
   Bot,
   CheckCircle2,
   ClipboardCheck,
-  FileJson,
   Loader2,
   MessageCircle,
   PanelRightOpen,
@@ -78,8 +77,8 @@ function confianzaClass(value: number) {
 }
 
 function fuenteLabel(result: ExtraccionReservaResultado | null) {
-  if (!result) return 'Sin extracción';
-  return result.fuente === 'llm' ? 'IA' : 'Algoritmo';
+  if (!result) return 'Pendiente de lectura';
+  return result.fuente === 'llm' ? 'Leído con IA' : 'Lectura automática';
 }
 
 function fuenteIcon(result: ExtraccionReservaResultado | null) {
@@ -189,8 +188,8 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
               <MessageCircle aria-hidden="true" className="h-5 w-5" />
             </span>
             <div>
-              <h1 className="text-base font-semibold">WA Sim</h1>
-              <p className="text-xs text-white/75">Taxi Green · Sprint 4</p>
+              <h1 className="text-base font-semibold">WhatsApp</h1>
+              <p className="text-xs text-white/75">Taxi Green · Reservas</p>
             </div>
           </div>
 
@@ -295,7 +294,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
         <aside className="border-l border-[#c9d7d3] bg-[#f7fbfa]">
           <div className="flex h-16 items-center justify-between border-b border-[#d8e3e0] px-5">
             <div>
-              <p className="text-xs font-semibold uppercase text-[#128C7E]">Extracción</p>
+              <p className="text-xs font-semibold uppercase text-[#128C7E]">Lectura del mensaje</p>
               <h2 className="text-base font-semibold text-[#0a332f]">{fuenteLabel(extraccion)}</h2>
             </div>
             <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[#e0f5ef] text-[#075E54]">
@@ -370,16 +369,6 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                     Datos suficientes para crear reserva.
                   </section>
                 )}
-
-                <details className="rounded-md border border-[#d8e3e0] bg-white p-4">
-                  <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-[#0a332f]">
-                    <FileJson aria-hidden="true" className="h-4 w-4" />
-                    JSON
-                  </summary>
-                  <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-[#111B21] p-3 text-xs text-[#d9fdd3]">
-                    {JSON.stringify(extraccion, null, 2)}
-                  </pre>
-                </details>
 
                 {actionMessage ? (
                   <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
