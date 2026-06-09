@@ -9,6 +9,14 @@ export type DriverRouteLineString = {
   coordinates: number[][];
 };
 
+export type DriverRoutePaso = {
+  instruccion: string;
+  distanciaMetros: number;
+  tipo: string;
+  modifier: string | null;
+  nombre: string | null;
+};
+
 export type DriverRouteResult = {
   distanciaMetros: number | null;
   duracionSegundos: number | null;
@@ -16,6 +24,7 @@ export type DriverRouteResult = {
   geometry: DriverRouteLineString | null;
   fuente: 'mapbox' | 'estimacion';
   calculadoEn: string | null;
+  pasos: DriverRoutePaso[];
   cache?: string;
 };
 
@@ -87,6 +96,7 @@ function emptyRoute(): DriverRouteResult {
     geometry: null,
     fuente: 'estimacion',
     calculadoEn: null,
+    pasos: [],
   };
 }
 
@@ -147,6 +157,9 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
           geometry: real ? result.geometry : current.fuente === 'mapbox' ? current.geometry : null,
           fuente: real || current.fuente === 'mapbox' ? 'mapbox' : result.fuente,
           calculadoEn: result.calculadoEn,
+          // Las maniobras sólo acompañan a una geometría real; si no, conservamos
+          // las previas (cuando ya teníamos ruta real) o vaciamos.
+          pasos: real ? result.pasos ?? [] : current.fuente === 'mapbox' ? current.pasos : [],
           cache: result.cache,
         }));
         setStatus(real ? 'ready' : 'fallback');

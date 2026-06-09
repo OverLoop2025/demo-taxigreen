@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useColorScheme } from 'nativewind';
 import type { DriverLocation } from '@/features/location';
 import { env } from '@/lib/env';
 import type { DriverAssignment } from '@/features/assignment/types';
 import type { DriverRouteResult } from '@/features/routing/use-route';
+import { useThemePref } from '@/features/theme/theme-provider';
 
 declare const require: (moduleName: string) => unknown;
 
 type MapboxComponent = ComponentType<Record<string, unknown> & { children?: ReactNode }>;
 
 type MapboxApi = {
-  setAccessToken: (token: string) => void;
+  setAccessToken: (token: string) => Promise<string | null> | string | null | void;
   setTelemetryEnabled?: (enabled: boolean) => void;
   MapView: MapboxComponent;
   Camera: MapboxComponent;
   ShapeSource: MapboxComponent;
+  VectorSource: MapboxComponent;
   LineLayer: MapboxComponent;
   MarkerView: MapboxComponent;
 };
@@ -25,7 +26,7 @@ function toCoordinate(point: { lat: number | null; lng: number | null }) {
 }
 
 function fallbackRoute(assignment: DriverAssignment) {
-  return `${assignment.origen.texto} -> ${assignment.destino.texto}`;
+  return `${assignment.origen.texto} → ${assignment.destino.texto}`;
 }
 
 function distanceLabel(value: number | null) {
@@ -53,11 +54,11 @@ function useMapboxApi(enabled: boolean) {
     let mounted = true;
     Promise.resolve()
       .then(() => require('@rnmapbox/maps'))
-      .then((module) => {
+      .then(async (module) => {
         if (!mounted) return;
         const record = module as { default?: unknown };
         const mapbox = (record.default ?? module) as MapboxApi;
-        mapbox.setAccessToken(env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '');
+        await Promise.resolve(mapbox.setAccessToken(env.EXPO_PUBLIC_MAPBOX_TOKEN ?? ''));
         mapbox.setTelemetryEnabled?.(false);
         setApi(mapbox);
         setError(null);
@@ -90,16 +91,32 @@ export function AssignmentMap({
 }) {
   const token = env.EXPO_PUBLIC_MAPBOX_TOKEN;
   const { api: Mapbox, error } = useMapboxApi(Boolean(token));
-  const { colorScheme } = useColorScheme();
-  const dark = colorScheme === 'dark';
+  const dark = useThemePref().resolved === 'dark';
 
-  // Estilo de navegación día/noche (look Waze/inDrive) coherente con el sistema.
+  // Base SOBRIA (sin escudos de carretera negros ni arcoíris de tráfico que tapen
+  // la ruta). Sobre ella pintamos NUESTRA capa de tráfico tenue + la ruta dominante.
   const styleURL = dark
-    ? 'mapbox://styles/mapbox/navigation-night-v1'
-    : 'mapbox://styles/mapbox/navigation-day-v1';
-  // Ruta principal dominante: trazo brillante sobre un casing oscuro.
-  const routeLineColor = dark ? '#22F3B2' : '#00A876';
-  const routeCasingColor = dark ? '#001F19' : '#06382F';
+    ? 'mapbox://styles/mapbox/dark-v11'
+    : 'mapbox://styles/mapbox/light-v11';
+  // Ruta principal dominante: trazo brillante sobre un casing oscuro/contrastado.
+  const routeLineColor = dark ? '#22F3B2' : '#0BA57A';
+  const routeCasingColor = dark ? '#04231C' : '#063D30';
+
+  // Tráfico secundario TENUE (como en la web): finito y semitransparente para que
+  // nunca compita con la ruta. Color por nivel de congestión, en versión apagada.
+  const trafficColor = useMemo(
+    () =>
+      [
+        'match',
+        ['get', 'congestion'],
+        'low', dark ? '#2c5d4c' : '#cfe8db',
+        'moderate', dark ? '#6f6233' : '#efdcb0',
+        'heavy', dark ? '#7a4a35' : '#eec7ad',
+        'severe', dark ? '#7d3a36' : '#e7b3ab',
+        'transparent',
+      ] as unknown,
+    [dark],
+  );
 
   const origin = toCoordinate(assignment.origen);
   const destination = toCoordinate(assignment.destino);
@@ -128,9 +145,10 @@ export function AssignmentMap({
       <View
         className={
           fill
-            ? 'flex-1 justify-center bg-background px-5 py-5'
+            ? 'justify-center bg-background px-5 py-5'
             : 'min-h-72 rounded-xl border border-border bg-surface px-5 py-5'
         }
+        style={fill ? styles.fillContainer : undefined}
       >
         <Text className="text-sm font-bold uppercase tracking-wide text-brand-deep">Tu ruta</Text>
         <Text className="mt-2 text-2xl font-bold text-foreground">{'Aeropuerto → Miraflores'}</Text>
@@ -148,33 +166,57 @@ export function AssignmentMap({
     );
   }
 
-  const { Camera, LineLayer, MapView, MarkerView, ShapeSource } = Mapbox;
+  const { Camera, LineLayer, MapView, MarkerView, ShapeSource, VectorSource } = Mapbox;
 
   return (
     <View
       className={
-        fill ? 'flex-1 bg-surface-muted' : 'h-80 overflow-hidden rounded-xl border border-border bg-surface-muted'
+        fill ? 'bg-surface-muted' : 'h-80 overflow-hidden rounded-xl border border-border bg-surface-muted'
       }
+      style={fill ? styles.fillContainer : undefined}
     >
-      <MapView style={styles.map} styleURL={styleURL}>
+      <MapView
+        attributionEnabled={false}
+        compassEnabled={false}
+        logoEnabled={false}
+        scaleBarEnabled={false}
+        style={styles.map}
+        styleURL={styleURL}
+      >
         <Camera centerCoordinate={center} zoomLevel={11.5} animationMode="easeTo" animationDuration={800} />
+
+        {/* Tráfico propio y tenue (no compite con la ruta). */}
+        <VectorSource id="taxigreen-traffic" url="mapbox://mapbox.mapbox-traffic-v1">
+          <LineLayer
+            id="taxigreen-traffic-line"
+            sourceLayerID="traffic"
+            style={{
+              lineColor: trafficColor,
+              lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 1, 14, 2.4, 17, 3.5],
+              lineOpacity: 0.45,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+          />
+        </VectorSource>
+
         {hasRoute ? (
           <ShapeSource id="taxigreen-route" shape={routeShape}>
             <LineLayer
               id="taxigreen-route-casing"
               style={{
                 lineColor: routeCasingColor,
-                lineWidth: 9,
+                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 7, 16, 13],
                 lineCap: 'round',
                 lineJoin: 'round',
-                lineOpacity: 0.9,
+                lineOpacity: 0.95,
               }}
             />
             <LineLayer
               id="taxigreen-route-line"
               style={{
                 lineColor: routeLineColor,
-                lineWidth: 6,
+                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 4.5, 16, 8.5],
                 lineCap: 'round',
                 lineJoin: 'round',
               }}
@@ -218,7 +260,7 @@ export function AssignmentMap({
             {etaLabel(route.duracionSegundos)} · {distanceLabel(route.distanciaMetros)}
           </Text>
           <Text className="mt-1 text-xs font-semibold text-foreground-muted">
-            {route.fuente === 'mapbox' ? 'En vivo con tráfico' : 'Calculando la mejor ruta'}
+            {route.fuente === 'mapbox' ? 'Con tráfico actual' : 'Calculando la mejor ruta'}
           </Text>
         </View>
       )}
@@ -227,6 +269,9 @@ export function AssignmentMap({
 }
 
 const styles = StyleSheet.create({
+  fillContainer: {
+    ...StyleSheet.absoluteFillObject,
+  },
   map: {
     flex: 1,
   },

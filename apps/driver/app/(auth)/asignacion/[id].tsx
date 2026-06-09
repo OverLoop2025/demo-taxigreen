@@ -3,7 +3,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, ToastAndroid, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { TouchButton } from '@/components/TouchButton';
 import { AssignmentMap } from '@/components/map/AssignmentMap';
 import { ApiError } from '@/features/api/client';
@@ -16,7 +16,7 @@ import {
   isTrackingState,
   tripStatusLabel,
 } from '@/features/assignment/transitions';
-import type { DriverAssignment, EstadoViaje, NextTripAction } from '@/features/assignment/types';
+import type { Coordinates, DriverAssignment, EstadoViaje, NextTripAction } from '@/features/assignment/types';
 import { useAuth } from '@/features/auth/use-auth';
 import { useLocationTracking } from '@/features/location';
 import { useNetworkStatus } from '@/features/network/use-network-status';
@@ -54,9 +54,62 @@ function etaHumano(estado: EstadoViaje | null | undefined, duracionSegundos: num
   return formatLlegada(minutos);
 }
 
-// Origen de la ruta en lenguaje humano (sin "Mapbox"/"estimación").
+// Origen de la ruta en lenguaje humano y sobrio (sin "Mapbox"/"estimación"/"en vivo").
 function rutaFuenteHumano(fuente: 'mapbox' | 'estimacion') {
-  return fuente === 'mapbox' ? 'En vivo con tráfico' : 'Calculando la mejor ruta';
+  return fuente === 'mapbox' ? 'Con tráfico actual' : 'Calculando la mejor ruta';
+}
+
+// Distancia compacta para la guía de maniobra ("En 450 m" / "En 1.2 km").
+function maniobraDistancia(metros: number | null) {
+  if (typeof metros !== 'number' || metros <= 0) return 'Ahora';
+  if (metros < 1000) return `En ${Math.round(metros / 10) * 10} m`;
+  return `En ${(metros / 1000).toFixed(1)} km`;
+}
+
+// Flecha glanceable según el giro (estilo navegador). Unicode estable en RN.
+function maniobraFlecha(tipo: string | undefined, modifier: string | null | undefined) {
+  if (tipo === 'arrive') return '◉';
+  if (tipo === 'roundabout' || tipo === 'rotary') return '⟳';
+  const m = modifier ?? '';
+  if (m.includes('left')) {
+    if (m.includes('slight')) return '↖';
+    if (m.includes('sharp')) return '↰';
+    return '←';
+  }
+  if (m.includes('right')) {
+    if (m.includes('slight')) return '↗';
+    if (m.includes('sharp')) return '↱';
+    return '→';
+  }
+  if (m.includes('uturn')) return '⮌';
+  return '↑';
+}
+
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+// Cobro estimado ESTABLE del viaje (origen→destino), no del tramo vivo: no fluctúa
+// con el GPS. Tarifa simple Lima (mockup de demo; el pago real es "otro costal").
+function cobroEstimado(origen: Coordinates, destino: Coordinates): string | null {
+  if (
+    typeof origen.lat !== 'number' ||
+    typeof origen.lng !== 'number' ||
+    typeof destino.lat !== 'number' ||
+    typeof destino.lng !== 'number'
+  ) {
+    return null;
+  }
+  const km = haversineKm({ lat: origen.lat, lng: origen.lng }, { lat: destino.lat, lng: destino.lng }) * 1.3;
+  const monto = 7.5 + 3.2 * km;
+  const redondeado = Math.round(monto / 0.5) * 0.5;
+  return `S/ ${redondeado.toFixed(2)}`;
 }
 
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -221,40 +274,74 @@ export default function AssignmentScreen() {
     : 'Unidad pendiente';
   const ubicacionLabel = tracking.status === 'tracking' ? 'Enviando posición' : tracking.status.replaceAll('_', ' ');
 
+  // Próxima maniobra para la guía tipo navegador. Sin progreso GPS real en la demo,
+  // mostramos la primera maniobra de giro (paso 1) y la distancia hasta ella (la
+  // longitud del tramo de salida). Si sólo hay un paso, usamos ese.
+  const pasos = route.route.pasos;
+  const maniobraIdx = pasos.length > 1 ? 1 : 0;
+  const maniobra = pasos[maniobraIdx] ?? null;
+  const distanciaManiobra =
+    pasos.length > 1 ? pasos[0]?.distanciaMetros ?? null : maniobra?.distanciaMetros ?? null;
+  const tieneManiobra = Boolean(maniobra) && estadoViaje !== 'finalizado';
+  // Cálculo puro y barato (no hook): seguro tras los early returns. El cobro es
+  // estable (origen→destino), así que no fluctúa con el GPS.
+  const cobro = cobroEstimado(assignment.origen, assignment.destino);
+
   return (
     <View className="flex-1 bg-background">
       <StatusBar hidden />
       {trackingActive ? <KeepAwakeGate /> : null}
 
       {/* Mapa de fondo a pantalla completa (estilo navegación). */}
-      <View className="absolute inset-0">
+      <View style={styles.mapLayer}>
         <AssignmentMap fill assignment={assignment} driverLocation={tracking.lastLocation} route={route.route} />
       </View>
 
-      {/* Banner superior: instrucción de navegación + llegada. */}
-      <View className="absolute inset-x-0 top-0 px-4 pb-3 pt-12">
-        <View className="rounded-2xl border border-border bg-surface px-4 py-4 shadow-lg">
-          <View className="flex-row items-center gap-3">
+      {/* Banner superior estilo navegador: maniobra real + llegada. Recuadro
+          oscuro de alto contraste (patrón Waze/Maps) para lectura al volante. */}
+      <View className="absolute inset-x-0 top-0 px-3 pb-3 pt-12">
+        <View className="overflow-hidden rounded-3xl bg-ink-900 shadow-2xl">
+          <View className="flex-row items-center gap-3 px-4 py-4">
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Volver al inicio"
               onPress={() => router.replace('/(auth)/home')}
-              className="h-10 w-10 items-center justify-center rounded-full bg-surface-muted"
+              className="h-10 w-10 items-center justify-center rounded-full bg-ink-700"
             >
-              <Text className="text-3xl font-bold leading-7 text-foreground">‹</Text>
+              <Text className="text-3xl font-bold leading-7 text-white">‹</Text>
             </Pressable>
-            <View className="flex-1">
-              <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">
-                {tripStatusLabel(estadoViaje)}
-              </Text>
-              <Text className="text-xl font-bold leading-7 text-foreground" numberOfLines={2}>
-                {bannerConductor(estadoBanner, { punto, destino })}
-              </Text>
-            </View>
+            {tieneManiobra ? (
+              <>
+                <View className="h-14 w-14 items-center justify-center rounded-2xl bg-brand">
+                  <Text className="text-3xl font-black leading-9 text-ink-900">
+                    {maniobraFlecha(maniobra?.tipo, maniobra?.modifier)}
+                  </Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-2xl font-black leading-7 text-white" numberOfLines={1}>
+                    {maniobraDistancia(distanciaManiobra)}
+                  </Text>
+                  <Text className="mt-0.5 text-base font-semibold leading-5 text-zinc-300" numberOfLines={2}>
+                    {maniobra?.instruccion}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <View className="flex-1">
+                <Text className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  {tripStatusLabel(estadoViaje)}
+                </Text>
+                <Text className="text-xl font-bold leading-7 text-white" numberOfLines={2}>
+                  {bannerConductor(estadoBanner, { punto, destino })}
+                </Text>
+              </View>
+            )}
           </View>
-          <View className="mt-3 flex-row items-center justify-between rounded-xl bg-surface-muted px-3 py-2">
-            <Text className="text-base font-bold text-foreground">{etaHumano(estadoViaje, route.route.duracionSegundos)}</Text>
-            <Text className="text-xs font-semibold text-foreground-muted">{rutaFuenteHumano(route.route.fuente)}</Text>
+          <View className="flex-row items-center justify-between bg-ink-800 px-4 py-3">
+            <Text className="text-base font-bold text-white">
+              {etaHumano(estadoViaje, route.route.duracionSegundos)}
+            </Text>
+            <Text className="text-xs font-semibold text-zinc-400">{rutaFuenteHumano(route.route.fuente)}</Text>
           </View>
         </View>
       </View>
@@ -277,6 +364,13 @@ export default function AssignmentScreen() {
         <Text className="mt-1 text-base text-foreground-muted" numberOfLines={1}>
           {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
         </Text>
+
+        {cobro ? (
+          <View className="mt-3 flex-row items-center justify-between rounded-2xl border border-brand/40 bg-surface-muted px-4 py-3">
+            <Text className="text-sm font-bold uppercase tracking-wide text-foreground-muted">Cobro estimado</Text>
+            <Text className="text-xl font-black text-foreground">{cobro}</Text>
+          </View>
+        ) : null}
 
         {expanded ? (
           <View className="mt-4 gap-3">
@@ -337,3 +431,9 @@ export default function AssignmentScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  mapLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+});

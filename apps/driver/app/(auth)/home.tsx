@@ -65,7 +65,7 @@ export default function HomeScreen() {
           <Text className="text-sm font-semibold text-foreground-muted">Conductor</Text>
           <View className="flex-row items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1">
             <View className={`h-2 w-2 rounded-full ${enLinea ? 'bg-brand-glow' : 'bg-amber-400'}`} />
-            <Text className="text-xs font-bold text-brand-deep">{enLinea ? 'En línea' : 'Conectando'}</Text>
+            <Text className="text-xs font-bold text-brand-deep">{enLinea ? 'Activo' : 'Conectando'}</Text>
           </View>
         </View>
         <Text className="mt-1 text-2xl font-bold text-foreground">{conductor?.nombre ?? 'Conductor'}</Text>

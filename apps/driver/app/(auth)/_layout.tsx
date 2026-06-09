@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs } from 'expo-router';
-import { useColorScheme } from 'nativewind';
 import { useAuth } from '@/features/auth/use-auth';
+import { useThemePref } from '@/features/theme/theme-provider';
 
 export default function AuthLayout() {
   const { status } = useAuth();
-  const { colorScheme } = useColorScheme();
-  const dark = colorScheme === 'dark';
+  // Fuente de verdad única del tema (no el colorScheme de NativeWind, que no
+  // resuelve fiable el modo del sistema).
+  const dark = useThemePref().resolved === 'dark';
 
   if (status === 'anonymous') {
     return <Redirect href="/login" />;
