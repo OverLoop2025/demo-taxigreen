@@ -5,6 +5,7 @@ export { withRutaFallback } from './with-ruta-fallback';
 export type {
   PuntoGeo,
   RouteLineString,
+  RoutePaso,
   RouteProvider,
   RouteRequest,
   RouteResult,

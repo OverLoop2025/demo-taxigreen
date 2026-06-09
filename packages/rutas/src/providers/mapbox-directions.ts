@@ -1,13 +1,25 @@
-import type { RouteLineString, RouteProvider, RouteRequest, RouteResult } from '../types';
+import type { RouteLineString, RoutePaso, RouteProvider, RouteRequest, RouteResult } from '../types';
 
 type FetchLike = typeof fetch;
+
+type MapboxManeuver = {
+  instruction?: unknown;
+  type?: unknown;
+  modifier?: unknown;
+};
+
+type MapboxStep = {
+  distance?: unknown;
+  name?: unknown;
+  maneuver?: MapboxManeuver;
+};
 
 type MapboxRoute = {
   distance?: unknown;
   duration?: unknown;
   duration_typical?: unknown;
   geometry?: unknown;
-  legs?: Array<{ duration_typical?: unknown }>;
+  legs?: Array<{ duration_typical?: unknown; steps?: MapboxStep[] }>;
 };
 
 type MapboxResponse = {
@@ -32,6 +44,24 @@ function assertLineString(value: unknown): RouteLineString {
 
   if (coordinates.length < 2) throw new Error('mapbox_geometry_invalida');
   return { type: 'LineString', coordinates };
+}
+
+// Aplana las maniobras de todas las legs en una lista en español lista para la UI.
+function parsePasos(route: MapboxRoute): RoutePaso[] {
+  const steps = route.legs?.flatMap((leg) => leg.steps ?? []) ?? [];
+  const pasos: RoutePaso[] = [];
+  for (const step of steps) {
+    const instruccion = typeof step.maneuver?.instruction === 'string' ? step.maneuver.instruction : null;
+    if (!instruccion) continue;
+    pasos.push({
+      instruccion,
+      distanciaMetros: typeof step.distance === 'number' ? Math.round(step.distance) : 0,
+      tipo: typeof step.maneuver?.type === 'string' ? step.maneuver.type : 'continue',
+      modifier: typeof step.maneuver?.modifier === 'string' ? step.maneuver.modifier : null,
+      nombre: typeof step.name === 'string' && step.name.length > 0 ? step.name : null,
+    });
+  }
+  return pasos;
 }
 
 function typicalDuration(route: MapboxRoute) {
@@ -62,6 +92,9 @@ export class MapboxDirectionsProvider implements RouteProvider {
     url.searchParams.set('geometries', 'geojson');
     url.searchParams.set('overview', 'full');
     url.searchParams.set('annotations', 'duration,distance');
+    // Maniobras paso a paso en español para la guía tipo navegador del conductor.
+    url.searchParams.set('steps', 'true');
+    url.searchParams.set('language', 'es');
     if (perfil === 'driving-traffic') url.searchParams.set('depart_at', 'now');
     url.searchParams.set('access_token', this.token);
 
@@ -85,6 +118,7 @@ export class MapboxDirectionsProvider implements RouteProvider {
       geometry: assertLineString(route.geometry),
       fuente: 'mapbox',
       calculadoEn: new Date().toISOString(),
+      pasos: parsePasos(route),
     };
   }
 }

@@ -11,6 +11,19 @@ export type RouteLineString = {
   coordinates: Array<[number, number]>;
 };
 
+/**
+ * Maniobra de la ruta (giro/indicación) para guía tipo navegador.
+ * `instruccion` viene localizada en español; `distanciaMetros` es la longitud del
+ * tramo que sigue a esta maniobra hasta la próxima.
+ */
+export type RoutePaso = {
+  instruccion: string;
+  distanciaMetros: number;
+  tipo: string;
+  modifier: string | null;
+  nombre: string | null;
+};
+
 export type RouteRequest = {
   origen: PuntoGeo;
   destino: PuntoGeo;
@@ -24,6 +37,8 @@ export type RouteResult = {
   geometry: RouteLineString;
   fuente: RutaFuente;
   calculadoEn: string;
+  /** Maniobras paso a paso (sólo proveedor real; la estimación no las trae). */
+  pasos?: RoutePaso[];
 };
 
 export type RouteProvider = {
