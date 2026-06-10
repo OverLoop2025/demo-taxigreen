@@ -79,6 +79,26 @@ export type AssignmentStateResponse = {
   asignacion: DriverAssignment;
 };
 
+export type DriverTripSummary = {
+  id: string;
+  tipoViaje: string;
+  fechaHoraServicio: string;
+  estadoReserva: EstadoReserva;
+  estadoViaje: EstadoViaje | null;
+  finalizadoEn: string | null;
+  activo: boolean;
+  pasajeroNombre: string;
+  origenTexto: string;
+  destinoTexto: string;
+  vueloCodigo: string | null;
+  unidadEtiqueta: string | null;
+};
+
+export type DriverTripsResponse = {
+  activos: DriverTripSummary[];
+  historial: DriverTripSummary[];
+};
+
 export type NextTripAction = {
   estado: EstadoViaje;
   label: string;

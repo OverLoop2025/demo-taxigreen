@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { TouchButton } from '@/components/TouchButton';
 import { getActiveDriverAssignment } from '@/features/assignment/client';
@@ -34,10 +34,12 @@ export default function HomeScreen() {
       });
   }, [session?.token]);
 
-  // Carga inicial de la asignación vigente: el conductor ve su viaje al abrir la
-  // app aunque no haya un broadcast en curso (no depende del push).
-  useEffect(() => {
-    if (!session?.token) return;
+  // Carga de la asignación vigente: el conductor ve su viaje al abrir la app aunque
+  // no haya un broadcast en curso (no depende del push). Se refresca también ante
+  // cada broadcast (incluida una REASIGNACIÓN de unidad por el despacho) y al volver
+  // a esta pantalla, para que la unidad mostrada sea siempre la del viaje vigente.
+  const loadActiveAssignment = useCallback(() => {
+    if (!session?.token) return () => undefined;
     let cancelled = false;
     getActiveDriverAssignment(session.token)
       .then((response) => {
@@ -51,11 +53,23 @@ export default function HomeScreen() {
     };
   }, [session?.token]);
 
-  const vehicle = conductor?.vehiculo;
+  useEffect(() => loadActiveAssignment(), [loadActiveAssignment, lastAssignment?.receivedAt]);
+
+  useFocusEffect(loadActiveAssignment);
+
   const enLinea = conexionViva(realtimeStatus);
   // El broadcast en vivo manda; si no hay, mostramos la asignación cargada al abrir.
   const assignmentReservaId = lastAssignment?.reservaId ?? activeAssignment?.id ?? null;
   const passengerName = lastAssignment ? null : (activeAssignment?.pasajero.nombre ?? null);
+  // Unidad COHERENTE: la del viaje vigente (la que eligió el despacho, que puede ser
+  // una reasignación temporal) manda sobre la unidad predefinida del conductor.
+  const unidadDelViaje = activeAssignment?.unidad ?? null;
+  const vehicle = unidadDelViaje ?? conductor?.vehiculo ?? null;
+  const unidadLabel = unidadDelViaje ? 'Unidad del viaje' : 'Tu unidad';
+  // ¿La unidad del viaje difiere de la predefinida? Entonces es una reasignación.
+  const unidadReasignada = Boolean(
+    unidadDelViaje && conductor?.vehiculo && unidadDelViaje.id !== conductor.vehiculo.id,
+  );
 
   return (
     <ScrollView className="flex-1 bg-background" contentContainerClassName="px-5 pb-10 pt-14">
@@ -85,7 +99,14 @@ export default function HomeScreen() {
           <Ionicons name="car-sport" size={24} color="#10B981" />
         </View>
         <View className="flex-1">
-          <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Tu unidad</Text>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">{unidadLabel}</Text>
+            {unidadReasignada ? (
+              <View className="rounded-full bg-brand/15 px-2 py-0.5">
+                <Text className="text-[10px] font-bold uppercase tracking-wide text-brand-deep">Reasignada</Text>
+              </View>
+            ) : null}
+          </View>
           <Text className="text-xl font-bold text-foreground">{vehicle?.placa ?? 'Sin unidad'}</Text>
           <Text className="text-sm font-medium text-foreground-muted">
             {vehicle ? `${vehicle.marca} ${vehicle.modelo}` : 'Solicita una unidad al despacho.'}

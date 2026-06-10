@@ -38,6 +38,15 @@ export default function AuthLayout() {
         }}
       />
       <Tabs.Screen
+        name="historial"
+        options={{
+          title: 'Viajes',
+          tabBarIcon: ({ color, focused, size }) => (
+            <Ionicons name={focused ? 'list' : 'list-outline'} size={size ?? 22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="perfil"
         options={{
           title: 'Perfil',

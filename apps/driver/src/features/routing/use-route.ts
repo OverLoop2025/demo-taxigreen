@@ -39,6 +39,8 @@ const MIN_RECALC_MS = env.EXPO_PUBLIC_RUTAS_INTERVALO_MIN_S * 1000;
 
 type LatLng = { lat: number; lng: number };
 
+export type DriverRouteLeg = { start: LatLng; end: LatLng };
+
 function toPoint(point: { lat: number | null; lng: number | null }): LatLng | null {
   return typeof point.lat === 'number' && typeof point.lng === 'number'
     ? { lat: point.lat, lng: point.lng }
@@ -62,7 +64,7 @@ function distanceMeters(a: LatLng, b: LatLng) {
 // puntos reales y distintos según la fase; el endpoint /api/rutas/calcular los
 // convierte en polilínea Mapbox. a_bordo → destino; aproximación (GPS lejos del
 // recojo) → recojo; resto (en_punto/finalizado/sin GPS) → viaje completo.
-function legForPhase(assignment: DriverAssignment, driverLocation: DriverLocation | null): { start: LatLng; end: LatLng } | null {
+function legForPhase(assignment: DriverAssignment, driverLocation: DriverLocation | null): DriverRouteLeg | null {
   const origin = toPoint(assignment.origen);
   const destination = toPoint(assignment.destino);
   const driver = driverLocation ? { lat: driverLocation.lat, lng: driverLocation.lng } : null;
@@ -84,7 +86,7 @@ function legForPhase(assignment: DriverAssignment, driverLocation: DriverLocatio
 // Clave de tramo redondeada a ~110 m (3 decimales) para no recalcular el mismo
 // tramo en cada tick de GPS; un tramo nuevo (cambió la fase o el conductor se
 // movió lo suficiente) sí dispara recálculo inmediato.
-function legKey(leg: { start: LatLng; end: LatLng }) {
+function legKey(leg: DriverRouteLeg) {
   return `${leg.start.lat.toFixed(3)},${leg.start.lng.toFixed(3)}|${leg.end.lat.toFixed(3)},${leg.end.lng.toFixed(3)}`;
 }
 
@@ -108,11 +110,13 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
   const [route, setRoute] = useState<DriverRouteResult>(emptyRoute);
   const [status, setStatus] = useState<'idle' | 'calculating' | 'ready' | 'fallback'>('idle');
   const lastCalcRef = useRef<{ key: string; ts: number } | null>(null);
+  const renderedKeyRef = useRef<string | null>(null);
 
   const leg = useMemo(() => (assignment ? legForPhase(assignment, driverLocation) : null), [assignment, driverLocation]);
+  const legKeyValue = leg ? legKey(leg) : null;
 
   useEffect(() => {
-    if (!assignment || !leg) {
+    if (!assignment || !leg || !legKeyValue) {
       setRoute(emptyRoute());
       setStatus('idle');
       return;
@@ -125,7 +129,7 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
       return;
     }
 
-    const key = legKey(leg);
+    const key = legKeyValue;
     const last = lastCalcRef.current;
     const now = Date.now();
     if (last && last.key === key && now - last.ts < MIN_RECALC_MS) return;
@@ -133,6 +137,12 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
     let cancelled = false;
     lastCalcRef.current = { key, ts: now };
     setStatus('calculating');
+
+    if (renderedKeyRef.current !== key) {
+      // Nunca mostrar una ruta vieja para un GPS nuevo. En modo conductor es
+      // preferible esperar el recálculo a dibujar una línea que no nace del puck.
+      setRoute(emptyRoute());
+    }
 
     void apiFetch<DriverRouteResult>('/api/rutas/calcular', {
       method: 'POST',
@@ -151,17 +161,15 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
           distanciaMetros: result.distanciaMetros,
           duracionSegundos: result.duracionSegundos,
           duracionSinTraficoSegundos: result.duracionSinTraficoSegundos,
-          // Anti-degradación: sólo geometría real (>2 vértices) reemplaza el trazo.
-          // Una estimación (recta de 2 puntos) nunca se dibuja: se conserva la
-          // curva real previa si existe, o queda null.
-          geometry: real ? result.geometry : current.fuente === 'mapbox' ? current.geometry : null,
-          fuente: real || current.fuente === 'mapbox' ? 'mapbox' : result.fuente,
+          // Sólo una geometría real del MISMO tramo se conserva. Si el GPS cambió
+          // y Mapbox responde con fallback/timeout, no heredamos una curva antigua.
+          geometry: real ? result.geometry : renderedKeyRef.current === key ? current.geometry : null,
+          fuente: real || (renderedKeyRef.current === key && current.fuente === 'mapbox') ? 'mapbox' : result.fuente,
           calculadoEn: result.calculadoEn,
-          // Las maniobras sólo acompañan a una geometría real; si no, conservamos
-          // las previas (cuando ya teníamos ruta real) o vaciamos.
-          pasos: real ? result.pasos ?? [] : current.fuente === 'mapbox' ? current.pasos : [],
+          pasos: real ? result.pasos ?? [] : renderedKeyRef.current === key ? current.pasos : [],
           cache: result.cache,
         }));
+        if (real) renderedKeyRef.current = key;
         setStatus(real ? 'ready' : 'fallback');
       })
       .catch(() => {
@@ -173,7 +181,7 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
     return () => {
       cancelled = true;
     };
-  }, [assignment, leg, token]);
+  }, [assignment?.id, legKeyValue, token]);
 
-  return { route, status };
+  return { route, status, leg };
 }

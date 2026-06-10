@@ -1,4 +1,5 @@
 import { bannerConductor, accionConductor, formatLlegada } from '@taxigreen/shared';
+import { Ionicons } from '@expo/vector-icons';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -21,6 +22,7 @@ import { useAuth } from '@/features/auth/use-auth';
 import { useLocationTracking } from '@/features/location';
 import { useNetworkStatus } from '@/features/network/use-network-status';
 import { useDriverRoute } from '@/features/routing/use-route';
+import type { AssignmentMapMode } from '@/components/map/AssignmentMap';
 
 function KeepAwakeGate() {
   useKeepAwake('taxigreen-driver-trip-active');
@@ -66,23 +68,41 @@ function maniobraDistancia(metros: number | null) {
   return `En ${(metros / 1000).toFixed(1)} km`;
 }
 
-// Flecha glanceable según el giro (estilo navegador). Unicode estable en RN.
-function maniobraFlecha(tipo: string | undefined, modifier: string | null | undefined) {
-  if (tipo === 'arrive') return '◉';
-  if (tipo === 'roundabout' || tipo === 'rotary') return '⟳';
+// Icono glanceable según el giro (estilo navegador), más grueso y centrado que texto Unicode.
+function maniobraIcon(tipo: string | undefined, modifier: string | null | undefined) {
+  if (tipo === 'arrive') return 'radio-button-on';
+  if (tipo === 'roundabout' || tipo === 'rotary') return 'sync';
   const m = modifier ?? '';
   if (m.includes('left')) {
-    if (m.includes('slight')) return '↖';
-    if (m.includes('sharp')) return '↰';
-    return '←';
+    if (m.includes('uturn')) return 'return-up-back';
+    return 'arrow-back';
   }
   if (m.includes('right')) {
-    if (m.includes('slight')) return '↗';
-    if (m.includes('sharp')) return '↱';
-    return '→';
+    if (m.includes('uturn')) return 'return-up-forward';
+    return 'arrow-forward';
   }
-  if (m.includes('uturn')) return '⮌';
-  return '↑';
+  if (m.includes('uturn')) return 'return-up-back';
+  return 'arrow-up';
+}
+
+function ubicacionHumana(status: string) {
+  if (status === 'tracking') return 'Ubicación activa';
+  if (status === 'requesting_permission') return 'Pidiendo permiso';
+  if (status === 'permission_denied') return 'Permiso pendiente';
+  if (status === 'realtime_disabled') return 'Ubicación limitada';
+  if (status === 'error') return 'Revisar ubicación';
+  return 'Lista';
+}
+
+function accionPrincipalLabel(estado: EstadoViaje | null, fallback: NextTripAction) {
+  if (estado === 'asignado') return 'Iniciar ruta';
+  return (estado ? accionConductor(estado) : null) ?? fallback.label;
+}
+
+function distanciaRutaHumana(metros: number | null) {
+  if (typeof metros !== 'number') return 'Trazando ruta';
+  if (metros < 1000) return `${Math.round(metros)} m`;
+  return `${(metros / 1000).toFixed(1)} km`;
 }
 
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -147,6 +167,8 @@ export default function AssignmentScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<NextTripAction | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [mapModeOverride, setMapModeOverride] = useState<AssignmentMapMode | null>(null);
+  const [mapRecenterKey, setMapRecenterKey] = useState(0);
   const autoRetryArmed = useRef(false);
   const prevOnlineRef = useRef<boolean | null>(null);
 
@@ -159,6 +181,10 @@ export default function AssignmentScreen() {
     token: session?.token,
   });
   const nextAction = useMemo(() => getNextTripAction(estadoViaje), [estadoViaje]);
+  const defaultMapMode: AssignmentMapMode =
+    estadoViaje === 'en_camino' || estadoViaje === 'a_bordo' ? 'drive' : 'overview';
+  const mapMode = mapModeOverride ?? defaultMapMode;
+  const driverModeUi = mapMode === 'drive' && (estadoViaje === 'en_camino' || estadoViaje === 'a_bordo');
 
   const loadAssignment = useCallback(async (silent = false) => {
     if (!reservaId || !session?.token) return;
@@ -239,6 +265,11 @@ export default function AssignmentScreen() {
     void submitAction(pendingRetry);
   }, [network.isOnline, pendingRetry, submitAction, submitting]);
 
+  useEffect(() => {
+    setMapModeOverride(null);
+    setMapRecenterKey((value) => value + 1);
+  }, [estadoViaje]);
+
   if (loading) {
     return (
       <View className="flex-1 items-center justify-center bg-background px-6">
@@ -272,7 +303,7 @@ export default function AssignmentScreen() {
   const unidadLabel = assignment.unidad
     ? `${assignment.unidad.placa} · ${assignment.unidad.marca} ${assignment.unidad.modelo}`
     : 'Unidad pendiente';
-  const ubicacionLabel = tracking.status === 'tracking' ? 'Enviando posición' : tracking.status.replaceAll('_', ' ');
+  const ubicacionLabel = ubicacionHumana(tracking.status);
 
   // Próxima maniobra para la guía tipo navegador. Sin progreso GPS real en la demo,
   // mostramos la primera maniobra de giro (paso 1) y la distancia hasta ella (la
@@ -282,7 +313,11 @@ export default function AssignmentScreen() {
   const maniobra = pasos[maniobraIdx] ?? null;
   const distanciaManiobra =
     pasos.length > 1 ? pasos[0]?.distanciaMetros ?? null : maniobra?.distanciaMetros ?? null;
-  const tieneManiobra = Boolean(maniobra) && estadoViaje !== 'finalizado';
+  const tieneManiobra = mapMode === 'drive' && Boolean(maniobra) && estadoViaje !== 'finalizado';
+  const routeSubtitle =
+    route.status === 'calculating'
+      ? 'Trazando desde tu ubicación'
+      : rutaFuenteHumano(route.route.fuente);
   // Cálculo puro y barato (no hook): seguro tras los early returns. El cobro es
   // estable (origen→destino), así que no fluctúa con el GPS.
   const cobro = cobroEstimado(assignment.origen, assignment.destino);
@@ -294,7 +329,14 @@ export default function AssignmentScreen() {
 
       {/* Mapa de fondo a pantalla completa (estilo navegación). */}
       <View style={styles.mapLayer}>
-        <AssignmentMap fill assignment={assignment} driverLocation={tracking.lastLocation} route={route.route} />
+        <AssignmentMap
+          fill
+          assignment={assignment}
+          driverLocation={tracking.lastLocation}
+          mode={mapMode}
+          recenterKey={mapRecenterKey}
+          route={route.route}
+        />
       </View>
 
       {/* Banner superior estilo navegador: maniobra real + llegada. Recuadro
@@ -312,122 +354,209 @@ export default function AssignmentScreen() {
             </Pressable>
             {tieneManiobra ? (
               <>
-                <View className="h-14 w-14 items-center justify-center rounded-2xl bg-brand">
-                  <Text className="text-3xl font-black leading-9 text-ink-900">
-                    {maniobraFlecha(maniobra?.tipo, maniobra?.modifier)}
-                  </Text>
+                <View className="h-16 w-16 items-center justify-center rounded-2xl bg-brand">
+                  <Ionicons
+                    name={maniobraIcon(maniobra?.tipo, maniobra?.modifier)}
+                    size={42}
+                    color="#0A0A0B"
+                  />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-2xl font-black leading-7 text-white" numberOfLines={1}>
+                  <Text className="text-3xl font-black leading-9 text-white" numberOfLines={1}>
                     {maniobraDistancia(distanciaManiobra)}
                   </Text>
-                  <Text className="mt-0.5 text-base font-semibold leading-5 text-zinc-300" numberOfLines={2}>
+                  <Text className="text-lg font-bold leading-6 text-zinc-300" numberOfLines={2}>
                     {maniobra?.instruccion}
                   </Text>
                 </View>
               </>
             ) : (
-              <View className="flex-1">
-                <Text className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                  {tripStatusLabel(estadoViaje)}
-                </Text>
-                <Text className="text-xl font-bold leading-7 text-white" numberOfLines={2}>
-                  {bannerConductor(estadoBanner, { punto, destino })}
-                </Text>
-              </View>
+              <>
+                <View className="h-14 w-14 items-center justify-center rounded-2xl bg-brand">
+                  <Ionicons
+                    name={mapMode === 'drive' ? 'navigate' : 'map'}
+                    size={30}
+                    color="#0A0A0B"
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                    {mapMode === 'drive' ? tripStatusLabel(estadoViaje) : 'Ruta del viaje'}
+                  </Text>
+                  <Text className="text-xl font-bold leading-7 text-white" numberOfLines={2}>
+                    {mapMode === 'drive'
+                      ? bannerConductor(estadoBanner, { punto, destino })
+                      : `${assignment.origen.texto} → ${assignment.destino.texto}`}
+                  </Text>
+                </View>
+              </>
             )}
           </View>
           <View className="flex-row items-center justify-between bg-ink-800 px-4 py-3">
             <Text className="text-base font-bold text-white">
               {etaHumano(estadoViaje, route.route.duracionSegundos)}
             </Text>
-            <Text className="text-xs font-semibold text-zinc-400">{rutaFuenteHumano(route.route.fuente)}</Text>
+            <Text className="text-xs font-semibold text-zinc-400">{routeSubtitle}</Text>
           </View>
         </View>
       </View>
 
-      {/* Panel inferior: foco de la fase + una acción principal. */}
-      <View className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-5 pb-8 pt-3 shadow-2xl">
+      {/* Controles de mapa: pulgares grandes, fuera del banner y del panel. */}
+      <View className="absolute right-4 top-56 gap-3">
+        {defaultMapMode === 'drive' ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ubicarme"
+            onPress={() => {
+              setMapModeOverride('drive');
+              setMapRecenterKey((value) => value + 1);
+            }}
+            className={`h-14 w-14 items-center justify-center rounded-full border shadow-xl ${
+              mapMode === 'drive' ? 'border-brand bg-brand' : 'border-border bg-surface'
+            }`}
+          >
+            <Ionicons name="navigate" size={24} color={mapMode === 'drive' ? '#0A0A0B' : '#10B981'} />
+          </Pressable>
+        ) : null}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={expanded ? 'Ver menos' : 'Ver más detalles'}
-          onPress={() => setExpanded((value) => !value)}
-          className="items-center pb-3"
+          accessibilityLabel="Ver ruta completa"
+          onPress={() => {
+            setMapModeOverride('overview');
+            setMapRecenterKey((value) => value + 1);
+          }}
+          className={`h-14 w-14 items-center justify-center rounded-full border shadow-xl ${
+            mapMode === 'overview' ? 'border-brand bg-brand' : 'border-border bg-surface'
+          }`}
         >
-          <View className="h-1.5 w-12 rounded-full bg-border" />
+          <Ionicons name="map-outline" size={24} color={mapMode === 'overview' ? '#0A0A0B' : '#10B981'} />
         </Pressable>
+      </View>
 
-        <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{focalLabel}</Text>
-        <Text className="mt-1 text-2xl font-bold leading-8 text-foreground" numberOfLines={2}>
-          {focalValue}
-        </Text>
-        <Text className="mt-1 text-base text-foreground-muted" numberOfLines={1}>
-          {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
-        </Text>
-
-        {cobro ? (
-          <View className="mt-3 flex-row items-center justify-between rounded-2xl border border-brand/40 bg-surface-muted px-4 py-3">
-            <Text className="text-sm font-bold uppercase tracking-wide text-foreground-muted">Cobro estimado</Text>
-            <Text className="text-xl font-black text-foreground">{cobro}</Text>
-          </View>
-        ) : null}
-
-        {expanded ? (
-          <View className="mt-4 gap-3">
-            <DetailRow label="Recojo en" value={assignment.origen.texto} />
-            <DetailRow label="Destino" value={assignment.destino.texto} />
-            <DetailRow label="Hora" value={serviceTimeLabel(assignment.fechaHoraServicio)} />
-            <DetailRow label="Unidad" value={unidadLabel} />
-            <DetailRow label="Código" value={assignment.voucherCodigo} />
-            <View className="mt-1 flex-row gap-3">
-              <MiniStat label="Ubicación" value={ubicacionLabel} />
-              <MiniStat label="Conexión" value={network.label} />
+      {driverModeUi ? (
+        <View className="absolute inset-x-3 bottom-5 rounded-3xl border border-white/10 bg-ink-900/95 px-4 pb-4 pt-4 shadow-2xl">
+          <View className="flex-row items-center gap-3">
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-brand">
+              <Ionicons name="flag" size={26} color="#0A0A0B" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-xs font-bold uppercase tracking-wide text-zinc-400">Destino</Text>
+              <Text className="mt-0.5 text-xl font-black text-white" numberOfLines={1}>
+                {destino}
+              </Text>
+              <Text className="mt-1 text-sm font-semibold text-zinc-400" numberOfLines={1}>
+                {etaHumano(estadoViaje, route.route.duracionSegundos)} · {distanciaRutaHumana(route.route.distanciaMetros)} · {routeSubtitle}
+              </Text>
             </View>
           </View>
-        ) : null}
 
-        {notice ? (
-          <View className="mt-4 rounded-xl border border-brand/30 bg-brand/15 px-4 py-3">
-            <Text className="text-sm font-semibold text-brand-deep">{notice}</Text>
-          </View>
-        ) : null}
+          {error ? (
+            <View className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3">
+              <Text className="text-sm font-semibold text-red-300">{error}</Text>
+            </View>
+          ) : null}
 
-        {error || tracking.error ? (
-          <View className="mt-4 rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-3">
-            <Text className="text-sm font-semibold text-red-500">{error ?? tracking.error}</Text>
-          </View>
-        ) : null}
-
-        <View className="mt-5">
-          {estadoViaje === 'finalizado' ? (
-            <>
-              <Text className="mb-3 text-sm leading-5 text-foreground-muted">
-                Servicio terminado. El cierre final continúa desde el seguimiento del pasajero.
-              </Text>
-              <TouchButton label="Volver al inicio" onPress={() => router.replace('/(auth)/home')} />
-            </>
-          ) : pendingRetry ? (
-            <>
-              <Text className="mb-3 text-sm leading-5 text-foreground-muted">
-                Hay una acción pendiente. Se reintentará cuando vuelva la conexión, o puedes forzar el intento.
-              </Text>
+          <View className="mt-4">
+            {pendingRetry ? (
               <TouchButton
-                label={`Reintentar: ${accionConductor(estadoBanner) ?? pendingRetry.label}`}
+                label={`Reintentar: ${accionPrincipalLabel(estadoBanner, pendingRetry)}`}
                 loading={submitting}
                 onPress={() => submitAction(pendingRetry)}
               />
-            </>
-          ) : nextAction ? (
-            <TouchButton
-              label={(estadoViaje ? accionConductor(estadoViaje) : null) ?? nextAction.label}
-              loading={submitting}
-              onPress={() => submitAction(nextAction)}
-            />
-          ) : (
-            <TouchButton label="Actualizar" tone="secondary" onPress={() => loadAssignment()} />
-          )}
+            ) : nextAction ? (
+              <TouchButton
+                label={accionPrincipalLabel(estadoViaje, nextAction)}
+                loading={submitting}
+                onPress={() => submitAction(nextAction)}
+              />
+            ) : (
+              <TouchButton label="Actualizar" tone="secondary" onPress={() => loadAssignment()} />
+            )}
+          </View>
         </View>
-      </View>
+      ) : (
+        <View className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-5 pb-8 pt-3 shadow-2xl">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? 'Ver menos' : 'Ver más detalles'}
+            onPress={() => setExpanded((value) => !value)}
+            className="items-center pb-3"
+          >
+            <View className="h-1.5 w-12 rounded-full bg-border" />
+          </Pressable>
+
+          <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{focalLabel}</Text>
+          <Text className="mt-1 text-2xl font-bold leading-8 text-foreground" numberOfLines={2}>
+            {focalValue}
+          </Text>
+          <Text className="mt-1 text-base text-foreground-muted" numberOfLines={1}>
+            {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
+          </Text>
+
+          {cobro ? (
+            <View className="mt-3 flex-row items-center justify-between rounded-2xl border border-brand/40 bg-surface-muted px-4 py-3">
+              <Text className="text-sm font-bold uppercase tracking-wide text-foreground-muted">Cobro estimado</Text>
+              <Text className="text-xl font-black text-foreground">{cobro}</Text>
+            </View>
+          ) : null}
+
+          {expanded ? (
+            <View className="mt-4 gap-3">
+              <DetailRow label="Recojo en" value={assignment.origen.texto} />
+              <DetailRow label="Destino" value={assignment.destino.texto} />
+              <DetailRow label="Hora" value={serviceTimeLabel(assignment.fechaHoraServicio)} />
+              <DetailRow label="Unidad" value={unidadLabel} />
+              <DetailRow label="Código" value={assignment.voucherCodigo} />
+              <View className="mt-1 flex-row gap-3">
+                <MiniStat label="Ubicación" value={ubicacionLabel} />
+                <MiniStat label="Conexión" value={network.label} />
+              </View>
+            </View>
+          ) : null}
+
+          {notice ? (
+            <View className="mt-4 rounded-xl border border-brand/30 bg-brand/15 px-4 py-3">
+              <Text className="text-sm font-semibold text-brand-deep">{notice}</Text>
+            </View>
+          ) : null}
+
+          {error || tracking.error ? (
+            <View className="mt-4 rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-3">
+              <Text className="text-sm font-semibold text-red-500">{error ?? tracking.error}</Text>
+            </View>
+          ) : null}
+
+          <View className="mt-5">
+            {estadoViaje === 'finalizado' ? (
+              <>
+                <Text className="mb-3 text-sm leading-5 text-foreground-muted">
+                  Servicio terminado. El cierre final continúa desde el seguimiento del pasajero.
+                </Text>
+                <TouchButton label="Volver al inicio" onPress={() => router.replace('/(auth)/home')} />
+              </>
+            ) : pendingRetry ? (
+              <>
+                <Text className="mb-3 text-sm leading-5 text-foreground-muted">
+                  Hay una acción pendiente. Se reintentará cuando vuelva la conexión, o puedes forzar el intento.
+                </Text>
+                <TouchButton
+                  label={`Reintentar: ${accionPrincipalLabel(estadoBanner, pendingRetry)}`}
+                  loading={submitting}
+                  onPress={() => submitAction(pendingRetry)}
+                />
+              </>
+            ) : nextAction ? (
+              <TouchButton
+                label={accionPrincipalLabel(estadoViaje, nextAction)}
+                loading={submitting}
+                onPress={() => submitAction(nextAction)}
+              />
+            ) : (
+              <TouchButton label="Actualizar" tone="secondary" onPress={() => loadAssignment()} />
+            )}
+          </View>
+        </View>
+      )}
     </View>
   );
 }

@@ -72,15 +72,26 @@ export function useLocationTracking(reservaId: string | null, activo: boolean): 
           realtimeReady = true;
         }
         if (nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') {
-          setState((current) => ({ ...current, status: 'error', error: 'Realtime no aceptó la ubicación.' }));
+          realtimeReady = false;
+          // La navegación depende del GPS local, no del broadcast. Si Realtime no
+          // acepta el canal, degradamos en silencio y el siguiente montaje/refresh
+          // volverá a intentar suscribirse.
+          setState((current) => ({
+            ...current,
+            status: current.lastLocation ? 'tracking' : current.status,
+            error: null,
+          }));
         }
       });
 
+      // Navegación activa: alta precisión (proveedor GPS) e intervalos cortos. El
+      // puck del conductor debe nacer de su posición real; Balanced (red/fusionado)
+      // podía no entregar la ubicación —incluida la del emulador con `geo fix`—.
       subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 3000,
-          distanceInterval: 10,
+          accuracy: Location.Accuracy.High,
+          timeInterval: 2000,
+          distanceInterval: 5,
         },
         (location) => {
           const normalized = normalizeLocation(location);

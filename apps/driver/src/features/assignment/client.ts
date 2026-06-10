@@ -1,5 +1,10 @@
 import { apiFetch } from '@/features/api/client';
-import type { AssignmentStateResponse, DriverAssignment, EstadoViaje } from './types';
+import type {
+  AssignmentStateResponse,
+  DriverAssignment,
+  DriverTripsResponse,
+  EstadoViaje,
+} from './types';
 
 export function getDriverAssignment(reservaId: string, token: string) {
   return apiFetch<DriverAssignment>(`/api/conductor/asignacion/${reservaId}`, {
@@ -11,6 +16,13 @@ export function getDriverAssignment(reservaId: string, token: string) {
 // el viaje al abrir la app sin depender de un broadcast Realtime en vivo.
 export function getActiveDriverAssignment(token: string) {
   return apiFetch<{ asignacion: DriverAssignment | null }>(`/api/conductor/asignacion/activa`, {
+    token,
+  });
+}
+
+// Historial de viajes del conductor (activos + cerrados) para la pestaña "Viajes".
+export function getDriverTrips(token: string) {
+  return apiFetch<DriverTripsResponse>(`/api/conductor/viajes`, {
     token,
   });
 }
