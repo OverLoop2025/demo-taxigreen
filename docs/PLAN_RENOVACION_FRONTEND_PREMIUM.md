@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · F5 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · **F10 conductor mapa→navegación ✅ (2026-06-09)** · **F11 conductor 1ª persona + historial + coherencia unidad ✅ (2026-06-09)** · F5 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -71,6 +71,82 @@ sistema** (no solo el driver) de forma coherente, centralizado en los tokens:
   `expo export` EXIT 0. Verificado con `visual:web` (landing/pasajero/counter, claro+oscuro): legible y coherente.
 - Pendiente menor: en modo oscuro, la etiqueta "PUNTO DE ENCUENTRO" del pasajero (verde sobre tinte verde) gana
   con un acento más claro; perfil/incidencia del driver siguen en claro (migrar a oscuro en otra pasada).
+
+**F9 — Chofer: navegación tipo Waze + modo oscuro real, verificado con ojos reales (2026-06-08):** sobre el
+emulador Windows (`emulator-5582`) con capturas adb en cada paso. (1) **Modo oscuro arreglado de raíz:** seguía sin
+conmutar porque el `colorScheme` de NativeWind con `darkMode:'class'` no resuelve fiable el modo del sistema; ahora
+`ThemeProvider` calcula `resolved` desde `Appearance` nativo e inyecta los tokens de superficie con `vars()` →
+todas las pantallas cambian a la vez. Tab bar y `StatusBar` migrados a la misma fuente de verdad (antes el tab bar
+quedaba blanco en oscuro). (2) **Mapa sobrio:** base `light-v11`/`dark-v11` que elimina el **escudo de carretera
+negro** ("LA") y el arcoíris de tráfico; capa de tráfico **propia y tenue** (paridad con la web) + ruta dominante
+(casing + trazo brillante); el mapa entra en **modo noche** real. (3) **Banner tipo Waze:** recuadro oscuro de alto
+contraste con la **maniobra real en español** (flecha + "En 50 m" + "Gire a la izquierda hacia Calle Corpac."),
+alimentada por `packages/rutas` (`steps=true` + `language=es` → `RoutePaso[]`); fallback a la fase si no hay ruta
+real. (4) **Ficha del chofer:** "Cobro estimado" estable (origen→destino). (5) **Copy sobrio:** "Activo",
+"Con tráfico actual" (sin "en vivo"/"en línea"). Verificación: `typecheck`+`lint` driver/web/rutas ✅, `turbo test`
+25 tareas (web 51, rutas 6) ✅, `expo export android` EXIT 0, y **capturas reales** de oscuro/claro, banner de
+maniobra y tarifa. **Pendiente de deploy:** las maniobras requieren el backend nuevo; en Railway aparecen tras
+redeploy (lo demás —tema/mapa/tarifa/copy— es client-side y ya funciona).
+
+**F10 — Chofer: flujo mapa general → modo conductor (2026-06-09):** se refinó la navegación activa para que no
+arranque siempre inclinada. Ahora el estado inicial del viaje muestra **ruta completa** (recojo→destino) con cámara
+cenital y CTA humano **"Iniciar ruta"**; al pasar a `en_camino` o `a_bordo` entra en **modo conductor** con cámara
+inclinada, heading course-up, banner de maniobra grande, puck propio tipo flecha, botón de **ubicarme** y botón de
+**ruta completa**. El mapa conserva modo noche/día, tráfico tenue y ruta verde dominante; se repuso logo/atribución
+de Mapbox en posición baja-discreta para no violar TOS. Verificado en emulador real con Metro/dev-client:
+`artifacts/driver-live/21-driver-nav-arrow-puck.png`, `22-driver-route-overview-button.png`,
+`25-driver-recenter-button-retap.png`. Validación: driver `typecheck`, `lint` y `expo export --platform android`
+verdes.
+
+**F10.1 — Chofer: ruta desde GPS exacto + UI de conducción limpia (2026-06-09):** se corrigió un bug de sincronía
+del hook de rutas: el `useEffect` dependía del objeto crudo de GPS y cancelaba el request de Mapbox si llegaba un
+tick nuevo durante el cálculo; con el mismo tramo redondeado, el throttle podía impedir el recálculo siguiente y dejar
+una línea vieja separada del puck. Ahora el tramo usa una clave estable (`legKeyValue`), limpia geometría vieja al
+cambiar de tramo y sólo conserva curvas del mismo tramo. Además, en modo conductor la ruta real se dibuja desde la
+coordenada GPS exacta del chofer antes de unirse a la geometría Mapbox, la cámara queda centrada abajo con heading
+derivado de ruta si el GPS no trae rumbo útil, el panel inferior se reduce a destino/ETA/distancia/acción y no muestra
+datos de pasajero/cobro, y el fallo de broadcast Realtime de ubicación degrada en silencio porque la navegación local
+depende del GPS, no del canal. Captura final de control:
+`artifacts/driver-live/29-driver-first-person-route-ahead.png`. Validación: driver `typecheck`, `lint`,
+`expo export --platform android` verdes y smoke directo de `/api/rutas/calcular` con `fuente=mapbox`, 724 puntos.
+
+**F11 — Chofer: primera persona real + historial + coherencia unidad (2026-06-09):** auditoría y mejora del
+modo conductor más el flujo del chofer en general. (1) **Cámara frontal course-up:** el rumbo ya no se deriva de un
+único vértice (que ladeaba el mapa en un giro cercano) sino del **rumbo promediado de la vía ~140 m por delante**
+(`headingAlongRoute`), de modo que la calzada recede recta hacia arriba (frontal tipo Waze). Pitch 64→**58** (menos
+inclinación extrema), zoom 17.1→**16.6** (algo más de vía a la vista) y `paddingTop` 280→**360** para fijar el puck
+en el **centro-inferior** dejando toda la ruta por delante. (2) **Puck = flecha de navegación clásica:** disco
+esmeralda con borde blanco y **triángulo blanco** que en course-up apunta siempre adelante (reemplaza el icono
+"navigate"); halo suave para lectura al volante. (3) **Chevrons de ruta más resaltantes:** `▶`→**`▲` lleno**, más
+grande (18→30 px) y con halo grueso, rotado al sentido de marcha pero de cara a la cámara — mismo lenguaje que se
+reusará en el mapa del pasajero. (4) **Historial de viajes:** nueva pestaña **"Viajes"** (`app/(auth)/historial.tsx`)
+que separa **EN CURSO** (viaje activo, destacado y accionable) de **HISTORIAL** (cerrados: Terminado/Cancelado, con
+ruta, fecha y unidad). Backend mínimo de solo lectura: `GET /api/conductor/viajes`
+(`findHistorialForConductor` + `serializeConductorViajeResumen`) que clasifica activo vs cerrado. (5) **Coherencia
+conductor↔unidad:** la unidad vive en `conductores.vehiculo_id` (la asignación del `/admin` la actualiza), así que el
+endpoint ya devuelve la **unidad actual** fresca; lo único rancio era el snapshot de la sesión (login). El home ahora
+prioriza la **unidad del viaje vigente** (`activeAssignment.unidad`) sobre la predefinida, se refresca ante cada
+broadcast y al re-enfocar la pantalla, y muestra el chip **"Reasignada"** cuando difiere de la del login. Además
+`findActiveAsignacionForConductor` dejó de devolver reservas **cerradas** (finalizada/por_liquidar/cancelada): el
+home solo dice "tienes un viaje" si es realmente activo, y los terminados quedan en el historial. **Verificado en
+emulador real (Metro/dev-client → backend local):** historial activo/cerrado
+(`artifacts/driver-live/31-historial.png`), home con "Unidad del viaje" (`30-home-localhost.png`), modo conductor con
+banner de maniobra real en español + puck + chevrons (`33-drive-frontal-puck.png`, `33b-map-crop.png`) y overview con
+cobro S/ (`ov`). Smoke directo: `/api/conductor/viajes` 1 activo + 3 cerrados, `/api/rutas/calcular` `fuente=mapbox`
+328 vértices + 12 pasos ("Gire a la derecha hacia Circuito de Playas").
+
+> **Pendientes de la app del pasajero (registro extendido, se harán después — la sesión se centró en el chofer):**
+> - **Espejo de la ruta del conductor en tiempo real:** mostrar al pasajero en `/p/[token]` la **misma ruta y avance**
+>   que ve el chofer (la posición del conductor ya viaja por broadcast Realtime `reserva-<id>`; falta pintar la
+>   polilínea viva y el puck del conductor en el mapa del pasajero en vez de solo el marcador estático).
+> - **Reuso del lenguaje visual del conductor:** llevar el **mismo puck (triángulo)** y los **chevrons `▲`** al mapa
+>   del pasajero para coherencia (hoy el pasajero usa marcadores simples).
+> - **Fase de aproximación al pasajero:** confirmar que el pasajero vea, antes del recojo, el trazo **GPS del
+>   conductor → punto de encuentro**, y tras "a bordo", el trazo **GPS → destino** (paridad con el chofer).
+> - **Nota de entorno (GPS emulador):** el trazo "desde mi GPS exacto" depende de que `watchPositionAsync` reciba la
+>   ubicación; en emulador requiere proveedor **network** habilitado además de GPS (`settings put secure
+>   location_providers_allowed +network`) y `Accuracy.Balanced` puede no tomar `adb emu geo fix`. La lógica de
+>   trazado desde el GPS es correcta (verificada por cálculo directo de ruta); en dispositivo real con GPS fluye.
 
 **F8 — Tema coherente con el sistema + cero tecnicismos (2026-06-07):** segundo pase de coherencia tras el F6/F3.7.
 (1) **Tema = sistema + override discreto, nunca pantallas mezcladas.** Web ya seguía `prefers-color-scheme`; se

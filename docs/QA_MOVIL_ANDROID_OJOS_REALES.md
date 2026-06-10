@@ -3,7 +3,9 @@
 Estado: creado el 2026-06-06 tras instalar toolchain Android/Expo/Maestro y validar capturas reales de
 `apps/driver`. **Actualizado 2026-06-06 (tarde):** método recomendado = **dev client + Metro** (ver §0),
 no el APK preview congelado. **Actualizado 2026-06-07:** `scrcpy` quedó instalado en Windows; la ruta
-realista para validar Mapbox nativo es Android físico por Wi-Fi ADB + mirror.
+realista para validar Mapbox nativo es Android físico por Wi-Fi ADB + mirror. **Actualizado 2026-06-07 (noche):**
+Android Emulator en Windows/API 34 con GPU host ya permite ver Mapbox nativo; el bloqueo real era un wrapper sin
+dimensiones nativas estables en la pantalla de navegación.
 
 Objetivo: que Claude/Codex pueda revisar la app del conductor con pantallas reales, no solo por lectura de codigo.
 
@@ -13,6 +15,25 @@ Objetivo: que Claude/Codex pueda revisar la app del conductor con pantallas real
 
 **Problema:** BlueStacks no soporta bien el GL de `@rnmapbox/maps` → el mapa nativo sale **vacío/negro**
 (el resto de la UI sí se ve). No sirve para validar el mapa, que es justo lo crítico.
+
+**Resultado posterior:** con Android Emulator de Windows (`taxigreen_win_gpu34`, `emulator-5620`) y dev client +
+Metro, el mapa nativo ya pinta correctamente. La causa práctica no fue el token ni el backend: la capa de mapa
+estaba montada con `className="absolute inset-0"` y el hijo `flex-1` no recibía alto confiable en React Native.
+Se cambió a `StyleSheet.absoluteFillObject`, y el render quedó visible con ruta, tráfico y marcador de recojo.
+Captura final: `artifacts/driver-win-gpu34-native-map-final-clean.png`.
+
+**Actualización 2026-06-09:** el flujo del conductor se verificó también con mapa nativo en modo navegación:
+vista conductor con puck/flecha (`artifacts/driver-live/21-driver-nav-arrow-puck.png`), vista de ruta completa
+desde el control del mapa (`artifacts/driver-live/22-driver-route-overview-button.png`) y recentrado en modo
+conductor (`artifacts/driver-live/25-driver-recenter-button-retap.png`). Esto valida el patrón actual:
+**ruta completa antes de iniciar → cámara inclinada/puck al conducir → volver a vista general sin salir del viaje**.
+
+**Actualización 2026-06-09 (cierre fino):** se reprodujo el caso visual donde el puck quedaba separado de la línea.
+La causa no era el token ni el backend: el cálculo móvil cancelaba requests de ruta al recibir ticks GPS nuevos.
+El hook ahora usa clave estable de tramo, no hereda geometría vieja y el mapa prepende la coordenada GPS exacta antes
+de la ruta Mapbox. En modo conductor ya no aparece la tarjeta grande del pasajero: queda una bandeja compacta de
+destino/ETA/distancia/acción, con maniobra superior gruesa y centrada. Captura final:
+`artifacts/driver-live/29-driver-first-person-route-ahead.png`.
 
 **Solución robusta recomendada (a ejecutar por el usuario), de mayor a menor robustez:**
 
@@ -92,8 +113,9 @@ Artefactos de esta verificacion:
 - `artifacts/maestro/avd-kvm-08-map-final.png` — mapa negro con `swiftshader_indirect`.
 - `artifacts/maestro/avd-kvm-10-map-gpu-host-final.png` — mapa negro con `-gpu host`/`llvmpipe`.
 
-Veredicto actualizado: para validar el mapa nativo de verdad, la ruta ganadora sigue siendo **Android físico + Wi-Fi
-ADB + scrcpy**. AVD+KVM queda útil para QA visual de toda la UI salvo Mapbox.
+Veredicto actualizado: para QA local sin teléfono, la ruta ganadora ahora es **Android Emulator en Windows/Android
+Studio + GPU host + dev client + Metro**. Android físico + Wi-Fi ADB + scrcpy sigue siendo la validación más fiel al
+hardware real. BlueStacks y AVD dentro de WSL quedan sólo para UI no-mapa.
 
 ---
 
