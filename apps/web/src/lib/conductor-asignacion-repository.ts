@@ -91,19 +91,68 @@ export async function findAsignacionForConductor(session: ConductorTokenPayload,
   });
 }
 
-// Asignación activa del conductor: la reserva vigente (no cancelada) más reciente
-// asociada a su cuenta. Permite que la app muestre el viaje al abrir, sin depender
-// de un broadcast Realtime en vivo (la entrega push es opcional en la demo).
+// Asignación activa del conductor: la reserva VIGENTE más reciente (no cerrada)
+// asociada a su cuenta. "Vigente" excluye los desenlaces cerrados (finalizada /
+// por liquidar / cancelada): esos viajes viven en el historial, no en "tienes un
+// viaje". Permite que la app muestre el viaje al abrir, sin depender de un broadcast.
+const estadosReservaCerrados = [
+  EstadoReserva.finalizada,
+  EstadoReserva.por_liquidar,
+  EstadoReserva.cancelada,
+] as const;
+
 export async function findActiveAsignacionForConductor(session: ConductorTokenPayload) {
   return prisma.reservas.findFirst({
     where: {
       tenant_id: session.tenantId,
       conductor_id: session.conductorId,
       deleted_at: null,
-      estado: { not: EstadoReserva.cancelada },
+      estado: { notIn: [...estadosReservaCerrados] },
       ...conductorScope(session),
     },
     orderBy: { fecha_hora_servicio: 'desc' },
     select: asignacionSelect,
+  });
+}
+
+// Select ligero para el HISTORIAL del conductor: sólo lo que la lista necesita
+// (no datos sensibles del pasajero ni voucher). El estado vivo sale del último viaje.
+const historialSelect = Prisma.validator<Prisma.reservasSelect>()({
+  id: true,
+  tipo_viaje: true,
+  fecha_hora_servicio: true,
+  estado: true,
+  pasajero_nombre: true,
+  origen_texto: true,
+  destino_texto: true,
+  vuelo_codigo: true,
+  conductor: {
+    select: {
+      vehiculo: { select: { placa: true, marca: true, modelo: true } },
+    },
+  },
+  viajes: {
+    where: { deleted_at: null },
+    orderBy: { created_at: 'desc' },
+    take: 1,
+    select: { estado: true, finalizado_en: true, updated_at: true },
+  },
+});
+
+export type ConductorHistorialRow = Prisma.reservasGetPayload<{ select: typeof historialSelect }>;
+
+// Historial de viajes del conductor: sus reservas más recientes (incluye la activa
+// y las finalizadas/canceladas) para que la app las agrupe en activo vs cerrado.
+export async function findHistorialForConductor(session: ConductorTokenPayload, limit = 30) {
+  return prisma.reservas.findMany({
+    where: {
+      tenant_id: session.tenantId,
+      conductor_id: session.conductorId,
+      deleted_at: null,
+      ...conductorScope(session),
+    },
+    orderBy: { fecha_hora_servicio: 'desc' },
+    take: limit,
+    select: historialSelect,
   });
 }

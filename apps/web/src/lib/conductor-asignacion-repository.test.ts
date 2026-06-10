@@ -53,7 +53,9 @@ describe('findActiveAsignacionForConductor — contrato de aislamiento', () => {
       tenant_id: 'tenant-1',
       conductor_id: 'cond-1',
       deleted_at: null,
-      estado: { not: EstadoReserva.cancelada },
+      estado: {
+        notIn: [EstadoReserva.finalizada, EstadoReserva.por_liquidar, EstadoReserva.cancelada],
+      },
       ...scopeUsuarioConductor,
     });
   });
@@ -66,10 +68,12 @@ describe('findActiveAsignacionForConductor — contrato de aislamiento', () => {
     expect(arg.where.conductor.usuario.deleted_at).toBeNull();
   });
 
-  it('excluye reservas canceladas (no deben ganar sobre la activa)', async () => {
+  it('excluye reservas CERRADAS (canceladas/finalizadas/por liquidar viven en el historial, no en "tienes un viaje")', async () => {
     await findActiveAsignacionForConductor(session);
     const arg = findFirst.mock.calls[0]?.[0];
-    expect(arg.where.estado).toEqual({ not: EstadoReserva.cancelada });
+    expect(arg.where.estado).toEqual({
+      notIn: [EstadoReserva.finalizada, EstadoReserva.por_liquidar, EstadoReserva.cancelada],
+    });
   });
 
   it('ordena por servicio más reciente para elegir la vigente, no una antigua', async () => {

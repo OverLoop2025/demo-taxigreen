@@ -218,3 +218,63 @@ export function serializeConductorAsignacion(
     unidad: reserva.conductor?.vehiculo ?? null,
   };
 }
+
+export type ConductorViajeResumen = {
+  id: string;
+  tipoViaje: string;
+  fechaHoraServicio: string;
+  estadoReserva: string;
+  estadoViaje: string | null;
+  finalizadoEn: string | null;
+  activo: boolean;
+  pasajeroNombre: string;
+  origenTexto: string;
+  destinoTexto: string;
+  vueloCodigo: string | null;
+  unidadEtiqueta: string | null;
+};
+
+type SerializableResumen = {
+  id: string;
+  tipo_viaje: string;
+  fecha_hora_servicio: Date;
+  estado: string;
+  pasajero_nombre: string;
+  origen_texto: string;
+  destino_texto: string;
+  vuelo_codigo: string | null;
+  conductor: { vehiculo: { placa: string; marca: string; modelo: string } | null } | null;
+  viajes: Array<{ estado: string; finalizado_en: Date | null; updated_at: Date }>;
+};
+
+const estadosReservaCerrados = new Set<string>([
+  EstadoReserva.finalizada,
+  EstadoReserva.por_liquidar,
+  EstadoReserva.cancelada,
+]);
+
+// Un viaje está "activo" mientras no esté finalizado/cancelado: la app lo muestra
+// destacado y arriba; los cerrados van al historial para revisar detalles.
+export function serializeConductorViajeResumen(reserva: SerializableResumen): ConductorViajeResumen {
+  const viaje = reserva.viajes[0] ?? null;
+  const estadoViaje = viaje?.estado ?? null;
+  const cerradoPorViaje = estadoViaje === EstadoViaje.finalizado;
+  const cerradoPorReserva = estadosReservaCerrados.has(reserva.estado);
+  const activo = !cerradoPorViaje && !cerradoPorReserva;
+  const vehiculo = reserva.conductor?.vehiculo ?? null;
+
+  return {
+    id: reserva.id,
+    tipoViaje: reserva.tipo_viaje,
+    fechaHoraServicio: reserva.fecha_hora_servicio.toISOString(),
+    estadoReserva: reserva.estado,
+    estadoViaje,
+    finalizadoEn: isoOrNull(viaje?.finalizado_en),
+    activo,
+    pasajeroNombre: reserva.pasajero_nombre,
+    origenTexto: reserva.origen_texto,
+    destinoTexto: reserva.destino_texto,
+    vueloCodigo: reserva.vuelo_codigo,
+    unidadEtiqueta: vehiculo ? `${vehiculo.placa} · ${vehiculo.marca} ${vehiculo.modelo}` : null,
+  };
+}
