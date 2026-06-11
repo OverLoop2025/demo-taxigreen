@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · **F10 conductor mapa→navegación ✅ (2026-06-09)** · **F11 conductor 1ª persona + historial + coherencia unidad ✅ (2026-06-09)** · F5 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · **F10 conductor mapa→navegación ✅ (2026-06-09)** · **F11 conductor 1ª persona + historial + coherencia unidad ✅ (2026-06-09)** · **F5 WhatsApp copiloto (chat con QR/enlace + modo copiloto) ✅ (2026-06-10)** · **F12 conductor pulido + landing premium ✅ (2026-06-10)** · F7 siguiente · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -147,6 +147,48 @@ cobro S/ (`ov`). Smoke directo: `/api/conductor/viajes` 1 activo + 3 cerrados, `
 >   ubicación; en emulador requiere proveedor **network** habilitado además de GPS (`settings put secure
 >   location_providers_allowed +network`) y `Accuracy.Balanced` puede no tomar `adb emu geo fix`. La lógica de
 >   trazado desde el GPS es correcta (verificada por cálculo directo de ruta); en dispositivo real con GPS fluye.
+
+**F5 — WhatsApp copiloto premium (2026-06-10):** el inicio del flujo ahora se entiende y se cierra DENTRO del chat.
+(1) **Confirmación en el chat:** al confirmar, el cliente recibe en la conversación la tarjeta "Reserva confirmada"
+con su **reserva TG-…**, el punto de encuentro y su **pase de abordaje (QR real firmado, el mismo que valida el
+counter)**. (2) **Revelado progresivo del enlace:** el botón **"Seguir mi taxi en vivo"** (`/p/[token]`) ya NO llega
+junto al QR: el chat hace polling (`obtenerSeguimientoReserva`, auditoría `voucher_qr_consumido`) y el copiloto
+entrega el enlace **recién cuando el counter valida el pase** — trazabilidad coherente de punta a punta.
+(3) **Modo copiloto (switch en el panel):** apagado por defecto (modo seguro: el operador revisa y confirma).
+Encendido, el copiloto **pregunta los datos faltantes en el chat, envía el resumen y espera el "Sí" DEL CLIENTE**;
+con esa confirmación crea la reserva y **asigna conductor/unidad solo** reutilizando la sugerencia heurística y la
+ruta auditada del despacho (`asignarConductorAutomatico` → `aceptarSugerenciaAsignacion`, fuente
+`copiloto_automatico_confirmado_por_cliente`, broadcast al chofer incluido) y lo anuncia: "Tu conductor será Ana
+Salazar, unidad EJP-615". El operador nunca hace clic en modo auto; el panel muestra el estado (resumen enviado /
+esperando al cliente / enviada al cliente con checklist de QR·enlace·conductor). (4) **Panel "Reserva sugerida"**
+con estado humano líder (Faltan datos / Listo para confirmar / Enviada al cliente) y % de lectura discreto; botón
+"Pedir estos datos al cliente" en modo manual. (5) Guards con `useRef` contra el doble-efecto de StrictMode
+(resumen/enlace duplicados). **Verificado:** e2e `wa-sim.spec.ts` realineado al flujo completo (confirmar → QR sin
+enlace → counter valida vía `/api/voucher/[id]/verify` → polling entrega el enlace → "Abrir en despacho") ✓; modo
+auto probado en vivo dos veces (1 solo resumen; conductor distinto por rotación de cola: Ana Salazar/Pedro Morales)
+con capturas `artifacts/wa-sim/auto-*.png`; `asignacion-sugerencia.spec.ts` realineado a la copy nueva.
+
+**F12 — Conductor pulido + landing premium (2026-06-10):** (1) **Driver:** el aviso de éxito persistente se
+eliminó (el toast confirma; ya no aparece "Servicio terminado confirmado." colgado al iniciar el siguiente viaje) y
+cualquier mensaje muere al cambiar de estado; home muestra **"Empezar"** cuando el viaje recién llega y **"Abrir
+viaje"** solo si ya está en curso, y un viaje cerrado **desaparece** del inicio (verdad del servidor; el broadcast
+solo refresca). **Puck por modo:** triángulo de navegación SOLO conduciendo; en vista mapa un punto elegante
+(anillo blanco + esmeralda). **Ruta sin flechas:** trazo degradado (lineGradient + lineMetrics) con glow; los
+chevrons se retiraron por toscos. **Cámara 1ª persona:** zoom 17.2 cercano, rumbo medido en la calle inmediata
+(~80 m desde el puck, que ahora recorta el tramo ya recorrido) + **brújula del teléfono** (`watchHeadingAsync`)
+como respaldo cuando no hay rumbo GPS; overview **panorámico** (bounds = inicio + fin + ruta). Verificado con
+**simulación de manejo real** (61 fixes GPS por Av. del Ejército→Pardo): la vía recede frontal y el mapa gira con
+las maniobras (`artifacts/driver-live/45-47, 51-52`). "Código"→**"Reserva"** en driver/pasajero/wa-sim/landing.
+LogBox silencia solo el error transitorio de tiles del emulador. (2) **Landing premium (cult-ui vía shadcn MCP):**
+hero con `GradientHeading` plateado gigante, **mockup de teléfono con el chat real del flujo** (mensaje →
+confirmación → "Seguir mi taxi en vivo" → pase QR) flotando con chip "Llega en 12 min", trust row, pasos en
+`MinimalCard`, panel "en vivo" con ruta SVG degradada del mismo lenguaje visual del producto, animaciones CSS puras
+(sin librerías de motion; respetan `prefers-reduced-motion`). Componentes instalados: `gradient-heading`,
+`minimal-card`, `neumorph-eyebrow` (`@cult-ui` registrado en `apps/web/components.json`). Gotcha documentado:
+`GradientHeading` con `asChild` deja el texto fuera del span con `bg-clip-text` → texto invisible; usar children
+directos. El e2e del landing (heading + CTA) se conserva. Capturas: `artifacts/landing/hero-*.png`,
+`mobile-full.png`. **Pendiente conocido:** la suite e2e corre **en dos fases** (counter-qr consume el voucher que
+voucher-flow asume virgen): 7/8 + re-seed + 1/1, igual que en S9.
 
 **F8 — Tema coherente con el sistema + cero tecnicismos (2026-06-07):** segundo pase de coherencia tras el F6/F3.7.
 (1) **Tema = sistema + override discreto, nunca pantallas mezcladas.** Web ya seguía `prefers-color-scheme`; se
