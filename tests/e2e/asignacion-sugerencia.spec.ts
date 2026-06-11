@@ -8,9 +8,12 @@ test('copiloto sugiere asignación y el operador la acepta con auditoría', asyn
 
   await page.waitForURL('**/wa-sim');
   await page.getByRole('button', { name: /Extraer/i }).click();
-  await expect(page.getByText(/Datos suficientes para crear reserva/i)).toBeVisible();
+  await expect(page.getByText(/Listo para confirmar/i).first()).toBeVisible();
 
-  await page.getByRole('button', { name: /Crear reserva/i }).click();
+  // Flujo F5: el operador confirma EN EL CHAT y desde ahí abre el despacho.
+  await page.getByRole('button', { name: /Confirmar y avisar al cliente/i }).click();
+  await expect(page.getByText('Reserva confirmada').first()).toBeVisible();
+  await page.getByRole('button', { name: /Abrir en despacho/i }).click();
   await page.waitForURL('**/admin/reservas/**');
   await expect(page.getByRole('heading', { name: /Reserva TG-WA-/i })).toBeVisible();
 
