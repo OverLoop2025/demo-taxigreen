@@ -1272,7 +1272,7 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
             </div>
 
             <div className="mt-3 flex items-center justify-between rounded-xl bg-surface-muted px-3 py-2 text-sm">
-              <span className="text-foreground-muted">Tu código</span>
+              <span className="text-foreground-muted">Tu reserva</span>
               <span className="font-semibold tracking-wide text-foreground">{data.reserva.voucherCodigo}</span>
             </div>
 

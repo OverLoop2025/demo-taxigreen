@@ -29,3 +29,48 @@
 body {
   @apply bg-background text-foreground font-sans antialiased;
 }
+
+/*
+ * Animaciones del landing premium (CSS puro, sin librerías de motion):
+ * flotación suave del mockup de teléfono y entrada fade-up del hero.
+ */
+@keyframes tg-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(2deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(2deg);
+  }
+}
+
+@keyframes tg-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tg-float {
+  animation: tg-float 7s ease-in-out infinite;
+}
+
+.animate-tg-fade-up {
+  animation: tg-fade-up 0.7s ease-out both;
+}
+
+.animate-tg-fade-up-delay {
+  animation: tg-fade-up 0.7s ease-out 0.18s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-tg-float,
+  .animate-tg-fade-up,
+  .animate-tg-fade-up-delay {
+    animation: none;
+  }
+}
