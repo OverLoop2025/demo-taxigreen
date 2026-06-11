@@ -58,9 +58,18 @@ export default function HomeScreen() {
   useFocusEffect(loadActiveAssignment);
 
   const enLinea = conexionViva(realtimeStatus);
-  // El broadcast en vivo manda; si no hay, mostramos la asignación cargada al abrir.
-  const assignmentReservaId = lastAssignment?.reservaId ?? activeAssignment?.id ?? null;
-  const passengerName = lastAssignment ? null : (activeAssignment?.pasajero.nombre ?? null);
+  // La verdad del servidor manda: el broadcast solo dispara el refetch (arriba).
+  // Así un viaje cerrado nunca "revive" en el home por un aviso viejo.
+  const assignmentReservaId = activeAssignment?.id ?? null;
+  const passengerName = activeAssignment?.pasajero.nombre ?? null;
+  // "Empezar" cuando el viaje recién llega (aún no inicia ruta); si el chofer ya
+  // está dentro del flujo y volvió al inicio, la acción es retomar: "Abrir viaje".
+  const viajeEnCurso =
+    activeAssignment?.viaje?.estado === 'en_camino' ||
+    activeAssignment?.viaje?.estado === 'en_punto' ||
+    activeAssignment?.viaje?.estado === 'a_bordo';
+  const ctaViaje = viajeEnCurso ? 'Abrir viaje' : 'Empezar';
+  const tituloViaje = viajeEnCurso ? 'Viaje en curso' : 'Tienes un viaje';
   // Unidad COHERENTE: la del viaje vigente (la que eligió el despacho, que puede ser
   // una reasignación temporal) manda sobre la unidad predefinida del conductor.
   const unidadDelViaje = activeAssignment?.unidad ?? null;
@@ -120,14 +129,14 @@ export default function HomeScreen() {
           <View className="bg-brand px-5 py-4">
             <View className="flex-row items-center gap-2">
               <Ionicons name="navigate" size={18} color="#0A0A0B" />
-              <Text className="text-base font-bold text-ink-900">Tienes un viaje</Text>
+              <Text className="text-base font-bold text-ink-900">{tituloViaje}</Text>
             </View>
           </View>
           <View className="px-5 py-5">
             <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Pasajero</Text>
             <Text className="mt-1 text-xl font-bold text-foreground">{passengerName ?? 'Listo para revisar'}</Text>
             <TouchButton
-              label="Abrir viaje"
+              label={ctaViaje}
               className="mt-4"
               onPress={() =>
                 router.push({

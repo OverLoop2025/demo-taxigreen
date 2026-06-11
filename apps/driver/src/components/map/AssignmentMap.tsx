@@ -126,13 +126,38 @@ function distanceMetersLngLat(a: number[], b: number[]) {
   return earth * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-function routeFromDriver(coordinates: number[][], driver: number[] | null) {
+// Índice del vértice de la ruta más cercano a `point` (escaneo lineal; las rutas
+// urbanas tienen cientos de vértices, no miles). Base para recortar lo recorrido
+// y para medir el rumbo de la vía donde el conductor ESTÁ, no donde estaba.
+function nearestVertexIndex(coordinates: number[][], point: number[]) {
+  let best = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < coordinates.length; i += 1) {
+    const vertex = coordinates[i];
+    if (!vertex) continue;
+    const distance = distanceMetersLngLat(point, vertex);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return best;
+}
+
+// Ruta "por delante" estilo Waze: descarta el tramo ya recorrido (la línea nace
+// SIEMPRE en el puck) y se engancha a la geometría real desde el vértice más
+// cercano al GPS. Entre recálculos del backend, esto mantiene la línea pegada
+// al conductor en vez de dejar una cola por detrás.
+function routeAheadOfDriver(coordinates: number[][], driver: number[] | null) {
   if (!driver || coordinates.length <= 2) return coordinates;
-  const first = coordinates[0];
-  if (!first) return [];
-  const distance = distanceMetersLngLat(driver, first);
-  if (distance < 8) return coordinates;
-  return [driver, ...coordinates];
+  const from = nearestVertexIndex(coordinates, driver);
+  const ahead = coordinates.slice(from);
+  if (ahead.length < 2) return coordinates;
+  const first = ahead[0];
+  if (first && distanceMetersLngLat(driver, first) >= 8) {
+    return [driver, ...ahead];
+  }
+  return ahead;
 }
 
 function boundsForCoordinates(coordinates: number[][]) {
@@ -209,6 +234,7 @@ export function AssignmentMap({
   fill = false,
   mode = 'overview',
   recenterKey = 0,
+  compassHeading = null,
 }: {
   assignment: DriverAssignment;
   driverLocation: DriverLocation | null;
@@ -219,6 +245,8 @@ export function AssignmentMap({
   mode?: AssignmentMapMode;
   /** Cambia cuando el usuario toca "ubicarme" o "vista general". */
   recenterKey?: number;
+  /** Brújula del teléfono (grados); orienta el mapa cuando no hay rumbo GPS ni ruta. */
+  compassHeading?: number | null;
 }) {
   const token = env.EXPO_PUBLIC_MAPBOX_TOKEN;
   const { api: Mapbox, error } = useMapboxApi(Boolean(token));
@@ -232,6 +260,21 @@ export function AssignmentMap({
   // Ruta principal dominante: trazo brillante sobre un casing oscuro/contrastado.
   const routeLineColor = dark ? '#22F3B2' : '#0BA57A';
   const routeCasingColor = dark ? '#04231C' : '#063D30';
+  // Degradado a lo largo de la línea (requiere lineMetrics en el ShapeSource):
+  // más luminoso donde nace (el puck) y asentándose al verde de marca hacia
+  // adelante. Sustituye a las flechas punteadas: limpio y fluido, como Waze.
+  const routeGradient = useMemo(
+    () =>
+      [
+        'interpolate',
+        ['linear'],
+        ['line-progress'],
+        0, dark ? '#8CFFDD' : '#6EE7B7',
+        0.12, dark ? '#22F3B2' : '#10B981',
+        1, dark ? '#0FBE8C' : '#059669',
+      ] as unknown,
+    [dark],
+  );
 
   // Tráfico secundario TENUE (como en la web): finito y semitransparente para que
   // nunca compita con la ruta. Color por nivel de congestión, en versión apagada.
@@ -257,12 +300,15 @@ export function AssignmentMap({
   // no hay ruta real, se muestran sólo los marcadores; nunca una recta de 2 puntos.
   const rawRouteCoordinates =
     route.geometry?.coordinates && route.geometry.coordinates.length > 2 ? route.geometry.coordinates : [];
-  const routeCoordinates = driveMode ? routeFromDriver(rawRouteCoordinates, driver) : rawRouteCoordinates;
+  const routeCoordinates = driveMode ? routeAheadOfDriver(rawRouteCoordinates, driver) : rawRouteCoordinates;
   const hasRoute = routeCoordinates.length > 2;
   const center = origin ?? destination ?? driver ?? [-77.08, -12.06];
-  const overviewCoordinates = hasRoute
-    ? routeCoordinates
-    : [origin, destination].filter((point): point is number[] => Boolean(point));
+  // Vista general PANORÁMICA: siempre abarca del punto de inicio al punto final
+  // (más la ruta si existe), aunque el tramo vivo sea más corto que el viaje.
+  const overviewCoordinates = [
+    ...(hasRoute ? routeCoordinates : []),
+    ...[origin, destination].filter((point): point is number[] => Boolean(point)),
+  ];
   const overviewBounds = boundsForCoordinates(overviewCoordinates);
 
   // Rumbo "hacia adelante": usa el heading real del GPS si existe; si no (emulador),
@@ -276,14 +322,15 @@ export function AssignmentMap({
     driverLocation.heading > 0 &&
     typeof driverLocation.speed === 'number' &&
     driverLocation.speed > 0.8;
-  // Rumbo FRONTAL: se mide sobre la geometría real de Mapbox (rawRouteCoordinates,
-  // que ya nace en la calzada), mirando ~90 m de calle inmediata, para que la vía
-  // por delante recede recta hacia arriba (calcado a Waze). Prioridad: GPS real en
-  // movimiento → calle inmediata → punto adelante → norte.
-  const headingSource = rawRouteCoordinates.length > 2 ? rawRouteCoordinates : routeCoordinates;
+  // Rumbo FRONTAL: en modo conductor routeCoordinates ya está recortada al tramo
+  // por delante (nace en el puck), así que medir ~80 m desde su inicio alinea la
+  // cámara con la vía donde el conductor ESTÁ ahora (calcado a Waze). Prioridad:
+  // GPS real en movimiento → calle inmediata → brújula del teléfono → punto
+  // adelante → norte.
   const courseHeading = gpsHeadingUsable
     ? driverLocation.heading
-    : headingAlongRoute(headingSource, 90) ??
+    : headingAlongRoute(routeCoordinates, 80) ??
+      compassHeading ??
       (driver && forwardPoint ? bearingDeg(driver, forwardPoint) : 0);
 
   // Centro de cámara SESGADO hacia adelante: en vez de centrar en el puck, centra
@@ -291,7 +338,7 @@ export function AssignmentMap({
   // (perspectiva de conductor) y la vía por delante domina la pantalla, sin depender
   // sólo del padding. Fuera de navegación, centro normal.
   const driveCenter =
-    driveMode && hasRoute ? pointAhead(routeCoordinates, 50) ?? driver : driver;
+    driveMode && hasRoute ? pointAhead(routeCoordinates, 40) ?? driver : driver;
 
   const estado = assignment.viaje?.estado;
   const showPickupMarker = !driveMode || estado !== 'a_bordo';
@@ -335,7 +382,7 @@ export function AssignmentMap({
     );
   }
 
-  const { Camera, LineLayer, MapView, MarkerView, ShapeSource, SymbolLayer, VectorSource } = Mapbox;
+  const { Camera, LineLayer, MapView, MarkerView, ShapeSource, VectorSource } = Mapbox;
   const ornamentBottom = fill ? 238 : 10;
 
   return (
@@ -367,14 +414,14 @@ export function AssignmentMap({
           <Camera
             key={`drive-${recenterKey}`}
             centerCoordinate={driveCenter}
-            zoomLevel={16.4}
+            zoomLevel={17.2}
             pitch={60}
             heading={courseHeading}
             animationMode="easeTo"
             animationDuration={750}
             // Centro levemente adelante (puck en el tercio inferior) + padding moderado
-            // para no empujarlo fuera. Encuadre de conductor tipo Waze: vía por delante.
-            padding={{ paddingTop: 320, paddingBottom: 24, paddingLeft: 0, paddingRight: 0 }}
+            // para no empujarlo fuera. Encuadre cercano de conductor tipo Waze.
+            padding={{ paddingTop: 300, paddingBottom: 24, paddingLeft: 0, paddingRight: 0 }}
           />
         ) : (
           <Camera
@@ -405,62 +452,59 @@ export function AssignmentMap({
         </VectorSource>
 
         {hasRoute ? (
-          <ShapeSource id="taxigreen-route" shape={routeShape}>
+          <ShapeSource id="taxigreen-route" lineMetrics shape={routeShape}>
+            {/* Halo suave exterior: hace "flotar" la ruta sobre el mapa sin ensuciar. */}
+            <LineLayer
+              id="taxigreen-route-glow"
+              style={{
+                lineColor: routeLineColor,
+                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 14, 16, 26, 18, 34],
+                lineOpacity: dark ? 0.28 : 0.18,
+                lineBlur: 8,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
             <LineLayer
               id="taxigreen-route-casing"
               style={{
                 lineColor: routeCasingColor,
-                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 8, 16, 17, 18, 21],
+                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 7, 16, 15, 18, 19],
                 lineCap: 'round',
                 lineJoin: 'round',
-                lineOpacity: 0.95,
+                lineOpacity: 0.9,
               }}
             />
+            {/* Trazo principal con degradado fluido (sin flechas punteadas). */}
             <LineLayer
               id="taxigreen-route-line"
               style={{
-                lineColor: routeLineColor,
-                // Trazo grueso y limpio tipo Waze (sin flechas que ensucien en 3D).
-                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 13, 18, 16],
+                lineGradient: routeGradient,
+                lineWidth: ['interpolate', ['linear'], ['zoom'], 10, 4.5, 16, 11, 18, 14],
                 lineCap: 'round',
                 lineJoin: 'round',
               }}
             />
-            {/* Chevrons de sentido SÓLO en vista general (mapa plano): ahí ayudan a
-                leer la dirección. En modo conductor se omiten para dejar la línea
-                limpia y frontal, calcada a un navegador (Waze/Maps). */}
-            {!driveMode ? (
-              <SymbolLayer
-                id="taxigreen-route-arrows"
-                style={{
-                  symbolPlacement: 'line',
-                  symbolSpacing: 72,
-                  textField: '▲',
-                  textSize: ['interpolate', ['linear'], ['zoom'], 11, 16, 15, 24],
-                  textColor: '#ffffff',
-                  textHaloColor: routeCasingColor,
-                  textHaloWidth: 2.2,
-                  textRotationAlignment: 'map',
-                  textPitchAlignment: 'viewport',
-                  textKeepUpright: false,
-                  textAllowOverlap: true,
-                  textIgnorePlacement: true,
-                }}
-              />
-            ) : null}
           </ShapeSource>
         ) : null}
 
         {driver ? (
           <MarkerView coordinate={driver} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
-            {/* Puck de navegación clásico: flecha (triángulo) que en course-up apunta
-                siempre a la vía por delante. Núcleo blanco para contraste sobre la
-                ruta esmeralda + halo suave que lo hace glanceable al volante. */}
-            <View style={styles.puckHalo}>
-              <View style={styles.puckCore}>
-                <View style={styles.puckArrow} />
+            {driveMode ? (
+              /* Conduciendo: flecha de navegación clásica que en course-up apunta
+                 siempre a la vía por delante (glanceable al volante). */
+              <View style={styles.puckHalo}>
+                <View style={styles.puckCore}>
+                  <View style={styles.puckArrow} />
+                </View>
               </View>
-            </View>
+            ) : (
+              /* Vista mapa: punto de presencia discreto y pulido (sin flecha; aquí
+                 no hay rumbo que señalar). */
+              <View style={styles.dotHalo}>
+                <View style={styles.dotCore} />
+              </View>
+            )}
           </MarkerView>
         ) : null}
 
@@ -540,5 +584,26 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderBottomColor: '#ffffff',
     marginBottom: 3,
+  },
+  dotHalo: {
+    height: 44,
+    width: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16,185,129,0.18)',
+  },
+  dotCore: {
+    height: 18,
+    width: 18,
+    borderRadius: 9,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: '#10B981',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 4,
   },
 });

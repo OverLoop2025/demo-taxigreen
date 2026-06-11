@@ -237,7 +237,8 @@ export default function AssignmentScreen() {
         setAssignment(response.asignacion);
         setPendingRetry(null);
         autoRetryArmed.current = false;
-        setNotice(`${action.label} confirmado.`);
+        // El toast ya confirma la acción; un aviso persistente envejece mal (p. ej.
+        // "Servicio terminado confirmado" colgado al iniciar el siguiente viaje).
         showToast(`${action.label} confirmado`);
       } catch (submitError) {
         const message = submitError instanceof Error ? submitError.message : 'No se pudo confirmar la acción.';
@@ -268,6 +269,8 @@ export default function AssignmentScreen() {
   useEffect(() => {
     setMapModeOverride(null);
     setMapRecenterKey((value) => value + 1);
+    // Mensajes de la fase anterior nunca sobreviven a un cambio de estado.
+    setNotice(null);
   }, [estadoViaje]);
 
   if (loading) {
@@ -332,6 +335,7 @@ export default function AssignmentScreen() {
         <AssignmentMap
           fill
           assignment={assignment}
+          compassHeading={tracking.compassHeading}
           driverLocation={tracking.lastLocation}
           mode={mapMode}
           recenterKey={mapRecenterKey}
@@ -506,7 +510,7 @@ export default function AssignmentScreen() {
               <DetailRow label="Destino" value={assignment.destino.texto} />
               <DetailRow label="Hora" value={serviceTimeLabel(assignment.fechaHoraServicio)} />
               <DetailRow label="Unidad" value={unidadLabel} />
-              <DetailRow label="Código" value={assignment.voucherCodigo} />
+              <DetailRow label="Reserva" value={assignment.voucherCodigo} />
               <View className="mt-1 flex-row gap-3">
                 <MiniStat label="Ubicación" value={ubicacionLabel} />
                 <MiniStat label="Conexión" value={network.label} />

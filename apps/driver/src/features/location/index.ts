@@ -15,6 +15,9 @@ type TrackingStatus = 'idle' | 'requesting_permission' | 'tracking' | 'permissio
 export type LocationTrackingState = {
   status: TrackingStatus;
   lastLocation: DriverLocation | null;
+  // Rumbo de brújula del teléfono (grados, 0=N) cuando el dispositivo lo entrega
+  // con precisión razonable; null en emulador o sin magnetómetro confiable.
+  compassHeading: number | null;
   error: string | null;
 };
 
@@ -37,6 +40,7 @@ export function useLocationTracking(reservaId: string | null, activo: boolean): 
   const [state, setState] = useState<LocationTrackingState>({
     status: 'idle',
     lastLocation: null,
+    compassHeading: null,
     error: null,
   });
 
@@ -55,6 +59,7 @@ export function useLocationTracking(reservaId: string | null, activo: boolean): 
     let cancelled = false;
     let realtimeReady = false;
     let subscription: Location.LocationSubscription | null = null;
+    let headingSubscription: Location.LocationSubscription | null = null;
     const channel = supabase.channel(`reserva-${reservaId}`);
 
     async function start() {
@@ -95,7 +100,12 @@ export function useLocationTracking(reservaId: string | null, activo: boolean): 
         },
         (location) => {
           const normalized = normalizeLocation(location);
-          setState({ status: 'tracking', lastLocation: normalized, error: null });
+          setState((current) => ({
+            ...current,
+            status: 'tracking',
+            lastLocation: normalized,
+            error: null,
+          }));
 
           if (!realtimeReady) return;
           void channel.send({
@@ -105,6 +115,16 @@ export function useLocationTracking(reservaId: string | null, activo: boolean): 
           });
         },
       );
+
+      // Brújula del dispositivo: orienta el mapa cuando el GPS no entrega rumbo
+      // (detenido en un semáforo, p. ej.). En emulador no hay magnetómetro útil:
+      // accuracy llega en 0/-1 y se ignora.
+      headingSubscription = await Location.watchHeadingAsync((heading) => {
+        const value = heading.trueHeading >= 0 ? heading.trueHeading : heading.magHeading;
+        if (heading.accuracy >= 1 && value >= 0) {
+          setState((current) => ({ ...current, compassHeading: value }));
+        }
+      }).catch(() => null);
 
       if (!cancelled) {
         setState((current) => ({ ...current, status: 'tracking', error: null }));
@@ -120,6 +140,7 @@ export function useLocationTracking(reservaId: string | null, activo: boolean): 
     return () => {
       cancelled = true;
       subscription?.remove();
+      headingSubscription?.remove();
       void supabase.removeChannel(channel);
     };
   }, [activo, reservaId]);

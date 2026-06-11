@@ -1,13 +1,40 @@
-import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { ThemeControl } from '@/components/ThemeControl';
 import { TouchButton } from '@/components/TouchButton';
+import { getActiveDriverAssignment } from '@/features/assignment/client';
+import type { DriverAssignment } from '@/features/assignment/types';
 import { useAuth } from '@/features/auth/use-auth';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { conductor, logout } = useAuth();
-  const vehicle = conductor?.vehiculo;
+  const { conductor, session, logout } = useAuth();
+  const [activeAssignment, setActiveAssignment] = useState<DriverAssignment | null>(null);
+
+  // La unidad NO es del conductor: la asigna el despacho y puede cambiar por viaje.
+  // Mostramos la del viaje vigente (fresca) y, si no hay viaje, la habitual del login.
+  useFocusEffect(
+    useCallback(() => {
+      if (!session?.token) return () => undefined;
+      let cancelled = false;
+      getActiveDriverAssignment(session.token)
+        .then((response) => {
+          if (!cancelled) setActiveAssignment(response.asignacion);
+        })
+        .catch(() => {
+          if (!cancelled) setActiveAssignment(null);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [session?.token]),
+  );
+
+  const unidadDelViaje = activeAssignment?.unidad ?? null;
+  const vehicle = unidadDelViaje ?? conductor?.vehiculo ?? null;
+  const unidadTitulo = unidadDelViaje ? 'Unidad de tu viaje actual' : 'Unidad habitual';
 
   async function closeSession() {
     await logout();
@@ -28,10 +55,28 @@ export default function ProfileScreen() {
           <Text className="text-lg text-foreground">Licencia: {conductor?.licencia ?? 'Sin licencia'}</Text>
           <Text className="text-lg text-foreground">Calificación: {conductor?.rating.toFixed(1) ?? '0.0'}</Text>
           <Text className="text-lg text-foreground">Viajes: {conductor?.totalViajes ?? 0}</Text>
-          <Text className="text-lg text-foreground">
-            Unidad: {vehicle ? `${vehicle.placa} · ${vehicle.marca} ${vehicle.modelo}` : 'Sin unidad'}
-          </Text>
         </View>
+      </View>
+
+      {/* Unidad asignada por el despacho (no es propiedad del conductor). */}
+      <View className="mt-4 rounded-2xl border border-border bg-surface px-5 py-5">
+        <View className="flex-row items-center gap-2">
+          <Ionicons name="car-sport-outline" size={18} color="#10B981" />
+          <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{unidadTitulo}</Text>
+        </View>
+        {vehicle ? (
+          <View className="mt-3">
+            <Text className="text-2xl font-bold tracking-wider text-foreground">{vehicle.placa}</Text>
+            <Text className="mt-1 text-base font-medium text-foreground-muted">
+              {vehicle.marca} {vehicle.modelo}
+            </Text>
+          </View>
+        ) : (
+          <Text className="mt-3 text-base font-medium text-foreground-muted">Sin unidad asignada por ahora.</Text>
+        )}
+        <Text className="mt-3 text-sm leading-5 text-foreground-muted">
+          El despacho te asigna la unidad y puede cambiarla según el viaje.
+        </Text>
       </View>
 
       <View className="mt-4 rounded-2xl border border-border bg-surface px-5 py-5">
