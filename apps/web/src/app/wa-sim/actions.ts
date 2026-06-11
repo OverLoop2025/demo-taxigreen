@@ -16,6 +16,8 @@ import {
   type ExtraccionReservaResultado,
   type ReservaExtraida,
 } from '@taxigreen/ingesta';
+import { sugerirAsignacionConRazonamiento } from '@taxigreen/ia';
+import { aceptarSugerenciaAsignacion } from '@/app/admin/reservas/[id]/actions';
 import { requireRole } from '@/lib/auth';
 
 export type CrearReservaDesdeIngestaResult =
@@ -23,6 +25,14 @@ export type CrearReservaDesdeIngestaResult =
       ok: true;
       id: string;
       voucherCodigo: string;
+      // Datos para la confirmación que el copiloto envía EN EL CHAT al cliente:
+      // enlace en vivo del pasajero (/p/[token]) + QR (lo escanea el counter).
+      tokenPasajero: string;
+      pasajeroNombre: string;
+      puntoEncuentro: string | null;
+      origenTexto: string;
+      destinoTexto: string;
+      fechaHoraServicioIso: string;
     }
   | {
       ok: false;
@@ -133,6 +143,12 @@ export async function crearReservaDesdeIngesta(
     select: {
       id: true,
       voucher_codigo: true,
+      token_pasajero: true,
+      pasajero_nombre: true,
+      punto_encuentro: true,
+      origen_texto: true,
+      destino_texto: true,
+      fecha_hora_servicio: true,
     },
   });
 
@@ -159,5 +175,98 @@ export async function crearReservaDesdeIngesta(
   revalidatePath('/admin/auditoria');
   revalidatePath('/admin/metricas');
 
-  return { ok: true, id: created.id, voucherCodigo: created.voucher_codigo };
+  return {
+    ok: true,
+    id: created.id,
+    voucherCodigo: created.voucher_codigo,
+    tokenPasajero: created.token_pasajero,
+    pasajeroNombre: created.pasajero_nombre,
+    puntoEncuentro: created.punto_encuentro,
+    origenTexto: created.origen_texto,
+    destinoTexto: created.destino_texto,
+    fechaHoraServicioIso: created.fecha_hora_servicio.toISOString(),
+  };
+}
+
+export type SeguimientoReserva = {
+  voucherValidado: boolean;
+  conductor: { nombre: string; placa: string | null } | null;
+};
+
+// Estado de trazabilidad que el chat consulta tras confirmar: el enlace en vivo se
+// envía al pasajero SOLO cuando el counter validó su pase (un solo uso), y el
+// conductor aparece cuando el despacho (o el copiloto automático) lo asignó.
+export async function obtenerSeguimientoReserva(reservaId: string): Promise<SeguimientoReserva> {
+  await requireRole(['admin_tenant', 'despachador']);
+  const reserva = await prisma.reservas.findFirst({
+    where: { id: reservaId, deleted_at: null },
+    select: {
+      tenant_id: true,
+      conductor: {
+        select: {
+          usuario: { select: { nombre: true } },
+          vehiculo: { select: { placa: true } },
+        },
+      },
+    },
+  });
+  if (!reserva) return { voucherValidado: false, conductor: null };
+
+  const consumido = await prisma.auditoria.findFirst({
+    where: {
+      tenant_id: reserva.tenant_id,
+      action: 'voucher_qr_consumido',
+      target_table: 'reservas',
+      target_id: reservaId,
+    },
+    select: { id: true },
+  });
+
+  return {
+    voucherValidado: Boolean(consumido),
+    conductor: reserva.conductor
+      ? {
+          nombre: reserva.conductor.usuario.nombre,
+          placa: reserva.conductor.vehiculo?.placa ?? null,
+        }
+      : null,
+  };
+}
+
+export type AsignacionAutomaticaResult =
+  | { ok: true; conductorNombre: string; placa: string }
+  | { ok: false; message: string };
+
+// Modo copiloto: toma la MISMA sugerencia heurística del despacho y la acepta por
+// la MISMA ruta auditada que usa el operador (broadcast al conductor incluido).
+// La diferencia es quién confirma: aquí confirma el cliente en el chat, y queda
+// trazado como decisión del copiloto automático.
+export async function asignarConductorAutomatico(reservaId: string): Promise<AsignacionAutomaticaResult> {
+  await requireRole(['admin_tenant', 'despachador']);
+  const tenantId = await getDemoTenantId();
+
+  const sugerencia = await sugerirAsignacionConRazonamiento(reservaId, { tenantId });
+  if (!sugerencia) {
+    return { ok: false, message: 'Sin conductores disponibles por ahora; el despacho lo tomará.' };
+  }
+
+  const formData = new FormData();
+  formData.set('reserva_id', reservaId);
+  formData.set('conductor_id', sugerencia.conductor.id);
+  formData.set('vehiculo_id', sugerencia.vehiculo.id);
+  formData.set('fuente', sugerencia.fuente);
+  formData.set('motivo', 'copiloto_automatico_confirmado_por_cliente');
+  formData.set('modelo', sugerencia.modelo ?? '');
+  formData.set('razon', sugerencia.razon);
+  formData.set('score', String(sugerencia.score));
+  formData.set('factores_json', JSON.stringify(sugerencia.factores));
+
+  const result = await aceptarSugerenciaAsignacion(formData);
+  if (!result.ok) return { ok: false, message: result.message };
+
+  return {
+    ok: true,
+    conductorNombre: sugerencia.conductor.nombre,
+    placa: sugerencia.vehiculo.placa,
+  };
 }
