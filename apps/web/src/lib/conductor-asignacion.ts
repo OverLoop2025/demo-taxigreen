@@ -1,4 +1,10 @@
-import { EstadoReserva, EstadoViaje, type TipoVehiculo } from '@taxigreen/database';
+import {
+  EstadoAbordaje,
+  EstadoReserva,
+  EstadoViaje,
+  TipoViaje,
+  type TipoVehiculo,
+} from '@taxigreen/database';
 
 export const estadosViajeSecuencia = [
   EstadoViaje.asignado,
@@ -22,6 +28,23 @@ export function validarTransicionViaje(actual: EstadoViaje, nuevo: EstadoViaje) 
   }
 
   return { ok: true as const, esperado };
+}
+
+export function requiereCounter(tipoViaje: TipoViaje | string): boolean {
+  return tipoViaje === TipoViaje.recojo_aeropuerto;
+}
+
+export function estadoAbordajeInicial(tipoViaje: TipoViaje | string): EstadoAbordaje {
+  return requiereCounter(tipoViaje) ? EstadoAbordaje.pendiente_validacion : EstadoAbordaje.no_requerido;
+}
+
+export function puedeIniciarRuta(args: {
+  tipoViaje: TipoViaje | string;
+  estadoAbordaje: EstadoAbordaje | string;
+}): { ok: true } | { ok: false; motivo: 'counter_pendiente' } {
+  if (!requiereCounter(args.tipoViaje)) return { ok: true };
+  if (args.estadoAbordaje === EstadoAbordaje.autorizado) return { ok: true };
+  return { ok: false, motivo: 'counter_pendiente' };
 }
 
 export function estadoReservaParaViaje(estadoViaje: EstadoViaje) {
@@ -79,6 +102,11 @@ export type ConductorAsignacionResponse = {
     emitidoEn: string | null;
     tokenPasajero: string;
   };
+  abordaje: {
+    requiereCounter: boolean;
+    autorizado: boolean;
+    counterValidadoEn: string | null;
+  };
   viaje: {
     id: string;
     estado: string;
@@ -127,6 +155,8 @@ type SerializableReserva = {
   destino_lng: number | null;
   voucher_emitido_en: Date | null;
   token_pasajero: string;
+  estado_abordaje: EstadoAbordaje | string;
+  counter_validado_en: Date | null;
   conductor: {
     id: string;
     rating: number;
@@ -165,6 +195,7 @@ export function serializeConductorAsignacion(
   reserva: SerializableReserva,
 ): ConductorAsignacionResponse {
   const viaje = reserva.viajes[0] ?? null;
+  const counterRequerido = requiereCounter(reserva.tipo_viaje);
 
   return {
     id: reserva.id,
@@ -196,6 +227,11 @@ export function serializeConductorAsignacion(
       codigo: reserva.voucher_codigo,
       emitidoEn: isoOrNull(reserva.voucher_emitido_en),
       tokenPasajero: reserva.token_pasajero,
+    },
+    abordaje: {
+      requiereCounter: counterRequerido,
+      autorizado: !counterRequerido || reserva.estado_abordaje === EstadoAbordaje.autorizado,
+      counterValidadoEn: isoOrNull(reserva.counter_validado_en),
     },
     viaje: viaje
       ? {

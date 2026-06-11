@@ -19,6 +19,7 @@ import {
 import { sugerirAsignacionConRazonamiento } from '@taxigreen/ia';
 import { aceptarSugerenciaAsignacion } from '@/app/admin/reservas/[id]/actions';
 import { requireRole } from '@/lib/auth';
+import { estadoAbordajeInicial } from '@/lib/conductor-asignacion';
 
 export type CrearReservaDesdeIngestaResult =
   | {
@@ -123,6 +124,7 @@ export async function crearReservaDesdeIngesta(
       vuelo_codigo: reserva.vuelo_codigo,
       tipo_pago: reserva.tipo_pago as TipoPago,
       estado: EstadoReserva.necesita_revision,
+      estado_abordaje: estadoAbordajeInicial(reserva.tipo_viaje as TipoViaje),
       token_pasajero: `wa_${nanoid(21)}`,
       voucher_codigo: voucherCodigo,
       voucher_qr_payload: `wa-sim:${voucherCodigo}:${nanoid(8)}`,
@@ -201,7 +203,7 @@ export async function obtenerSeguimientoReserva(reservaId: string): Promise<Segu
   const reserva = await prisma.reservas.findFirst({
     where: { id: reservaId, deleted_at: null },
     select: {
-      tenant_id: true,
+      estado_abordaje: true,
       conductor: {
         select: {
           usuario: { select: { nombre: true } },
@@ -212,18 +214,8 @@ export async function obtenerSeguimientoReserva(reservaId: string): Promise<Segu
   });
   if (!reserva) return { voucherValidado: false, conductor: null };
 
-  const consumido = await prisma.auditoria.findFirst({
-    where: {
-      tenant_id: reserva.tenant_id,
-      action: 'voucher_qr_consumido',
-      target_table: 'reservas',
-      target_id: reservaId,
-    },
-    select: { id: true },
-  });
-
   return {
-    voucherValidado: Boolean(consumido),
+    voucherValidado: reserva.estado_abordaje === 'autorizado',
     conductor: reserva.conductor
       ? {
           nombre: reserva.conductor.usuario.nombre,

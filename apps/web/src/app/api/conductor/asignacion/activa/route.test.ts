@@ -12,6 +12,7 @@ vi.mock('@/lib/conductor-asignacion-repository', () => ({
 
 import { serializeConductorAsignacion } from '@/lib/conductor-asignacion';
 import { createConductorToken } from '@/lib/conductor-token';
+import { EstadoAbordaje, TipoViaje } from '@taxigreen/database';
 import { GET } from './route';
 
 const session = {
@@ -26,7 +27,7 @@ const session = {
 const reservaFixture = {
   id: 'reserva-1',
   voucher_codigo: 'TG-2026-0001',
-  tipo_viaje: 'recojo_aeropuerto',
+  tipo_viaje: TipoViaje.recojo_aeropuerto,
   fecha_hora_servicio: new Date('2026-06-05T15:00:00.000Z'),
   estado: 'asignada',
   pasajero_nombre: 'Valeria Mendoza',
@@ -43,6 +44,8 @@ const reservaFixture = {
   destino_lng: -77.0365,
   voucher_emitido_en: new Date('2026-06-05T12:00:00.000Z'),
   token_pasajero: 'tg_demo_passenger_001',
+  estado_abordaje: EstadoAbordaje.autorizado,
+  counter_validado_en: new Date('2026-06-05T14:58:00.000Z'),
   conductor: {
     id: 'cond-1',
     rating: 4.9,
@@ -106,6 +109,11 @@ describe('GET /api/conductor/asignacion/activa', () => {
     expect(body.asignacion.pasajero.nombre).toBe('Valeria Mendoza');
     expect(body.asignacion.viaje.estado).toBe('en_camino');
     expect(body.asignacion.unidad.placa).toBe('ABC-123');
+    expect(body.asignacion.abordaje).toEqual({
+      requiereCounter: true,
+      autorizado: true,
+      counterValidadoEn: '2026-06-05T14:58:00.000Z',
+    });
 
     // El repositorio recibe la sesión verificada del token, no datos del request.
     expect(findActive).toHaveBeenCalledWith(expect.objectContaining({ conductorId: 'cond-1' }));

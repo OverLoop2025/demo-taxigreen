@@ -4,6 +4,7 @@ import { EstadoViaje, Prisma, prisma } from '@taxigreen/database';
 import { z } from 'zod';
 import {
   estadoReservaParaViaje,
+  puedeIniciarRuta,
   serializeConductorAsignacion,
   timestampFieldForEstado,
   validarTransicionViaje,
@@ -62,6 +63,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       select: {
         id: true,
         voucher_codigo: true,
+        tipo_viaje: true,
+        estado_abordaje: true,
         estado: true,
         viajes: {
           where: {
@@ -97,6 +100,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const estadoReserva = estadoReservaParaViaje(estadoNuevo);
+    if (estadoNuevo === EstadoViaje.en_camino) {
+      const gate = puedeIniciarRuta({
+        tipoViaje: reserva.tipo_viaje,
+        estadoAbordaje: reserva.estado_abordaje,
+      });
+      if (!gate.ok) {
+        return {
+          kind: 'counter_pendiente' as const,
+          reservaId: reserva.id,
+          voucherCodigo: reserva.voucher_codigo,
+          estadoAbordaje: reserva.estado_abordaje,
+        };
+      }
+    }
+
     await tx.viajes.update({
       where: { id: viaje.id },
       data: tripUpdateData(estadoNuevo, now),
@@ -135,6 +153,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         error: 'transicion_invalida',
         estado_actual: transition.estadoActual,
         estado_esperado: transition.estadoEsperado,
+      },
+      { status: 409 },
+    );
+  }
+
+  if (transition.kind === 'counter_pendiente') {
+    await recordAudit({
+      actor: { tipo: 'conductor', id: session.conductorId },
+      action: 'driver_inicio_bloqueado_counter',
+      target: { table: 'reservas', id },
+      tenantId: session.tenantId,
+      req: { headers: request.headers },
+      payload: {
+        reserva_id: transition.reservaId,
+        voucher_codigo: transition.voucherCodigo,
+        estado_abordaje: transition.estadoAbordaje,
+      },
+    });
+
+    return NextResponse.json(
+      {
+        error: 'counter_pendiente',
+        estado_abordaje: transition.estadoAbordaje,
       },
       { status: 409 },
     );

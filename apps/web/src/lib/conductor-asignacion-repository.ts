@@ -21,6 +21,8 @@ const asignacionSelect = Prisma.validator<Prisma.reservasSelect>()({
   destino_lng: true,
   voucher_emitido_en: true,
   token_pasajero: true,
+  estado_abordaje: true,
+  counter_validado_en: true,
   conductor: {
     select: {
       id: true,
@@ -126,6 +128,8 @@ const historialSelect = Prisma.validator<Prisma.reservasSelect>()({
   origen_texto: true,
   destino_texto: true,
   vuelo_codigo: true,
+  estado_abordaje: true,
+  counter_validado_en: true,
   conductor: {
     select: {
       vehiculo: { select: { placa: true, marca: true, modelo: true } },

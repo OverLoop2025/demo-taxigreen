@@ -18,6 +18,13 @@ type VerifyPayload = {
     pasajero_telefono?: string;
     vuelo_codigo?: string | null;
     estado?: string;
+    estado_abordaje?: string;
+    counter_validado_en?: string | null;
+    conductor?: {
+      nombre: string;
+      placa: string | null;
+    } | null;
+    pago?: null;
   };
 };
 
@@ -64,6 +71,7 @@ function errorLabel(error: string | undefined) {
   if (error === 'voucher_ya_validado') return 'Este pase ya se usó. Cada código vale una sola vez.';
   if (error === 'token_invalido') return 'El código no corresponde a un pase vigente.';
   if (error === 'counter_no_autorizado') return 'Inicia sesión de operador para confirmar el acceso.';
+  if (error === 'reserva_cancelada') return 'Esta reserva fue cancelada. El pase ya no es válido.';
   return 'No se pudo validar el pase.';
 }
 
@@ -194,7 +202,11 @@ export function VoucherValidator() {
       return;
     }
     setStatus('consumed');
-    setMessage('Acceso confirmado. Este código ya no puede reutilizarse.');
+    setMessage(
+      next.reserva?.conductor
+        ? 'Acceso confirmado. Luz verde enviada al conductor.'
+        : 'Acceso confirmado. El conductor recibirá la luz verde al ser asignado.',
+    );
   };
 
   useEffect(() => {
@@ -276,6 +288,11 @@ export function VoucherValidator() {
                 : 'Validado ahora'}{' '}
               · Este código ya no puede reutilizarse.
             </p>
+            <p className="mt-3 rounded-xl bg-success/10 px-4 py-3 text-sm font-semibold text-success">
+              {reserva.conductor
+                ? `Luz verde enviada a ${reserva.conductor.nombre}${reserva.conductor.placa ? ` · ${reserva.conductor.placa}` : ''}.`
+                : 'El conductor recibirá la luz verde cuando despacho lo asigne.'}
+            </p>
             <button
               className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-product px-4 text-sm font-semibold text-white sm:w-auto"
               type="button"
@@ -303,6 +320,15 @@ export function VoucherValidator() {
               <DataRow icon={<Plane className="h-4 w-4" />} label="Vuelo" value={reserva.vuelo_codigo ?? 'Por confirmar'} />
               <DataRow icon={<MapPin className="h-4 w-4" />} label="Recojo" value={reserva.origen_texto} />
               <DataRow icon={<ArrowRight className="h-4 w-4" />} label="Destino" value={reserva.destino_texto} />
+              <DataRow
+                icon={<UserRound className="h-4 w-4" />}
+                label="Conductor"
+                value={
+                  reserva.conductor
+                    ? `${reserva.conductor.nombre}${reserva.conductor.placa ? ` · ${reserva.conductor.placa}` : ''}`
+                    : 'Falta asignar conductor'
+                }
+              />
             </div>
 
             <button
@@ -312,7 +338,7 @@ export function VoucherValidator() {
               onClick={consume}
             >
               {status === 'consuming' ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-              Confirmar acceso
+              {reserva.conductor ? 'Confirmar acceso y dar luz verde' : 'Confirmar acceso'}
             </button>
             <button
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"

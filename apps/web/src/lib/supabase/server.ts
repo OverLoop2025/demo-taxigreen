@@ -81,6 +81,37 @@ export async function broadcastReservaEstado({
   });
 }
 
+export async function broadcastReservaAbordaje({
+  reservaId,
+  counterValidadoEn,
+}: {
+  reservaId: string;
+  counterValidadoEn: string;
+}) {
+  return sendRealtimeBroadcast(`reserva-${reservaId}`, 'abordaje', {
+    reserva_id: reservaId,
+    estado_abordaje: 'autorizado',
+    counter_validado_en: counterValidadoEn,
+  });
+}
+
+export async function broadcastConductorAbordaje({
+  conductorId,
+  reservaId,
+  counterValidadoEn,
+}: {
+  conductorId: string;
+  reservaId: string;
+  counterValidadoEn: string;
+}) {
+  return sendRealtimeBroadcast(`conductor-${conductorId}`, 'abordaje', {
+    conductor_id: conductorId,
+    reserva_id: reservaId,
+    estado_abordaje: 'autorizado',
+    counter_validado_en: counterValidadoEn,
+  });
+}
+
 export async function broadcastReservaIncidencia({
   reservaId,
   incidenciaId,
