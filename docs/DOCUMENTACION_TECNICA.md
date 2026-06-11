@@ -1,6 +1,6 @@
 # Documentación Técnica — Demo Taxi Green
 
-**Versión:** 1.11 · **Fecha:** 2026-06-05 · **Cubre:** Sprint 0-9 — demo completa verificada localmente y en producción + auditoría de cierre + endurecimiento de pruebas (§20).
+**Versión:** 1.12 · **Fecha:** 2026-06-11 · **Cubre:** Sprint 0-9 + Feature 1 post-S9 — demo completa verificada localmente y en producción + gate de counter operacional.
 **Ámbito:** este documento describe **todo lo que existe hoy en el monorepo de software**. Para el *qué construir*
 y el *por qué de negocio*, la fuente de verdad es [`_FUENTE_DESARROLLO/`](../_FUENTE_DESARROLLO/) y
 [`07_PLAN_EJECUCION/`](../07_PLAN_EJECUCION/); este doc no los reemplaza, los **complementa con el estado real del código**.
@@ -10,6 +10,8 @@ Documentos vivos relacionados:
 - [`ESTADO_SPRINT_0_Y_HANDOFF.md`](ESTADO_SPRINT_0_Y_HANDOFF.md) — handoff a Sprint 1 (estado real + gotchas).
 - [`ESTADO_SPRINT_9.md`](ESTADO_SPRINT_9.md) — cierre real de Sprint 9.
 - [`GUIA_PRUEBAS_DEMO.md`](GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar S0-S9.
+- [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md) — fuente de verdad post-S9 para endurecimiento operacional.
+- [`features/ESTADO_FEATURE_1.md`](features/ESTADO_FEATURE_1.md) — cierre del gate de counter y estado de abordaje.
 
 ---
 
@@ -32,7 +34,9 @@ Bearer, estados secuenciales, ubicación foreground y broadcast `posicion`/`esta
 Sprint 8 agrega `/p/[token]` con tracking público, Mapbox/fallback textual, comprobante/calificación, incidencia de
 objeto olvidado, `/bienestar/[caso]`, `/admin/bienestar` y respuesta mínima del conductor. Sprint 9 agrega routing
 real con Mapbox Directions + fallback determinista, `/counter` con QR de un solo uso, landing pública, reset de guion,
-mobile smoke CI, fail-fast runtime de secretos y corrección del redirect PDF en Railway.
+mobile smoke CI, fail-fast runtime de secretos y corrección del redirect PDF en Railway. Feature 1 post-S9 endurece
+el flujo operacional: un `recojo_aeropuerto` asignado ya no puede iniciar ruta hasta que el counter valide el pase
+QR; el estado de abordaje vive en `reservas` y se refleja en la app conductor por Realtime.
 El monorepo conserva el pipeline `typecheck/lint/test/build` en verde.
 
 ---
@@ -140,7 +144,7 @@ demo-taxigreen/
 │     └─ src/ components/* · features/{api,assignment,auth,incidents,location,network,push,realtime,routing} · lib/env.ts (Zod, EXPO_PUBLIC_*)
 │
 ├─ packages/
-│  ├─ database/            Prisma 6 — schema 10 tablas + migración inicial + seed protagonista + scripts db:*
+│  ├─ database/            Prisma 6 — schema 10 tablas + migraciones + seed protagonista + seed-guion/seed-operacional
 │  ├─ shared/              tokens AZUL (colors/typography) + FLUJO_PROTAGONISTA + test de tokens
 │  ├─ ia/                  LLMProvider + AnthropicProvider real + withFallback + loader prompts + extractor/racionalizador LLM
 │  │  └─ prompts/          ingesta-whatsapp.v1.md · aclaracion-datos-faltantes.v1.md · asignacion-racional.v1.md · clasificacion-incidencia.v1.md
@@ -159,7 +163,7 @@ demo-taxigreen/
 │  ├─ docker-compose.yml   Postgres 17 + PostGIS local (opcional)
 │  └─ supabase/ init/01-extensions.sql (postgis, pgcrypto) · migrations/.gitkeep
 │
-├─ tests/e2e/              Playwright: smoke, voucher, admin, wa-sim, asignación sugerida, link pasajero y rutas
+├─ tests/e2e/              Playwright: smoke, voucher, admin, wa-sim, asignación sugerida, link pasajero, rutas y gate counter
 │                         (corre con `pnpm e2e`)
 │
 └─ .github/workflows/
@@ -197,13 +201,14 @@ asignacion, bienestar, rutas, voucher, comprobantes, auditoria}`, `@taxigreen/in
 - `src/app/api/conductor/login/route.ts` — login móvil email+PIN, JWT Bearer 12h y auditoría `login_driver_mobile`.
 - `src/app/api/conductor/fcm-token/route.ts` — guarda Expo/FCM token en `usuarios.fcm_token` con Bearer.
 - `src/app/api/conductor/asignacion/[id]/route.ts` — detalle móvil tenant-safe de reserva asignada al conductor.
-- `src/app/api/conductor/asignacion/[id]/estado/route.ts` — transición secuencial de viaje, auditoría y broadcast.
+- `src/app/api/conductor/asignacion/[id]/estado/route.ts` — transición secuencial de viaje, gate de counter para
+  `recojo_aeropuerto`, auditoría y broadcast.
 - `src/lib/conductor-token.ts` — firma/verifica JWT móvil (`jose`).
 - `src/lib/conductor-asignacion.ts` — secuencia `asignado -> en_camino -> en_punto -> a_bordo -> finalizado`,
-  mapeo reserva/viaje y serialización móvil.
+  helpers `requiereCounter`/`puedeIniciarRuta`, mapeo reserva/viaje y serialización móvil con `abordaje`.
 - `src/lib/push.ts` — helper de Expo Push Service con degradación controlada si falta token/FCM real.
-- `src/lib/supabase/server.ts` — broadcast server-side `reserva-{id}` (`asignacion`/`estado`/`incidencia`) y
-  `conductor-{conductorId}` (`asignacion`/`incidencia`).
+- `src/lib/supabase/server.ts` — broadcast server-side `reserva-{id}` (`asignacion`/`estado`/`abordaje`/`incidencia`) y
+  `conductor-{conductorId}` (`asignacion`/`abordaje`/`incidencia`).
 - `src/app/admin/reservas/[id]/sugerencia-card.tsx` — tarjeta "Copiloto recomienda" con aceptar/override.
 - `next.config.ts` — transpila paquetes internos (`shared`, `voucher`, `comprobantes`, `reniec`, `ingesta`,
   `asignacion`, `bienestar`, `rutas`, `ia`) y deja Puppeteer/Chromium externos para no romper `ws`.
@@ -228,9 +233,10 @@ asignacion, bienestar, rutas, voucher, comprobantes, auditoria}`, `@taxigreen/in
 - `src/lib/env.ts` — env tipadas con Zod (prefijo `EXPO_PUBLIC_*`, incluye `EXPO_PUBLIC_EXPO_PROJECT_ID`).
 
 **packages/database**
-- `prisma/schema.prisma` — **vacío a propósito** (datasource Postgres + generator). Las 10 tablas llegan en S1.
+- `prisma/schema.prisma` — schema Prisma real: 10 tablas de demo, enums operativos, campos post-S9 de abordaje
+  (`estado_abordaje`, `counter_validado_en`, `counter_usuario_id`). La tabla/relación de pagos queda para Feature 2.
 - `src/index.ts` — cliente Prisma singleton (patrón global, log condicionado por `NODE_ENV`).
-- `package.json` — scripts `db:migrate/db:deploy/db:seed/db:seed-guion/db:studio/db:reset` listos.
+- `package.json` — scripts `db:migrate/db:deploy/db:seed/db:seed-guion/db:seed-operacional/db:studio/db:reset` listos.
 
 **packages/ia** (la capa que materializa el enfoque del §2)
 - `src/llm-provider.ts` (interfaz) · `src/providers/anthropic.ts` (AI SDK/Anthropic) · `src/fallback.ts`
@@ -254,9 +260,16 @@ cp apps/driver/.env.example apps/driver/.env
 # (Opcional) Postgres local con PostGIS
 docker compose -f infra/docker-compose.yml up -d
 
-# Migraciones + guion demo
+# Migraciones + datos demo
 pnpm --filter @taxigreen/database db:deploy
+
+# Elige UNO según lo que quieras demostrar:
+# guion visual en curso
 pnpm --filter @taxigreen/database db:seed-guion
+
+# o punto de partida para demostrar Feature 1:
+# conductor asignado, pero bloqueado hasta validación de counter
+pnpm --filter @taxigreen/database db:seed-operacional
 
 # Verificación completa (debe quedar en verde: 56/56 tareas)
 pnpm turbo run typecheck lint test build
@@ -687,8 +700,9 @@ silencioso rompería la seguridad o la parte visual de la demo (los peores bugs 
 contrato exacto de cada borde, no el "camino feliz". Todo lo nuevo corre en el **gate de CI** (`pnpm turbo run
 typecheck lint test`) salvo el E2E del counter (necesita pila viva + reseed) y la prueba física de APK (manual).
 
-**Antes → después:** web `11 → 51` tests unit (+40), `@taxigreen/asignacion` `6 → 14` (+8), `@taxigreen/rutas`
-`4 → 6` (+2) = **+50 unit** y **+1 E2E**. Gate completo: **53/53 tareas verdes** (`typecheck lint test`).
+**Antes → después:** web `11 → 61` tests unit, `@taxigreen/asignacion` `6 → 14`, `@taxigreen/rutas`
+`4 → 6` y la suite E2E suma `counter-gate`. Gate completo post-Feature 1:
+**56/56 tareas verdes** (`typecheck lint test build`) + **9/9 E2E** sobre `next start`.
 
 ### 20.1 Qué blinda cada archivo nuevo
 
@@ -696,20 +710,23 @@ typecheck lint test`) salvo el E2E del counter (necesita pila viva + reseed) y l
 |---|---|
 | [`apps/web/src/middleware.test.ts`](../apps/web/src/middleware.test.ts) | Matriz de autorización por rol: `/admin` y `/wa-sim` sólo `admin_tenant`/`despachador`; `/counter` sólo `supervisor`. Cubre anónimo, rol cruzado (supervisor→/admin, despachador→/counter, conductor→/admin), subrutas profundas y preservación de `callbackUrl`. Invertir un `!==` se vuelve rojo. |
 | [`apps/web/src/lib/conductor-asignacion-repository.test.ts`](../apps/web/src/lib/conductor-asignacion-repository.test.ts) | **Contrato de aislamiento** (lo que separa "funciona" de "es seguro"): el `where` de Prisma filtra por `tenant_id`, `conductor_id`, `deleted_at`, usuario `rol=conductor` `activo` no borrado, y la activa excluye `cancelada` y ordena por servicio más reciente. Borrar cualquier eje del scope (un conductor vería reservas de otro, o de otro tenant, o desactivado) → rojo. |
-| [`apps/web/src/app/api/conductor/asignacion/activa/route.test.ts`](../apps/web/src/app/api/conductor/asignacion/activa/route.test.ts) | Endpoint clave de móvil (asignación al abrir sin push): `401` sin Bearer / token inválido, asignación serializada con token válido, `{ asignacion: null }` sin viaje, y que **no filtra** `password_hash`/`voucher_qr_payload`. Tokens Bearer **reales** (no mock del verificador). |
+| [`apps/web/src/app/api/conductor/asignacion/activa/route.test.ts`](../apps/web/src/app/api/conductor/asignacion/activa/route.test.ts) | Endpoint clave de móvil (asignación al abrir sin push): `401` sin Bearer / token inválido, asignación serializada con token válido, `{ asignacion: null }` sin viaje, y que **no filtra** `password_hash`/`voucher_qr_payload`. También verifica el contrato `abordaje`. Tokens Bearer **reales** (no mock del verificador). |
+| [`apps/web/src/app/api/conductor/asignacion/[id]/estado/route.test.ts`](../apps/web/src/app/api/conductor/asignacion/[id]/estado/route.test.ts) | Gate server-side de Feature 1: `recojo_aeropuerto + pendiente_validacion` devuelve `409 counter_pendiente` sin mutar viaje/reserva; `recojo_aeropuerto + autorizado` avanza; `traslado_aeropuerto` no se bloquea. |
 | [`apps/web/src/lib/pasajero.test.ts`](../apps/web/src/lib/pasajero.test.ts) | **Anti-recta del servidor**: con estimación determinista NO entrega geometría (recta) pero sí ETA/distancia; con curva Mapbox real (100 vértices) sí; geometría Mapbox degenerada de 2 puntos NO se pinta (guard `>2`); sin coordenadas no calcula ruta ni inventa trazo (fallback textual); comprobante sólo disponible al finalizar. Protege que el link `/p/[token]` no mienta visualmente. Ver [[mapas-solo-ruta-real]]. |
 | [`apps/web/src/lib/auth/secret.test.ts`](../apps/web/src/lib/auth/secret.test.ts) | Fail-fast de `AUTH_SECRET`: lanza en runtime de producción sin secreto; NO lanza en build de producción ni en CI. Evita firmar sesiones JWT con la clave de desarrollo en producción. |
-| [`apps/web/src/lib/conductor-asignacion.test.ts`](../apps/web/src/lib/conductor-asignacion.test.ts) (ampliado) | Máquina de estados del viaje: recorrido completo hacia adelante, rechazo de retroceso, estado terminal (`finalizado`), `cancelado` fuera de la secuencia y prohibición de saltar un estado intermedio. |
+| [`apps/web/src/lib/conductor-asignacion.test.ts`](../apps/web/src/lib/conductor-asignacion.test.ts) (ampliado) | Máquina de estados del viaje + dominio de abordaje: recorrido completo hacia adelante, rechazo de retroceso, estado terminal, helpers `requiereCounter`/`estadoAbordajeInicial`/`puedeIniciarRuta` y serializer móvil con `abordaje`. |
 | [`packages/asignacion/src/heuristica.test.ts`](../packages/asignacion/src/heuristica.test.ts) (ampliado) | Van preferida sobre minivan con >4 pax; la distancia penaliza con cola/match iguales; distancia mock estable sin coordenadas; `getPesosAsignacion` lee `ASIGNACION_PESO_*` del entorno, los overrides ganan, valores no numéricos vuelven al default y el cambio se propaga a `factores.pesos`. |
 | [`packages/rutas/src/rutas.test.ts`](../packages/rutas/src/rutas.test.ts) (ampliado) | El proveedor real pasa a través cuando responde y el flag está activo; `calcularRutaEstimada` lanza `coordenadas_invalidas` (no degrada en silencio). Suma a los tests previos de `flag_off`, timeout y fallo del proveedor. |
-| [`tests/e2e/counter-qr.spec.ts`](../tests/e2e/counter-qr.spec.ts) | **QR de un solo uso (E2E):** consumir exige supervisor (`401` sin sesión), primer consumo `200 consumed=true`, reuso `409 voucher_ya_validado` con `consumedAt`. Verificado con `playwright --list`; corre con `pnpm e2e` sobre DB recién sembrada. |
+| [`tests/e2e/counter-qr.spec.ts`](../tests/e2e/counter-qr.spec.ts) | **QR de un solo uso (E2E) autocontenido:** crea su propia reserva `TG-WA-*` vía `/wa-sim`, valida que consumir exige supervisor (`401` sin sesión), primer consumo `200 consumed=true`, reuso `409 voucher_ya_validado` con `consumedAt`. Ya no quema `TG-2026-0001`. |
+| [`tests/e2e/counter-gate.spec.ts`](../tests/e2e/counter-gate.spec.ts) | Flujo operacional crítico: reserva nueva → asignación → conductor intenta iniciar y recibe `409 counter_pendiente` → counter consume QR → conductor reintenta y avanza con `abordaje.autorizado=true`. |
 
 ### 20.2 Qué queda deliberadamente fuera (manual o nivel de pila)
 
 - **Concurrencia real del QR** (dos consumos simultáneos → 1×200 / 1×409): exige una transacción Postgres real con
   `pg_advisory_xact_lock`; no es comprobable con mocks. Queda como prueba E2E/manual sobre DB viva.
-- **E2E del counter:** es **destructivo** (consume el voucher del guion y escribe `voucher_qr_consumido`). Correr
-  `pnpm --filter @taxigreen/database db:seed-guion` antes de `pnpm e2e` (mismo requisito que la suite 7/7 tras reseed).
+- **E2E del counter:** desde Feature 1 `counter-qr` y `counter-gate` son autocontenidos y no consumen el voucher
+  protagonista. Aun así conviene correr `pnpm --filter @taxigreen/database db:seed-guion` antes de la suite para
+  partir de baseline canónico.
 - **Anti-recta del lado conductor** (`apps/driver`: `AssignmentMap.tsx`, `seguimiento-cliente.tsx`,
   `features/routing/use-route.ts`): la misma regla `>2 vértices` está replicada en el cliente RN, pero `apps/driver`
   no tiene runner de tests (su `build`/`test` es un `echo`); el guard se valida vía el contrato del servidor
@@ -780,3 +797,58 @@ mode web a negro/gris/verde queda **pendiente de confirmación** del usuario.
 **Ver el mapa nativo (crítico, no resuelto por BlueStacks):** plan robusto en
 [`QA_MOVIL_ANDROID_OJOS_REALES.md §00`](QA_MOVIL_ANDROID_OJOS_REALES.md) — Android físico por Wi-Fi ADB + `scrcpy`
 (mejor) o AVD con KVM (`sudo gpasswd -a "$USER" kvm` + reabrir WSL). Lo ejecuta el usuario.
+
+---
+
+## 22. Feature 1 post-S9 — gate de counter y estado de abordaje (2026-06-11)
+
+Fuente de verdad: [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md).
+Estado de cierre: [`features/ESTADO_FEATURE_1.md`](features/ESTADO_FEATURE_1.md).
+
+Qué cambió:
+
+- `reservas` gana `estado_abordaje`, `counter_validado_en` y `counter_usuario_id`. El estado operacional ya no vive
+  solo en auditoría; auditoría sigue siendo trazabilidad.
+- `recojo_aeropuerto` nace con `estado_abordaje=pendiente_validacion`; `traslado_aeropuerto` y `city` nacen con
+  `no_requerido`.
+- La transición móvil `asignado -> en_camino` valida server-side `puedeIniciarRuta()`. Si falta counter en un recojo,
+  responde `409 { error:'counter_pendiente' }`, audita `driver_inicio_bloqueado_counter` y no muta viaje/reserva.
+- El counter, al consumir el QR, mantiene el mecanismo one-time probado (`voucher_qr_consumido` + advisory lock) y
+  además persiste `estado_abordaje=autorizado`, `counter_validado_en` y `counter_usuario_id` en la misma transacción.
+  También audita `abordaje_autorizado`.
+- El counter ya no cambia `confirmada -> asignada`; asignar conductor sigue siendo dominio de despacho.
+- Se agregan broadcasts `abordaje` en `reserva-{id}` y `conductor-{conductorId}`. Si el counter valida antes de que
+  exista conductor, la autorización queda persistida y la asignación futura nace habilitada.
+- La app conductor recibe `abordaje` en el contrato de asignación, bloquea el CTA con microcopy humano
+  ("Esperando counter") y refresca al recibir la luz verde.
+- `/counter` muestra conductor/unidad cuando existen, o "Falta asignar conductor"; al confirmar muestra una luz verde
+  explícita.
+- `db:seed-guion` conserva el guion visual en curso como autorizado; `db:seed-operacional` deja la protagonista
+  asignada pero bloqueada para probar la Feature 1 desde cero.
+
+Verificación de cierre:
+
+- `pnpm --filter @taxigreen/database db:deploy` aplicó la migración `20260611000000_feature1_estado_abordaje`.
+- `pnpm --filter @taxigreen/web test -- --run`: 10 archivos, 61 tests verdes.
+- `pnpm --filter @taxigreen/web typecheck && pnpm --filter @taxigreen/web lint`: verde.
+- `pnpm --filter @taxigreen/driver exec tsc --noEmit && pnpm --filter @taxigreen/driver lint`: verde.
+- `pnpm --filter @taxigreen/database typecheck && pnpm --filter @taxigreen/database lint`: verde.
+- `pnpm turbo run typecheck lint test build`: verde, 56/56 tareas.
+- `E2E_BASE_URL=http://localhost:3001 pnpm exec playwright test --config tests/e2e/playwright.config.ts --workers=1`:
+  verde, 9/9.
+- `pnpm --filter @taxigreen/driver exec expo export --platform android`: EXIT 0, 1430 módulos.
+- Smoke operacional con `db:seed-operacional`: conductor asignado recibe `409 counter_pendiente`; después se restauró
+  baseline con `db:seed-guion`.
+
+Hallazgos corregidos durante QA:
+
+- Un artefacto `.next` inconsistente dejó `next start` sin un vendor chunk de `zod`. Se limpió `.next` y se reconstruyó;
+  no requirió cambio de producto.
+- `counter-qr.spec.ts` consumía el QR protagonista y podía romper `voucher-flow` según el orden. Ahora crea su propia
+  reserva `TG-WA-*`.
+- Había una carrera de token QR en E2E tras crear reserva por `/wa-sim`; el spec espera el PNG antes de leer/verificar.
+
+Pendiente intencional para Feature 2:
+
+- El contrato de counter ya trae `pago: null`; Feature 2 lo llenará con cotización y pago demo persistidos.
+- No se implementó pasarela ni cierre financiero en Feature 1.

@@ -1,8 +1,12 @@
 # PROMPT Feature 2 — Cotización y pago demo (Codex)
 
 > Prerrequisito: Feature 1 cerrada con `docs/features/ESTADO_FEATURE_1.md` y CI verde. Revisa ese
-> estado antes de empezar: si Feature 1 cambió contratos respecto al master, el master manda y este
-> prompt se ajusta.
+> estado antes de empezar: si Feature 1 cambió contratos respecto al master, el estado de cierre manda
+> para los contratos reales y este prompt se ajusta.
+>
+> Hechos cerrados por F1 que debes conservar: `reservas.estado_abordaje/counter_validado_en`,
+> gate `409 counter_pendiente`, broadcasts `abordaje`, `db:seed-operacional`, `counter-qr` y
+> `counter-gate` autocontenidos, full E2E 9/9. No vuelvas a consumir `TG-2026-0001` desde un spec nuevo.
 
 ---
 
@@ -87,7 +91,8 @@ tsconfig, vitest, exports desde `src/index.ts`):
 - **Admin** (`lib/admin/reservas.ts` + `admin/reservas/[id]/page.tsx`): bloque "Pago" (método,
   etiqueta humana del estado, monto). Sin jerga.
 - **Counter** (`verify/route.ts` + `voucher-validator.tsx`): el `pago: null` de F1 se llena con
-  `{metodo, estado, monto, etiqueta}`; la vista `ready` lo muestra antes de confirmar acceso.
+  `{metodo, estado, monto, etiqueta}`; la vista `ready` lo muestra antes de confirmar acceso. Conserva
+  `estado_abordaje`, `counter_validado_en`, `conductor` y la luz verde de F1.
 - **Pasajero** (`lib/pasajero.ts` + `seguimiento-cliente.tsx`): bloque "Pago" visible desde el
   inicio (método + etiqueta + monto). El tipo `PassengerTripData` añade `pago` (master §5.7).
 - **Driver** (`conductor-asignacion.ts` serializer + repository + `apps/driver` types/pantalla):
@@ -102,10 +107,13 @@ tsconfig, vitest, exports desde `src/index.ts`):
   con el mismo monto.
 - Verifica que `asignacion-sugerencia.spec.ts` y `passenger-link.spec.ts` siguen verdes (el
   passenger-link puede necesitar el bloque Pago en sus asserts — actualizar conservando hechos).
+- Regla C7 sigue vigente: todo spec nuevo o ampliado debe crear su propia reserva `TG-WA-*` o usar datos
+  preparados explícitamente por el propio test. No quemar el voucher protagonista salvo que el spec haga reseed
+  propio y lo deje documentado.
 
 ## Verificación final obligatoria
 
-La batería completa del master §7 (turbo + e2e en dos fases + expo export) + smoke manual: crear
+La batería completa del master §7 actualizada por F1 (turbo 56/56 + e2e 9/9 + expo export) + smoke manual: crear
 reserva por wa-sim con cada `tipo_pago` (voucher hotel / factura / yape / efectivo) y verificar el
 mismo monto en chat, admin, counter y `/p/[token]` (capturas).
 

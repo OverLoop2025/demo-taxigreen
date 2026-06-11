@@ -1,7 +1,7 @@
 # Guía de pruebas manuales — Taxi Green Demo
 
-**Última actualización:** 2026-06-04  
-**Cubre:** Sprint 0-9  
+**Última actualización:** 2026-06-11  
+**Cubre:** Sprint 0-9 + Feature 1 post-S9  
 **Objetivo:** que una persona no técnica pueda levantar la app, entrar a las pantallas y comprobar el flujo construido.
 
 ---
@@ -31,13 +31,14 @@ Hoy la demo ya permite comprobar este recorrido:
 19. Abrir la landing pública `/` y entrar al flujo pasajero.
 20. Probar ruta/ETA real con Mapbox o fallback determinista.
 21. Entrar como supervisor counter y validar el QR una sola vez.
-22. Restaurar el guion completo con un solo comando antes de cada demo.
+22. Probar que un recojo de aeropuerto queda bloqueado para el conductor hasta que counter dé luz verde.
+23. Restaurar el guion completo con un solo comando antes de cada demo.
 
 La app conductor ya tiene login, sesión segura, Home, Perfil, push degradable, recepción Realtime de asignaciones,
 detalle activo, estados secuenciales, ubicación foreground, tracking pasajero, comprobante/calificación y objeto
 olvidado E2E básico. Sprint 9 suma routing real, counter QR one-time, landing, reset de guion y CI mobile smoke.
-Todavía falta el video respaldo y, si se quiere deploy automático desde GitHub Actions, pegar el `RAILWAY_TOKEN`
-secreto real en GitHub.
+Feature 1 post-S9 suma el gate operacional: para `recojo_aeropuerto`, el conductor no puede iniciar hasta que el
+counter valide el pase QR.
 
 ---
 
@@ -101,6 +102,20 @@ pnpm --filter @taxigreen/database db:seed-guion
 
 Ese comando deja la reserva protagonista en curso, precarga posiciones, limpia reservas de prueba y deja el QR listo
 para validar en counter.
+
+Para probar específicamente el bloqueo de Feature 1, usa este seed alternativo:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-operacional
+```
+
+Ese comando deja la reserva protagonista asignada a Raúl Quispe, pero todavía sin luz verde de counter. Es el punto
+correcto para verificar que la app conductor muestre "Esperando counter" y que la API devuelva `counter_pendiente`.
+Cuando termines esa prueba, vuelve al guion visual con:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-guion
+```
 
 Construye la app web:
 
@@ -212,7 +227,7 @@ Qué revisar:
 
 - Debe verse el título "Despacho operativo".
 - Debe aparecer la reserva protagonista `TG-2026-0001`.
-- La UI debe verse azul, sobria y de operación.
+- La UI debe verse verde esmeralda, sobria y de operación.
 
 ### Paso 2 — Abre WhatsApp Sim
 
@@ -369,6 +384,14 @@ Antes de esta prueba, si ya consumiste el QR en otra sesión, restaura el guion:
 pnpm --filter @taxigreen/database db:seed-guion
 ```
 
+Si lo que quieres probar es el gate completo conductor bloqueado → counter → conductor habilitado, usa:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-operacional
+```
+
+Con `db:seed-operacional`, Raúl Quispe ya tiene la reserva asignada, pero todavía debe esperar al counter.
+
 Abre:
 
 ```text
@@ -403,8 +426,8 @@ TG-2026-0001
 ```
 
 2. Pulsa validar.
-3. Deben aparecer pasajero, vuelo, origen, destino y punto de encuentro.
-4. Pulsa confirmar validación.
+3. Deben aparecer pasajero, vuelo, origen, destino, punto de encuentro y, si ya está asignado, conductor/unidad.
+4. Pulsa `Confirmar acceso y dar luz verde`.
 5. Debe quedar validado.
 6. Intenta validar otra vez el mismo QR.
 
@@ -412,11 +435,20 @@ Resultado esperado:
 
 - Primera validación consumida: correcta.
 - Segundo intento: bloqueado como voucher ya validado.
+- Si había conductor asignado, la pantalla debe decir que la luz verde fue enviada.
+- Si todavía no había conductor asignado, la autorización queda guardada y el conductor nacerá habilitado cuando
+  despacho lo asigne.
 
 Importante: esta prueba quema el QR de la demo. Para volver a dejarlo disponible:
 
 ```bash
 pnpm --filter @taxigreen/database db:seed-guion
+```
+
+Para volver al punto exacto de prueba del gate:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-operacional
 ```
 
 Smoke técnico opcional:
@@ -522,6 +554,21 @@ Salida 3, columna F2
 - La ruta debe decir Aeropuerto Jorge Chávez -> Av. Pardo 123, Miraflores.
 - Si no tienes Mapbox/dev client, verás una ruta textual. Eso es normal: las acciones siguen funcionando.
 
+Si la reserva es `recojo_aeropuerto` y estás usando `db:seed-operacional`, el botón principal debe aparecer como:
+
+```text
+Esperando counter
+```
+
+Eso es correcto. Significa que el pasajero todavía no fue validado en el counter del aeropuerto.
+
+Para habilitarlo:
+
+1. Abre `/counter` como supervisor.
+2. Valida `TG-2026-0001`.
+3. Pulsa `Confirmar acceso y dar luz verde`.
+4. Vuelve a la app conductor. El botón debe habilitarse sin reinstalar ni reiniciar la app.
+
 ### Paso 6 — Avanza los estados del viaje
 
 Pulsa en orden:
@@ -537,6 +584,7 @@ Qué revisar:
 
 - Solo aparece una acción principal a la vez.
 - La app no debe permitir saltarse pasos.
+- En `recojo_aeropuerto`, `En camino` solo se habilita después de la luz verde de counter.
 - Después de `En camino`, la reserva queda `en_curso`.
 - Después de `Servicio terminado`, la reserva queda `por_liquidar`.
 - En `/admin/auditoria` deben aparecer eventos `driver_estado_viaje_actualizado`.
