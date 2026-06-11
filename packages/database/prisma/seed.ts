@@ -2,6 +2,7 @@ import { hash } from 'bcryptjs';
 import { nanoid } from 'nanoid';
 import {
   CanalOrigen,
+  EstadoAbordaje,
   EstadoComprobante,
   EstadoIncidencia,
   EstadoReserva,
@@ -197,6 +198,9 @@ async function main() {
       vuelo_codigo: 'LA2456',
       tipo_pago: TipoPago.voucher_hotel,
       estado: EstadoReserva.asignada,
+      estado_abordaje: EstadoAbordaje.pendiente_validacion,
+      counter_validado_en: null,
+      counter_usuario_id: null,
       token_pasajero: TOKEN_PASAJERO,
       voucher_qr_payload: `demo:${VOUCHER_CODIGO}:${nanoid(8)}`,
       voucher_emitido_en: now,
@@ -238,6 +242,7 @@ async function main() {
       vuelo_codigo: 'LA2456',
       tipo_pago: TipoPago.voucher_hotel,
       estado: EstadoReserva.asignada,
+      estado_abordaje: EstadoAbordaje.pendiente_validacion,
       token_pasajero: TOKEN_PASAJERO,
       voucher_codigo: VOUCHER_CODIGO,
       voucher_qr_payload: `demo:${VOUCHER_CODIGO}:${nanoid(8)}`,

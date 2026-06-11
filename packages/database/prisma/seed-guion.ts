@@ -1,4 +1,5 @@
 import {
+  EstadoAbordaje,
   EstadoIncidencia,
   EstadoReserva,
   EstadoViaje,
@@ -64,6 +65,9 @@ async function main() {
     where: { id: reserva.id },
     data: {
       estado: EstadoReserva.en_curso,
+      estado_abordaje: EstadoAbordaje.autorizado,
+      counter_validado_en: now,
+      counter_usuario_id: null,
       calificacion: null,
       pasajero_dni: '44556677',
       pasajero_ruc: null,

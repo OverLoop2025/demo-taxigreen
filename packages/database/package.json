@@ -18,6 +18,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-guion": "pnpm db:seed && tsx prisma/seed-guion.ts",
+    "db:seed-operacional": "pnpm db:seed && tsx prisma/seed-operacional.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
     "postinstall": "prisma generate"

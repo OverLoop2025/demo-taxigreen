@@ -58,6 +58,12 @@ enum EstadoViaje {
   cancelado
 }
 
+enum EstadoAbordaje {
+  no_requerido
+  pendiente_validacion
+  autorizado
+}
+
 enum TipoComprobante {
   boleta
   factura
@@ -181,9 +187,9 @@ model vehiculos {
 }
 
 model reservas {
-  id                   String        @id @default(uuid())
+  id                   String         @id @default(uuid())
   tenant_id            String
-  tenant               tenants       @relation(fields: [tenant_id], references: [id])
+  tenant               tenants        @relation(fields: [tenant_id], references: [id])
   canal_origen         CanalOrigen
   tipo_viaje           TipoViaje
   solicitante_tipo     String?
@@ -205,19 +211,22 @@ model reservas {
   vuelo_codigo         String?
   tipo_pago            TipoPago
   estado               EstadoReserva
-  token_pasajero       String        @unique
-  voucher_codigo       String        @unique
+  token_pasajero       String         @unique
+  voucher_codigo       String         @unique
   voucher_qr_payload   String
   voucher_emitido_en   DateTime?
+  estado_abordaje      EstadoAbordaje @default(no_requerido)
+  counter_validado_en  DateTime?
+  counter_usuario_id   String?
   raw_ingesta          Json?
   sugerencia_copiloto  Json?
   calificacion         Json?
   empresa_nombre       String?
   hotel_nombre         String?
   conductor_id         String?
-  conductor            conductores?  @relation(fields: [conductor_id], references: [id])
-  created_at           DateTime      @default(now())
-  updated_at           DateTime      @updatedAt
+  conductor            conductores?   @relation(fields: [conductor_id], references: [id])
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
   deleted_at           DateTime?
 
   viajes       viajes[]
