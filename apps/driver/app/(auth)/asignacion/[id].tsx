@@ -21,6 +21,7 @@ import type { Coordinates, DriverAssignment, EstadoViaje, NextTripAction } from 
 import { useAuth } from '@/features/auth/use-auth';
 import { useLocationTracking } from '@/features/location';
 import { useNetworkStatus } from '@/features/network/use-network-status';
+import { useRealtime } from '@/features/realtime';
 import { useDriverRoute } from '@/features/routing/use-route';
 import type { AssignmentMapMode } from '@/components/map/AssignmentMap';
 
@@ -95,6 +96,7 @@ function ubicacionHumana(status: string) {
 }
 
 function accionPrincipalLabel(estado: EstadoViaje | null, fallback: NextTripAction) {
+  if (fallback.bloqueada) return fallback.label;
   if (estado === 'asignado') return 'Iniciar ruta';
   return (estado ? accionConductor(estado) : null) ?? fallback.label;
 }
@@ -159,6 +161,7 @@ export default function AssignmentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const reservaId = normalizeParam(id);
   const { session } = useAuth();
+  const { clearLastAbordaje, lastAbordaje } = useRealtime();
   const network = useNetworkStatus();
   const [assignment, setAssignment] = useState<DriverAssignment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -180,7 +183,10 @@ export default function AssignmentScreen() {
     driverLocation: tracking.lastLocation,
     token: session?.token,
   });
-  const nextAction = useMemo(() => getNextTripAction(estadoViaje), [estadoViaje]);
+  const nextAction = useMemo(
+    () => getNextTripAction(estadoViaje, assignment?.abordaje),
+    [assignment?.abordaje, estadoViaje],
+  );
   const defaultMapMode: AssignmentMapMode =
     estadoViaje === 'en_camino' || estadoViaje === 'a_bordo' ? 'drive' : 'overview';
   const mapMode = mapModeOverride ?? defaultMapMode;
@@ -218,6 +224,7 @@ export default function AssignmentScreen() {
   const submitAction = useCallback(
     async (action: NextTripAction) => {
       if (!reservaId || !session?.token || submitting) return;
+      if (action.bloqueada) return;
 
       if (network.isOnline === false) {
         setPendingRetry(action);
@@ -267,6 +274,13 @@ export default function AssignmentScreen() {
   }, [network.isOnline, pendingRetry, submitAction, submitting]);
 
   useEffect(() => {
+    if (!lastAbordaje || lastAbordaje.reservaId !== reservaId) return;
+    setNotice('Counter validó el pase. Ya puedes iniciar la ruta.');
+    void loadAssignment(true);
+    clearLastAbordaje();
+  }, [clearLastAbordaje, lastAbordaje, loadAssignment, reservaId]);
+
+  useEffect(() => {
     setMapModeOverride(null);
     setMapRecenterKey((value) => value + 1);
     // Mensajes de la fase anterior nunca sobreviven a un cambio de estado.
@@ -307,6 +321,12 @@ export default function AssignmentScreen() {
     ? `${assignment.unidad.placa} · ${assignment.unidad.marca} ${assignment.unidad.modelo}`
     : 'Unidad pendiente';
   const ubicacionLabel = ubicacionHumana(tracking.status);
+  // `abordaje` puede faltar si el backend aún no expone Feature 1: fail-open (no bloquear).
+  const abordajeBloqueado = Boolean(
+    estadoViaje === 'asignado' &&
+      assignment.abordaje?.requiereCounter &&
+      !assignment.abordaje?.autorizado,
+  );
 
   // Próxima maniobra para la guía tipo navegador. Sin progreso GPS real en la demo,
   // mostramos la primera maniobra de giro (paso 1) y la distancia hasta ella (la
@@ -470,6 +490,7 @@ export default function AssignmentScreen() {
             ) : nextAction ? (
               <TouchButton
                 label={accionPrincipalLabel(estadoViaje, nextAction)}
+                disabled={nextAction.bloqueada}
                 loading={submitting}
                 onPress={() => submitAction(nextAction)}
               />
@@ -501,6 +522,15 @@ export default function AssignmentScreen() {
             <View className="mt-3 flex-row items-center justify-between rounded-2xl border border-brand/40 bg-surface-muted px-4 py-3">
               <Text className="text-sm font-bold uppercase tracking-wide text-foreground-muted">Cobro estimado</Text>
               <Text className="text-xl font-black text-foreground">{cobro}</Text>
+            </View>
+          ) : null}
+
+          {abordajeBloqueado ? (
+            <View className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/15 px-4 py-3">
+              <Text className="text-sm font-bold text-foreground">Esperando validación del counter</Text>
+              <Text className="mt-1 text-sm leading-5 text-foreground-muted">
+                El pasajero validará su pase al llegar. Te avisaremos cuando puedas iniciar.
+              </Text>
             </View>
           ) : null}
 
@@ -552,6 +582,7 @@ export default function AssignmentScreen() {
             ) : nextAction ? (
               <TouchButton
                 label={accionPrincipalLabel(estadoViaje, nextAction)}
+                disabled={nextAction.bloqueada}
                 loading={submitting}
                 onPress={() => submitAction(nextAction)}
               />

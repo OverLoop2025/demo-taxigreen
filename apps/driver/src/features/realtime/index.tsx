@@ -1,15 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/features/auth/use-auth';
 import { getDriverSupabaseClient } from './client';
-import type { AssignmentPayload, IncidentPayload } from './types';
+import type { AssignmentPayload, BoardingPayload, IncidentPayload } from './types';
 
 type RealtimeStatus = 'disabled' | 'connecting' | 'subscribed' | 'error';
 
 type RealtimeContextValue = {
   status: RealtimeStatus;
   lastAssignment: AssignmentPayload | null;
+  lastAbordaje: BoardingPayload | null;
   lastIncident: IncidentPayload | null;
   clearLastAssignment: () => void;
+  clearLastAbordaje: () => void;
   clearLastIncident: () => void;
 };
 
@@ -51,10 +53,27 @@ function normalizeIncidentPayload(payload: unknown): IncidentPayload | null {
   };
 }
 
+function normalizeBoardingPayload(payload: unknown): BoardingPayload | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const reservaId = record.reserva_id;
+  const conductorId = record.conductor_id;
+  const counterValidadoEn = record.counter_validado_en;
+
+  if (typeof reservaId !== 'string' || typeof counterValidadoEn !== 'string') return null;
+  return {
+    reservaId,
+    conductorId: typeof conductorId === 'string' ? conductorId : null,
+    counterValidadoEn,
+    receivedAt: new Date().toISOString(),
+  };
+}
+
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const [status, setStatus] = useState<RealtimeStatus>('disabled');
   const [lastAssignment, setLastAssignment] = useState<AssignmentPayload | null>(null);
+  const [lastAbordaje, setLastAbordaje] = useState<BoardingPayload | null>(null);
   const [lastIncident, setLastIncident] = useState<IncidentPayload | null>(null);
 
   useEffect(() => {
@@ -80,6 +99,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           setLastIncident(payload);
         }
       })
+      .on('broadcast', { event: 'abordaje' }, (event) => {
+        const payload = normalizeBoardingPayload(event.payload);
+        if (payload) {
+          setLastAbordaje(payload);
+        }
+      })
       .subscribe((nextStatus) => {
         if (nextStatus === 'SUBSCRIBED') setStatus('subscribed');
         if (nextStatus === 'CHANNEL_ERROR' || nextStatus === 'TIMED_OUT') setStatus('error');
@@ -94,11 +119,13 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       lastAssignment,
+      lastAbordaje,
       lastIncident,
       clearLastAssignment: () => setLastAssignment(null),
+      clearLastAbordaje: () => setLastAbordaje(null),
       clearLastIncident: () => setLastIncident(null),
     }),
-    [lastAssignment, lastIncident, status],
+    [lastAbordaje, lastAssignment, lastIncident, status],
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

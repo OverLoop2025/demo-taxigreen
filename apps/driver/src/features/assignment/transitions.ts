@@ -1,4 +1,4 @@
-import type { EstadoViaje, NextTripAction } from './types';
+import type { DriverAssignment, EstadoViaje, NextTripAction } from './types';
 
 const nextActions: Partial<Record<EstadoViaje, NextTripAction>> = {
   asignado: {
@@ -23,7 +23,19 @@ const nextActions: Partial<Record<EstadoViaje, NextTripAction>> = {
   },
 };
 
-export function getNextTripAction(estado: EstadoViaje | null | undefined) {
+export function getNextTripAction(
+  estado: EstadoViaje | null | undefined,
+  abordaje?: DriverAssignment['abordaje'] | null,
+) {
+  if (estado === 'asignado' && abordaje?.requiereCounter && !abordaje.autorizado) {
+    return {
+      estado: 'en_camino',
+      label: 'Esperando counter',
+      helper: 'El pasajero validará su pase al llegar.',
+      bloqueada: true,
+    } satisfies NextTripAction;
+  }
+
   return estado ? nextActions[estado] ?? null : null;
 }
 

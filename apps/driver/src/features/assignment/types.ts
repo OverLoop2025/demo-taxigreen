@@ -45,6 +45,11 @@ export type DriverAssignment = {
     emitidoEn: string | null;
     tokenPasajero: string;
   };
+  abordaje: {
+    requiereCounter: boolean;
+    autorizado: boolean;
+    counterValidadoEn: string | null;
+  };
   viaje: {
     id: string;
     estado: EstadoViaje;
@@ -103,4 +108,5 @@ export type NextTripAction = {
   estado: EstadoViaje;
   label: string;
   helper: string;
+  bloqueada?: boolean;
 };

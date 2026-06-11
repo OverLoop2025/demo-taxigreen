@@ -17,7 +17,7 @@ function conexionViva(status: string) {
 export default function HomeScreen() {
   const router = useRouter();
   const { conductor, session } = useAuth();
-  const { status: realtimeStatus, lastAssignment, lastIncident } = useRealtime();
+  const { status: realtimeStatus, lastAbordaje, lastAssignment, lastIncident } = useRealtime();
   const [onDuty, setOnDuty] = useState(true);
   const [, setPushState] = useState<PushRegistrationState>({ status: 'idle' });
   const [activeAssignment, setActiveAssignment] = useState<DriverAssignment | null>(null);
@@ -53,7 +53,11 @@ export default function HomeScreen() {
     };
   }, [session?.token]);
 
-  useEffect(() => loadActiveAssignment(), [loadActiveAssignment, lastAssignment?.receivedAt]);
+  useEffect(() => loadActiveAssignment(), [
+    loadActiveAssignment,
+    lastAbordaje?.receivedAt,
+    lastAssignment?.receivedAt,
+  ]);
 
   useFocusEffect(loadActiveAssignment);
 
@@ -68,8 +72,14 @@ export default function HomeScreen() {
     activeAssignment?.viaje?.estado === 'en_camino' ||
     activeAssignment?.viaje?.estado === 'en_punto' ||
     activeAssignment?.viaje?.estado === 'a_bordo';
-  const ctaViaje = viajeEnCurso ? 'Abrir viaje' : 'Empezar';
-  const tituloViaje = viajeEnCurso ? 'Viaje en curso' : 'Tienes un viaje';
+  // `abordaje` puede faltar si el backend aún no expone Feature 1: fail-open (no bloquear).
+  const viajeBloqueado = Boolean(
+    activeAssignment?.viaje?.estado === 'asignado' &&
+      activeAssignment.abordaje?.requiereCounter &&
+      !activeAssignment.abordaje?.autorizado,
+  );
+  const ctaViaje = viajeBloqueado ? 'Esperando counter' : viajeEnCurso ? 'Abrir viaje' : 'Empezar';
+  const tituloViaje = viajeBloqueado ? 'Esperando validación' : viajeEnCurso ? 'Viaje en curso' : 'Tienes un viaje';
   // Unidad COHERENTE: la del viaje vigente (la que eligió el despacho, que puede ser
   // una reasignación temporal) manda sobre la unidad predefinida del conductor.
   const unidadDelViaje = activeAssignment?.unidad ?? null;
@@ -137,6 +147,7 @@ export default function HomeScreen() {
             <Text className="mt-1 text-xl font-bold text-foreground">{passengerName ?? 'Listo para revisar'}</Text>
             <TouchButton
               label={ctaViaje}
+              disabled={viajeBloqueado}
               className="mt-4"
               onPress={() =>
                 router.push({
