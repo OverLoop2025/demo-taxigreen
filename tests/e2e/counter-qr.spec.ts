@@ -1,25 +1,38 @@
 import { expect, test } from '@playwright/test';
 
+async function crearReservaWa(page: import('@playwright/test').Page) {
+  await page.goto('/login-admin?callbackUrl=/wa-sim');
+  await page.getByLabel('Email').fill('admin@taxigreen.demo');
+  await page.getByLabel('Contraseña').fill('demo1234');
+  await page.getByRole('button', { name: /Ingresar/i }).click();
+
+  await page.waitForURL('**/wa-sim');
+  await page.getByRole('button', { name: /Extraer/i }).click();
+  await expect(page.getByText(/Listo para confirmar/i).first()).toBeVisible();
+  await page.getByRole('button', { name: /Confirmar y avisar al cliente/i }).click();
+  await expect(page.getByText('Reserva confirmada').first()).toBeVisible();
+  await expect(page.getByRole('img', { name: /Código QR de la reserva/i })).toBeVisible();
+
+  const codigo = (await page.getByText(/^TG-WA-/).first().textContent())?.trim();
+  expect(codigo).toBeTruthy();
+  return codigo ?? '';
+}
+
 /**
- * QR de un solo uso (counter). Prueba el contrato de seguridad del abordaje:
- *  - consumir exige sesión de supervisor (401 sin ella),
- *  - el primer consumo gana (200, consumed=true),
- *  - el segundo se bloquea de forma idempotente (409 voucher_ya_validado).
- *
- * Es DESTRUCTIVO: consume el voucher del guion y deja `voucher_qr_consumido` en
- * auditoría. Debe correr sobre una DB recién sembrada:
- *   pnpm --filter @taxigreen/database db:seed-guion
- * (mismo requisito que el resto de la suite E2E, que pasa 7/7 tras reseed).
+ * QR de un solo uso (counter). Prueba el contrato de seguridad del abordaje sin
+ * consumir `TG-2026-0001`: cada corrida crea su propia reserva WhatsApp `TG-WA-*`.
  */
-test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async ({ page, request }) => {
+test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async ({ page }) => {
+  const codigo = await crearReservaWa(page);
+
   // Token firmado almacenado (el endpoint /qr devuelve el payload persistido).
-  const qr = await request.get('/api/voucher/TG-2026-0001/qr');
+  const qr = await page.request.get(`/api/voucher/${codigo}/qr`);
   expect(qr.status()).toBe(200);
   const token = qr.headers()['x-voucher-token'];
   expect(token).toBeTruthy();
 
   // 1) Consumir sin sesión de supervisor → 401 (no debe consumir nada todavía).
-  const sinSesion = await request.post('/api/voucher/TG-2026-0001/verify', {
+  const sinSesion = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: true },
   });
   expect(sinSesion.status()).toBe(401);
@@ -33,14 +46,14 @@ test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', 
   await page.waitForURL('**/counter');
 
   // 3) Verificación sin consumir → 200 consumed=false (no quema el voucher).
-  const previo = await page.request.post('/api/voucher/TG-2026-0001/verify', {
+  const previo = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: false },
   });
   expect(previo.status()).toBe(200);
   expect((await previo.json()).consumed).toBe(false);
 
   // 4) Primer consumo (supervisor) → 200 consumed=true con marca de tiempo.
-  const consumo = await page.request.post('/api/voucher/TG-2026-0001/verify', {
+  const consumo = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: true },
   });
   expect(consumo.status()).toBe(200);
@@ -49,7 +62,7 @@ test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', 
   expect(consumoBody.consumedAt).toBeTruthy();
 
   // 5) Reuso → 409 voucher_ya_validado (advisory lock + auditoría idempotente).
-  const reuso = await page.request.post('/api/voucher/TG-2026-0001/verify', {
+  const reuso = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: true },
   });
   expect(reuso.status()).toBe(409);
