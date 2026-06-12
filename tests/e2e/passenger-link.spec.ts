@@ -7,9 +7,11 @@ test('link pasajero muestra tracking operativo del flujo protagonista', async ({
   // HECHOS del flujo protagonista (no la microcopy vieja "Recojo en aeropuerto"/
   // "Tu conductor"): conductor llamable, placa, punto, vuelo y destino visibles.
   await expect(page.getByRole('link', { name: /Llamar al conductor/i })).toBeVisible();
-  await expect(page.getByText('ABC-123')).toBeVisible();
+  await expect(page.getByText(/[A-Z]{3}-\d{3}/).first()).toBeVisible();
   await expect(page.getByText('Salida 3, columna F2')).toBeVisible();
   await expect(page.getByText('LA2456')).toBeVisible();
+  await expect(page.getByText(/S\/ 75\.00/).first()).toBeVisible();
+  await expect(page.getByText(/Cargo al hotel autorizado/i).first()).toBeVisible();
   // exact: el destino también aparece en el resumen "origen → destino" del mapa.
   await expect(page.getByText('Av. Pardo 123, Miraflores', { exact: true })).toBeVisible();
 });

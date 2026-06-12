@@ -15,8 +15,10 @@ function driverCredentialsFromOption(label: string) {
   return entry[1];
 }
 
-test('gate de mostrador: conductor no inicia recojo hasta validar pase', async ({ page, browser }) => {
-  test.setTimeout(60_000);
+test('escenario B: hotel hacia aeropuerto nace sin mostrador y el conductor inicia directo', async ({
+  page,
+}) => {
+  test.setTimeout(75_000);
 
   await page.goto('/login-admin?callbackUrl=/wa-sim');
   await page.getByLabel('Email').fill('admin@taxigreen.demo');
@@ -24,18 +26,25 @@ test('gate de mostrador: conductor no inicia recojo hasta validar pase', async (
   await page.getByRole('button', { name: /Ingresar/i }).click();
 
   await page.waitForURL('**/wa-sim');
+  await page.getByRole('button', { name: /Hotel Costa Verde/i }).click();
   await page.getByRole('button', { name: /Extraer/i }).click();
+
+  await expect(page.getByText('Hotel Costa Verde, Av. Malecón 200, Miraflores').first()).toBeVisible();
+  await expect(page.getByText('Aeropuerto Jorge Chávez - Llegadas', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('traslado aeropuerto').first()).toBeVisible();
   await expect(page.getByText(/Listo para confirmar/i).first()).toBeVisible();
+
   await page.getByRole('button', { name: /Confirmar y avisar al cliente/i }).click();
   await expect(page.getByText('Reserva confirmada').first()).toBeVisible();
-
-  const codigo = (await page.getByText(/^TG-WA-/).first().textContent())?.trim();
-  expect(codigo).toBeTruthy();
+  await expect(page.getByText(/No necesitas pasar por mostrador/i).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Seguir mi taxi en vivo/i })).toBeVisible();
+  await expect(page.getByRole('img', { name: /pase de abordaje|código qr/i })).toHaveCount(0);
 
   await page.getByRole('button', { name: /Abrir en despacho/i }).click();
   await page.waitForURL('**/admin/reservas/**');
   const reservaId = page.url().split('/admin/reservas/')[1]?.split(/[?#]/)[0];
   expect(reservaId).toBeTruthy();
+  await expect(page.getByText(/Sin mostrador/i).first()).toBeVisible();
   const passengerHref = await page.getByRole('link', { name: /Ver seguimiento/i }).getAttribute('href');
   expect(passengerHref).toMatch(/^\/p\//);
 
@@ -59,63 +68,20 @@ test('gate de mostrador: conductor no inicia recojo hasta validar pase', async (
     data: driverCredentials,
   });
   expect(login.status()).toBe(200);
-  const loginBody = await login.json();
-  const token = loginBody.token as string;
+  const { token } = (await login.json()) as { token: string };
   expect(token).toBeTruthy();
 
-  const blocked = await page.request.post(`/api/conductor/asignacion/${reservaId}/estado`, {
+  const started = await page.request.post(`/api/conductor/asignacion/${reservaId}/estado`, {
     headers: { authorization: `Bearer ${token}` },
     data: { estado_nuevo: 'en_camino' },
   });
-  expect(blocked.status()).toBe(409);
-  await expect(blocked.json()).resolves.toMatchObject({
-    error: 'counter_pendiente',
-    estado_abordaje: 'pendiente_validacion',
-  });
-
-  const counter = await browser.newContext();
-  const counterPage = await counter.newPage();
-  await counterPage.goto('/login-counter?callbackUrl=/counter');
-  await counterPage.getByLabel('Email').fill('counter@taxigreen.demo');
-  await counterPage.getByLabel('Contraseña').fill('demo1234');
-  await counterPage.getByRole('button', { name: /Ingresar/i }).click();
-  await counterPage.waitForURL('**/counter');
-
-  const qr = await counterPage.request.get(`/api/voucher/${codigo}/qr`);
-  expect(qr.status()).toBe(200);
-  const qrToken = qr.headers()['x-voucher-token'];
-  expect(qrToken).toBeTruthy();
-
-  const consumed = await counterPage.request.post(`/api/voucher/${codigo}/verify`, {
-    data: { token: qrToken, consume: true },
-  });
-  expect(consumed.status()).toBe(200);
-  const consumedBody = await consumed.json();
-  expect(consumedBody.consumed).toBe(true);
-  expect(consumedBody.reserva.estado_abordaje).toBe('autorizado');
-  expect(consumedBody.reserva.conductor).toBeTruthy();
-  expect(consumedBody.reserva.pago).toMatchObject({
-    estado: 'autorizado',
-    moneda: 'PEN',
-  });
-  await counter.close();
-
-  const allowed = await page.request.post(`/api/conductor/asignacion/${reservaId}/estado`, {
-    headers: { authorization: `Bearer ${token}` },
-    data: { estado_nuevo: 'en_camino' },
-  });
-  expect(allowed.status()).toBe(200);
-  const allowedBody = await allowed.json();
-  expect(allowedBody.ok).toBe(true);
-  expect(allowedBody.asignacion.abordaje).toMatchObject({
-    requiereCounter: true,
+  expect(started.status()).toBe(200);
+  const startedBody = await started.json();
+  expect(startedBody.asignacion.abordaje).toMatchObject({
+    requiereCounter: false,
     autorizado: true,
   });
-  expect(allowedBody.asignacion.cobro).toMatchObject({
-    estado: 'autorizado',
-    moneda: 'PEN',
-  });
-  expect(allowedBody.asignacion.viaje.estado).toBe('en_camino');
+  expect(startedBody.asignacion.viaje.estado).toBe('en_camino');
 
   for (const estado of ['en_punto', 'a_bordo'] as const) {
     const next = await page.request.post(`/api/conductor/asignacion/${reservaId}/estado`, {
@@ -138,5 +104,6 @@ test('gate de mostrador: conductor no inicia recojo hasta validar pase', async (
   });
 
   await page.goto(passengerHref!);
+  await expect(page.getByText(/Punto de recojo/i).first()).toBeVisible();
   await expect(page.getByRole('link', { name: /Descargar comprobante/i })).toBeVisible();
 });

@@ -11,7 +11,7 @@ async function crearReservaWa(page: import('@playwright/test').Page) {
   await expect(page.getByText(/Listo para confirmar/i).first()).toBeVisible();
   await page.getByRole('button', { name: /Confirmar y avisar al cliente/i }).click();
   await expect(page.getByText('Reserva confirmada').first()).toBeVisible();
-  await expect(page.getByRole('img', { name: /Código QR de la reserva/i })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Pase de abordaje de la reserva/i })).toBeVisible();
 
   const codigo = (await page.getByText(/^TG-WA-/).first().textContent())?.trim();
   expect(codigo).toBeTruthy();
@@ -19,10 +19,10 @@ async function crearReservaWa(page: import('@playwright/test').Page) {
 }
 
 /**
- * QR de un solo uso (counter). Prueba el contrato de seguridad del abordaje sin
+ * Pase de un solo uso (mostrador). Prueba el contrato de seguridad del abordaje sin
  * consumir `TG-2026-0001`: cada corrida crea su propia reserva WhatsApp `TG-WA-*`.
  */
-test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async ({ page }) => {
+test('pase one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async ({ page }) => {
   const codigo = await crearReservaWa(page);
 
   // Token firmado almacenado (el endpoint /qr devuelve el payload persistido).
@@ -38,7 +38,7 @@ test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', 
   expect(sinSesion.status()).toBe(401);
   expect((await sinSesion.json()).error).toBe('counter_no_autorizado');
 
-  // 2) Login del supervisor de counter.
+  // 2) Login del supervisor de mostrador.
   await page.goto('/login-counter?callbackUrl=/counter');
   await page.getByLabel('Email').fill('counter@taxigreen.demo');
   await page.getByLabel('Contraseña').fill('demo1234');
@@ -50,7 +50,12 @@ test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', 
     data: { token, consume: false },
   });
   expect(previo.status()).toBe(200);
-  expect((await previo.json()).consumed).toBe(false);
+  const previoBody = await previo.json();
+  expect(previoBody.consumed).toBe(false);
+  expect(previoBody.reserva.pago).toMatchObject({
+    estado: 'autorizado',
+    moneda: 'PEN',
+  });
 
   // 4) Primer consumo (supervisor) → 200 consumed=true con marca de tiempo.
   const consumo = await page.request.post(`/api/voucher/${codigo}/verify`, {
@@ -60,6 +65,10 @@ test('voucher QR one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', 
   const consumoBody = await consumo.json();
   expect(consumoBody.consumed).toBe(true);
   expect(consumoBody.consumedAt).toBeTruthy();
+  expect(consumoBody.reserva.pago).toMatchObject({
+    estado: 'autorizado',
+    moneda: 'PEN',
+  });
 
   // 5) Reuso → 409 voucher_ya_validado (advisory lock + auditoría idempotente).
   const reuso = await page.request.post(`/api/voucher/${codigo}/verify`, {
