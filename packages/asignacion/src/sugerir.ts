@@ -28,6 +28,8 @@ const reservaSelect = {
   origen_lng: true,
   destino_texto: true,
   fecha_hora_servicio: true,
+  pasajeros_cantidad: true,
+  vehiculo_preferencia: true,
   raw_ingesta: true,
 } satisfies Prisma.reservasSelect;
 
@@ -62,7 +64,8 @@ function mapReserva(reserva: ReservaRecord): ReservaAsignacionInput {
     origenLng: reserva.origen_lng,
     destinoTexto: reserva.destino_texto,
     fechaHoraServicio: reserva.fecha_hora_servicio,
-    pasajeros: extractPasajeros(reserva.raw_ingesta),
+    pasajeros: reserva.pasajeros_cantidad ?? extractPasajeros(reserva.raw_ingesta),
+    tipoVehiculoPreferido: reserva.vehiculo_preferencia,
   };
 }
 

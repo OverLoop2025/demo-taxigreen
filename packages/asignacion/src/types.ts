@@ -13,6 +13,7 @@ export interface ReservaAsignacionInput {
   destinoTexto: string;
   fechaHoraServicio?: Date | string | null;
   pasajeros?: number | null;
+  tipoVehiculoPreferido?: TipoVehiculoAsignacion | null;
 }
 
 export interface ConductorCandidatoInput {

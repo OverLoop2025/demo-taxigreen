@@ -157,6 +157,30 @@ describe('puntuarCandidatos', () => {
     expect(candidatos[0]?.vehiculo.tipo).toBe('van');
   });
 
+  it('usa la preferencia de vehículo como señal de match sin tocar la cola', () => {
+    const camioneta: VehiculoCandidatoInput = {
+      id: 'vehiculo-camioneta',
+      placa: 'CGL-572',
+      marca: 'Toyota',
+      modelo: 'Rav4',
+      tipo: 'camioneta',
+      capacidad: 4,
+    };
+    const candidatos = puntuarCandidatos({
+      reserva: { ...baseReserva, tipoVehiculoPreferido: 'camioneta' },
+      conductores: [
+        conductor('sedan-driver', 'Sedan Driver', 40, sedan.id),
+        conductor('camioneta-driver', 'Camioneta Driver', 40, camioneta.id),
+      ],
+      vehiculos: [sedan, camioneta],
+      now,
+      pesos: { cola: 0, distancia: 0, match: 1 },
+    });
+
+    expect(candidatos[0]?.vehiculo.tipo).toBe('camioneta');
+    expect(candidatos[0]?.factores.matchScore).toBe(1);
+  });
+
   it('penaliza la distancia: con cola y match iguales gana el más cercano', () => {
     const lejos: ConductorCandidatoInput = { ...conductor('lejos', 'Lejos', 40, sedan.id), distanciaMockKm: 60 };
     const cerca: ConductorCandidatoInput = { ...conductor('cerca', 'Cerca', 40, sedan.id), distanciaMockKm: 5 };

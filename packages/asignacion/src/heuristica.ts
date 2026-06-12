@@ -93,7 +93,16 @@ function matchTipoServicio(
   tipoViaje: ReservaAsignacionInput['tipoViaje'],
   tipoVehiculo: TipoVehiculoAsignacion,
   pasajeros: number,
+  tipoVehiculoPreferido?: TipoVehiculoAsignacion | null,
 ) {
+  if (tipoVehiculoPreferido) {
+    if (tipoVehiculo === tipoVehiculoPreferido) return 1;
+    if (tipoVehiculoPreferido === 'camioneta' && tipoVehiculo === 'minivan') return 0.88;
+    if (tipoVehiculoPreferido === 'minivan' && tipoVehiculo === 'van') return 0.88;
+    if (tipoVehiculoPreferido === 'van' && tipoVehiculo === 'minivan' && pasajeros <= 6) return 0.82;
+    return 0.62;
+  }
+
   if (pasajeros > 4) {
     if (tipoVehiculo === 'van') return 1;
     if (tipoVehiculo === 'minivan') return 0.95;
@@ -208,7 +217,12 @@ export function puntuarCandidatos({
       const capacidadSuficiente = vehiculo.capacidad >= pasajeros;
       if (!capacidadSuficiente) continue;
 
-      const matchScore = matchTipoServicio(reserva.tipoViaje, vehiculo.tipo, pasajeros);
+      const matchScore = matchTipoServicio(
+        reserva.tipoViaje,
+        vehiculo.tipo,
+        pasajeros,
+        reserva.tipoVehiculoPreferido,
+      );
       const score = Math.round(
         (pesos.cola * colaScore + pesos.distancia * distanciaScore + pesos.match * matchScore) * 100,
       );
