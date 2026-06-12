@@ -4,6 +4,7 @@
  */
 export * from './tokens';
 export * from './copy';
+export * from './comercial';
 
 /** Constantes canónicas del flujo protagonista (no invertir el flujo). */
 export const FLUJO_PROTAGONISTA = {

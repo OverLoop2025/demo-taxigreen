@@ -79,7 +79,7 @@ export function bannerConductor(estado: EstadoViaje, opts: BannerOpts = {}): str
   const destino = opts.destino?.trim();
   switch (estado) {
     case 'asignado':
-      return 'Ve al punto de encuentro';
+      return 'Ve al punto de recojo';
     case 'en_camino':
       return punto ? `Dirígete a ${punto}` : 'Dirígete al punto de encuentro';
     case 'en_punto':

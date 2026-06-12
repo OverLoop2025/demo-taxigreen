@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./tokens": "./src/tokens/index.ts",
-    "./copy": "./src/copy/index.ts"
+    "./copy": "./src/copy/index.ts",
+    "./comercial": "./src/comercial/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
