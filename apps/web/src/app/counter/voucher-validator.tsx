@@ -1,6 +1,8 @@
 'use client';
 
-import { ArrowRight, Camera, CheckCircle2, Loader2, MapPin, Plane, QrCode, RotateCcw, Search, UserRound, XCircle } from 'lucide-react';
+import { ArrowRight, Camera, CheckCircle2, CreditCard, Loader2, MapPin, Megaphone, Plane, QrCode, RotateCcw, Search, UserRound, XCircle } from 'lucide-react';
+import jsQR from 'jsqr';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
 type VerifyPayload = {
@@ -24,7 +26,24 @@ type VerifyPayload = {
       nombre: string;
       placa: string | null;
     } | null;
-    pago?: null;
+    comercial?: {
+      perfilPasajero: string;
+      responsablePago: string;
+      convenioValidadoDemo: boolean;
+      requiereFactura: boolean;
+      resumen: string;
+      pagoMostrador: string;
+    };
+    pago?: {
+      metodo: string;
+      metodoLabel: string;
+      estado: string;
+      estadoLabel: string;
+      monto: string;
+      moneda: string;
+      montoEtiqueta: string;
+      etiqueta: string;
+    } | null;
   };
 };
 
@@ -131,6 +150,57 @@ function DataRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
+// Letrero de llamado: la tablet se levanta con el nombre del pasajero en grande
+// (patrón "conductor con cartel" del aeropuerto, versión digital). Pantalla
+// completa, horizontal si el dispositivo lo permite, y se cierra con un toque.
+function LetreroPasajero({ nombre, vuelo, onClose }: { nombre: string; vuelo: string | null; onClose: () => void }) {
+  useEffect(() => {
+    const root = document.documentElement;
+    void root
+      .requestFullscreen?.()
+      .then(() => {
+        const orientation = screen.orientation as unknown as {
+          lock?: (value: string) => Promise<void>;
+        };
+        return orientation.lock?.('landscape')?.catch(() => undefined);
+      })
+      .catch(() => undefined);
+    return () => {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+      }
+    };
+  }, []);
+
+  // Si el sistema saca el fullscreen (gesto/Escape), el letrero se cierra solo.
+  useEffect(() => {
+    const handler = () => {
+      if (!document.fullscreenElement) onClose();
+    };
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, [onClose]);
+
+  return (
+    <button
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#04130f] px-8 text-center"
+      type="button"
+      onClick={onClose}
+    >
+      <p className="text-[clamp(1rem,2.5vw,1.8rem)] font-bold uppercase tracking-[0.3em] text-emerald-400">
+        Taxi Green
+      </p>
+      <p className="mt-6 max-w-full break-words text-[clamp(2.8rem,11vw,9rem)] font-black leading-[1.05] text-white">
+        {nombre}
+      </p>
+      {vuelo ? (
+        <p className="mt-6 text-[clamp(1.4rem,4vw,3rem)] font-bold text-emerald-300">Vuelo {vuelo}</p>
+      ) : null}
+      <p className="mt-12 text-sm font-medium text-white/35">Toca la pantalla para volver</p>
+    </button>
+  );
+}
+
 export function VoucherValidator() {
   const [input, setInput] = useState('TG-2026-0001');
   const [token, setToken] = useState<string | null>(null);
@@ -139,6 +209,7 @@ export function VoucherValidator() {
   const [message, setMessage] = useState<string | null>(null);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraMessage, setCameraMessage] = useState<string | null>(null);
+  const [letreroVisible, setLetreroVisible] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -216,18 +287,27 @@ export function VoucherValidator() {
     let frameId = 0;
 
     async function startCamera() {
-      if (!window.BarcodeDetector) {
-        setCameraMessage('Tu navegador no permite escanear. Escribe el código del pase.');
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraMessage('Tu navegador no permite abrir la cámara. Escribe el código del pase.');
         setCameraEnabled(false);
         return;
       }
 
+      setCameraMessage('Abriendo cámara…');
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream = await navigator.mediaDevices
+          .getUserMedia({
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          })
+          .catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
         if (cancelled || !videoRef.current) return;
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
-        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+        const detector = window.BarcodeDetector ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null;
 
         const scan = async () => {
           if (cancelled || !videoRef.current || !canvasRef.current) return;
@@ -236,9 +316,19 @@ export function VoucherValidator() {
           if (video.videoWidth > 0 && video.videoHeight > 0) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const codes = await detector.detect(canvas).catch(() => []);
-            const raw = codes[0]?.rawValue;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+            let raw: string | undefined;
+            if (detector) {
+              const codes = await detector.detect(canvas).catch(() => []);
+              raw = codes[0]?.rawValue;
+            }
+            if (!raw && ctx) {
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              raw = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: 'attemptBoth',
+              })?.data;
+            }
             if (raw) {
               setInput(raw);
               setCameraEnabled(false);
@@ -249,7 +339,7 @@ export function VoucherValidator() {
           frameId = window.requestAnimationFrame(scan);
         };
         frameId = window.requestAnimationFrame(scan);
-        setCameraMessage('Cámara activa. Acerca el QR al recuadro.');
+        setCameraMessage('Cámara activa. Acerca el pase al recuadro.');
       } catch {
         setCameraMessage('No se pudo abrir la cámara. Escribe el código del pase.');
         setCameraEnabled(false);
@@ -293,14 +383,32 @@ export function VoucherValidator() {
                 ? `Luz verde enviada a ${reserva.conductor.nombre}${reserva.conductor.placa ? ` · ${reserva.conductor.placa}` : ''}.`
                 : 'El conductor recibirá la luz verde cuando despacho lo asigne.'}
             </p>
-            <button
-              className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-product px-4 text-sm font-semibold text-white sm:w-auto"
-              type="button"
-              onClick={reset}
-            >
-              <RotateCcw className="h-4 w-4" />
-              Siguiente pasajero
-            </button>
+            {reserva.pago ? (
+              <p className="mt-3 rounded-xl bg-product-muted px-4 py-3 text-sm font-semibold text-product-deep">
+                {reserva.pago.montoEtiqueta} · {reserva.pago.estadoLabel}
+                {reserva.comercial ? (
+                  <span className="mt-1 block text-xs font-medium text-product">{reserva.comercial.pagoMostrador}</span>
+                ) : null}
+              </p>
+            ) : null}
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <button
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-product px-4 text-sm font-semibold text-white"
+                type="button"
+                onClick={reset}
+              >
+                <RotateCcw className="h-4 w-4" />
+                Siguiente pasajero
+              </button>
+              <button
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
+                type="button"
+                onClick={() => setLetreroVisible(true)}
+              >
+                <Megaphone className="h-4 w-4" />
+                Mostrar letrero
+              </button>
+            </div>
           </div>
         ) : showConfirm && reserva ? (
           /* Paso 2 — revisar pasajero y confirmar acceso */
@@ -315,7 +423,7 @@ export function VoucherValidator() {
               <DataRow
                 icon={<MapPin className="h-4 w-4" />}
                 label="Punto de encuentro"
-                value={reserva.punto_encuentro ?? 'Salida 3, columna F2'}
+                value={reserva.punto_encuentro ?? reserva.origen_texto ?? 'Punto por confirmar'}
               />
               <DataRow icon={<Plane className="h-4 w-4" />} label="Vuelo" value={reserva.vuelo_codigo ?? 'Por confirmar'} />
               <DataRow icon={<MapPin className="h-4 w-4" />} label="Recojo" value={reserva.origen_texto} />
@@ -329,6 +437,20 @@ export function VoucherValidator() {
                     : 'Falta asignar conductor'
                 }
               />
+              {reserva.pago ? (
+                <DataRow
+                  icon={<CreditCard className="h-4 w-4" />}
+                  label="Pago"
+                  value={`${reserva.pago.montoEtiqueta} · ${reserva.pago.estadoLabel}`}
+                />
+              ) : null}
+              {reserva.comercial ? (
+                <DataRow
+                  icon={<CreditCard className="h-4 w-4" />}
+                  label="Responsable"
+                  value={reserva.comercial.pagoMostrador}
+                />
+              ) : null}
             </div>
 
             <button
@@ -341,12 +463,37 @@ export function VoucherValidator() {
               {reserva.conductor ? 'Confirmar acceso y dar luz verde' : 'Confirmar acceso'}
             </button>
             <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-2 border-product bg-surface px-4 text-sm font-bold text-product"
               type="button"
-              onClick={reset}
+              onClick={() => setLetreroVisible(true)}
             >
-              Otro código
+              <Megaphone className="h-4 w-4" />
+              Mostrar letrero al pasajero
             </button>
+            <div className="flex gap-2">
+              <button
+                className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
+                type="button"
+                onClick={reset}
+              >
+                Otro código
+              </button>
+              {reserva.conductor ? (
+                <Link
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
+                  href={`/admin/reservas/${reserva.id}`}
+                >
+                  Cambiar unidad
+                </Link>
+              ) : (
+                <Link
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
+                  href={`/admin/reservas/${reserva.id}`}
+                >
+                  Abrir despacho
+                </Link>
+              )}
+            </div>
           </div>
         ) : (
           /* Paso 1 — escanear o escribir el código */
@@ -360,6 +507,16 @@ export function VoucherValidator() {
               <div className="overflow-hidden rounded-xl border border-border bg-neutral-950">
                 <video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />
+                <div className="flex items-center justify-between gap-3 bg-neutral-950 px-4 py-3 text-sm text-white">
+                  <span>{cameraMessage ?? 'Busca el pase dentro del recuadro.'}</span>
+                  <button
+                    className="rounded-lg bg-white/10 px-3 py-1.5 font-semibold hover:bg-white/15"
+                    type="button"
+                    onClick={() => setCameraEnabled(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
               </div>
             ) : (
               <button
@@ -368,7 +525,7 @@ export function VoucherValidator() {
                 onClick={() => setCameraEnabled(true)}
               >
                 <Camera className="h-8 w-8" />
-                <span className="text-base font-semibold">Escanear QR</span>
+                <span className="text-base font-semibold">Escanear pase</span>
               </button>
             )}
 
@@ -380,7 +537,7 @@ export function VoucherValidator() {
               <input
                 className="h-12 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-foreground placeholder:text-foreground-muted"
                 value={input}
-                placeholder="Código del pase (TG-2026-0001)"
+                placeholder="Código de reserva (TG-2026-0001)"
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void validate();
@@ -417,12 +574,20 @@ export function VoucherValidator() {
             ) : (
               <div className="flex items-center gap-2 rounded-xl bg-surface-muted px-4 py-3 text-sm text-foreground-muted">
                 <QrCode className="h-5 w-5 shrink-0 text-product" />
-                <p>Cada código vale una sola vez. Para la demo puedes escribir TG-2026-0001.</p>
+                <p>Cada pase vale una sola vez. También puedes escribir el código de la reserva.</p>
               </div>
             )}
           </div>
         )}
       </div>
+
+      {letreroVisible && reserva ? (
+        <LetreroPasajero
+          nombre={reserva.pasajero_nombre ?? 'Pasajero Taxi Green'}
+          vuelo={reserva.vuelo_codigo ?? null}
+          onClose={() => setLetreroVisible(false)}
+        />
+      ) : null}
     </div>
   );
 }

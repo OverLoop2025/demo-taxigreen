@@ -66,7 +66,7 @@ export default async function AdminMetricasPage() {
           <MetricCard detail="Servicios programados para hoy" label="Reservas hoy" value={metrics.reservasHoy} />
           <MetricCard detail="Servicios con conductor confirmado" label="Asignaciones hoy" value={metrics.asignacionesHoy} />
           <MetricCard detail="Conductores disponibles para despacho" label="Conductores activos" value={metrics.conductoresActivos} />
-          <MetricCard detail="Reservas con QR preparado" label="QR preparados" value={metrics.vouchersEmitidos} />
+          <MetricCard detail="Reservas con pase preparado" label="Pases preparados" value={metrics.vouchersEmitidos} />
         </div>
 
         <section className="mt-6 rounded-md border border-border bg-surface p-5">

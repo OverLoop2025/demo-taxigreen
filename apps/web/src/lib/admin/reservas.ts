@@ -5,6 +5,9 @@ import {
   prisma,
   type TipoVehiculo,
 } from '@taxigreen/database';
+import { serializarPagoDemo, type PagoResumen } from '@taxigreen/pagos';
+import { pagoMostradorHumano, resumenComercialHumano } from '@taxigreen/shared';
+import { requiereCounter } from '@/lib/conductor-asignacion';
 
 const ACTIVE_TRIP_STATES = [
   EstadoViaje.asignado,
@@ -21,6 +24,16 @@ const reservaListSelect = {
   token_pasajero: true,
   canal_origen: true,
   tipo_viaje: true,
+  tipo_pago: true,
+  perfil_pasajero: true,
+  responsable_pago: true,
+  convenio_validado_demo: true,
+  requiere_factura: true,
+  vehiculo_preferencia: true,
+  pasajeros_cantidad: true,
+  equipaje_nivel: true,
+  empresa_nombre: true,
+  hotel_nombre: true,
   pasajero_nombre: true,
   pasajero_telefono: true,
   origen_texto: true,
@@ -29,9 +42,21 @@ const reservaListSelect = {
   vuelo_codigo: true,
   fecha_hora_servicio: true,
   voucher_emitido_en: true,
+  estado_abordaje: true,
+  counter_validado_en: true,
+  cotizacion_monto: true,
+  cotizacion_moneda: true,
   conductor_id: true,
+  cancelada_por: true,
+  cancelada_motivo: true,
   updated_at: true,
   created_at: true,
+  viajes: {
+    where: { deleted_at: null },
+    orderBy: { created_at: 'desc' },
+    take: 1,
+    select: { estado: true },
+  },
   conductor: {
     select: {
       id: true,
@@ -68,6 +93,14 @@ const reservaListSelect = {
       estado: true,
     },
   },
+  pago: {
+    select: {
+      tipo_pago: true,
+      estado: true,
+      monto: true,
+      moneda: true,
+    },
+  },
 } satisfies Prisma.reservasSelect;
 
 type ReservaListRecord = Prisma.reservasGetPayload<{ select: typeof reservaListSelect }>;
@@ -80,6 +113,7 @@ export type AdminReservaRow = {
   tokenPasajero: string;
   canalOrigen: string;
   tipoViaje: string;
+  tipoPago: string;
   pasajeroNombre: string;
   pasajeroTelefono: string;
   origenTexto: string;
@@ -97,6 +131,33 @@ export type AdminReservaRow = {
   vehiculoLabel: string | null;
   rutaResumen: string;
   comprobanteLabel: string | null;
+  comprobante: {
+    label: string;
+    estado: string;
+    montoEtiqueta: string;
+  } | null;
+  pago: PagoResumen | null;
+  comercial: {
+    perfilPasajero: string;
+    responsablePago: string;
+    convenioValidadoDemo: boolean;
+    requiereFactura: boolean;
+    vehiculoPreferencia: string | null;
+    pasajerosCantidad: number | null;
+    equipajeNivel: string | null;
+    resumen: string;
+    pagoMostrador: string;
+  };
+  abordaje: {
+    estado: string;
+    requiereMostrador: boolean;
+    autorizado: boolean;
+    counterValidadoEn: string | null;
+  };
+  // F7: el conductor canceló y la reserva quedó esperando otra unidad.
+  necesitaNuevaUnidad: boolean;
+  // F6: cancelación efectiva (quién y por qué) para mostrarla sin tecnicismos.
+  cancelada: { por: string; motivo: string | null } | null;
   updatedAt: string;
 };
 
@@ -179,8 +240,51 @@ function vehicleLabel(vehicle: ReservaVehicle | null | undefined) {
   return `${vehicle.placa} · ${vehicle.marca} ${vehicle.modelo}`;
 }
 
+function moneyLabel(value: Prisma.Decimal) {
+  return `S/ ${value.toNumber().toFixed(2)}`;
+}
+
+function serializeComercial(reserva: Pick<
+  ReservaListRecord,
+  | 'perfil_pasajero'
+  | 'responsable_pago'
+  | 'convenio_validado_demo'
+  | 'requiere_factura'
+  | 'vehiculo_preferencia'
+  | 'pasajeros_cantidad'
+  | 'equipaje_nivel'
+  | 'empresa_nombre'
+  | 'hotel_nombre'
+  | 'tipo_pago'
+>) {
+  const input = {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    empresaNombre: reserva.empresa_nombre,
+    hotelNombre: reserva.hotel_nombre,
+    tipoPago: reserva.tipo_pago,
+  };
+  return {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    vehiculoPreferencia: reserva.vehiculo_preferencia,
+    pasajerosCantidad: reserva.pasajeros_cantidad,
+    equipajeNivel: reserva.equipaje_nivel,
+    resumen: resumenComercialHumano(input),
+    pagoMostrador: pagoMostradorHumano(input),
+  };
+}
+
 export function serializeReservaRow(reserva: ReservaListRecord): AdminReservaRow {
   const comprobante = reserva.comprobantes[0];
+  const comprobanteLabel = comprobante
+    ? `${comprobante.tipo.toUpperCase()} ${comprobante.serie}-${String(comprobante.correlativo).padStart(6, '0')}`
+    : null;
+  const requiereMostrador = requiereCounter(reserva.tipo_viaje);
 
   return {
     id: reserva.id,
@@ -190,6 +294,7 @@ export function serializeReservaRow(reserva: ReservaListRecord): AdminReservaRow
     tokenPasajero: reserva.token_pasajero,
     canalOrigen: reserva.canal_origen,
     tipoViaje: reserva.tipo_viaje,
+    tipoPago: reserva.tipo_pago,
     pasajeroNombre: reserva.pasajero_nombre,
     pasajeroTelefono: reserva.pasajero_telefono,
     origenTexto: reserva.origen_texto,
@@ -206,9 +311,35 @@ export function serializeReservaRow(reserva: ReservaListRecord): AdminReservaRow
     vehiculoId: reserva.conductor?.vehiculo?.id ?? null,
     vehiculoLabel: vehicleLabel(reserva.conductor?.vehiculo),
     rutaResumen: `${reserva.origen_texto} -> ${reserva.destino_texto}`,
-    comprobanteLabel: comprobante
-      ? `${comprobante.tipo.toUpperCase()} ${comprobante.serie}-${String(comprobante.correlativo).padStart(6, '0')}`
+    comprobanteLabel,
+    comprobante: comprobante
+      ? {
+          label: comprobanteLabel!,
+          estado: comprobante.estado,
+          montoEtiqueta: moneyLabel(comprobante.monto),
+        }
       : null,
+    pago: serializarPagoDemo({
+      tipoPago: reserva.tipo_pago,
+      pago: reserva.pago,
+      cotizacionMonto: reserva.cotizacion_monto,
+      cotizacionMoneda: reserva.cotizacion_moneda,
+    }),
+    comercial: serializeComercial(reserva),
+    abordaje: {
+      estado: reserva.estado_abordaje,
+      requiereMostrador,
+      autorizado: !requiereMostrador || reserva.estado_abordaje === 'autorizado',
+      counterValidadoEn: reserva.counter_validado_en?.toISOString() ?? null,
+    },
+    necesitaNuevaUnidad:
+      reserva.estado === 'confirmada' &&
+      !reserva.conductor_id &&
+      reserva.viajes[0]?.estado === 'cancelado',
+    cancelada:
+      reserva.estado === 'cancelada'
+        ? { por: reserva.cancelada_por ?? 'equipo', motivo: reserva.cancelada_motivo }
+        : null,
     updatedAt: reserva.updated_at.toISOString(),
   };
 }

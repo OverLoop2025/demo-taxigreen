@@ -1,7 +1,8 @@
 import { recordAudit } from '@taxigreen/auditoria';
-import { EstadoComprobante, prisma, TipoComprobante } from '@taxigreen/database';
+import { EstadoReserva, EstadoViaje, prisma, TipoComprobante } from '@taxigreen/database';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { prepararComprobanteDemo } from '@/lib/comprobantes';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,10 +14,11 @@ const schema = z.object({
   nombre: z.string().trim().max(160).nullable().optional(),
 });
 
-function serieForTipo(tipo: TipoComprobante) {
-  if (tipo === TipoComprobante.factura) return 'F001';
-  if (tipo === TipoComprobante.ticket) return 'T001';
-  return 'B001';
+function viajeTerminado(reserva: {
+  estado: EstadoReserva;
+  viajes: Array<{ estado: EstadoViaje }>;
+}) {
+  return reserva.estado === EstadoReserva.por_liquidar || reserva.viajes[0]?.estado === EstadoViaje.finalizado;
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -33,6 +35,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       tenant_id: true,
       voucher_codigo: true,
       pasajero_nombre: true,
+      tipo_pago: true,
+      responsable_pago: true,
+      estado: true,
+      cotizacion_monto: true,
+      pago: {
+        select: {
+          monto: true,
+          estado: true,
+        },
+      },
+      viajes: {
+        where: { deleted_at: null },
+        orderBy: { created_at: 'desc' },
+        take: 1,
+        select: { estado: true },
+      },
     },
   });
 
@@ -40,9 +58,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json({ error: 'token_no_encontrado' }, { status: 404 });
   }
 
+  if (!viajeTerminado(reserva)) {
+    return NextResponse.json({ error: 'viaje_no_terminado' }, { status: 409 });
+  }
+
+  // F6: si paga el pasajero, primero paga y después recibe comprobante.
+  if (
+    reserva.responsable_pago === 'pasajero' &&
+    reserva.pago &&
+    reserva.pago.estado !== 'capturado'
+  ) {
+    return NextResponse.json({ error: 'pago_pendiente' }, { status: 409 });
+  }
+
   const tipo = parsed.data.tipo;
-  const serie = serieForTipo(tipo);
-  const comprobante = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await tx.reservas.update({
       where: { id: reserva.id },
       data: {
@@ -52,51 +82,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       },
     });
 
-    const existing = await tx.comprobantes.findFirst({
-      where: {
-        reserva_id: reserva.id,
-        tipo,
-      },
-      orderBy: { created_at: 'desc' },
-      select: {
-        id: true,
-        tipo: true,
-        serie: true,
-        correlativo: true,
-        estado: true,
-      },
-    });
-
-    if (existing) return existing;
-
-    const latest = await tx.comprobantes.findFirst({
-      where: {
-        tipo,
-        serie,
-      },
-      orderBy: { correlativo: 'desc' },
-      select: { correlativo: true },
-    });
-
-    return tx.comprobantes.create({
-      data: {
-        tenant_id: reserva.tenant_id,
-        reserva_id: reserva.id,
-        tipo,
-        serie,
-        correlativo: (latest?.correlativo ?? 0) + 1,
-        monto: 75,
-        estado: EstadoComprobante.pendiente,
-      },
-      select: {
-        id: true,
-        tipo: true,
-        serie: true,
-        correlativo: true,
-        estado: true,
-      },
+    return prepararComprobanteDemo(tx, {
+      tenantId: reserva.tenant_id,
+      reservaId: reserva.id,
+      tipoPago: reserva.tipo_pago,
+      tipo,
+      pago: reserva.pago,
+      cotizacionMonto: reserva.cotizacion_monto,
     });
   });
+  const comprobante = result.comprobante;
 
   await recordAudit({
     actor: { tipo: 'pasajero', id: 'link_publico' },
@@ -109,6 +104,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       tipo: comprobante.tipo,
       serie: comprobante.serie,
       correlativo: comprobante.correlativo,
+      monto: comprobante.monto.toFixed(2),
+      fuente_monto: result.montoFuente,
+      creado: result.created,
       dni: parsed.data.dni ?? null,
       ruc: parsed.data.ruc ?? null,
     },
@@ -116,7 +114,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
 
   return NextResponse.json({
     ok: true,
-    comprobante,
+    comprobante: {
+      ...comprobante,
+      monto: comprobante.monto.toFixed(2),
+    },
     pdf_url: `/api/pasajero/${token}/comprobante/pdf`,
   });
 }

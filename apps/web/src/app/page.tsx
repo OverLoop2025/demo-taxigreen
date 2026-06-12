@@ -40,7 +40,7 @@ const steps = [
   },
 ];
 
-/* QR decorativo del mockup (estático, aria-hidden): evoca el pase real sin llamar a la API. */
+/* Arte decorativo del pase (estático, aria-hidden): evoca el pase real sin llamar a la API. */
 function QrArt() {
   const cells = [
     [0, 0], [1, 0], [2, 0], [4, 0], [6, 0], [7, 0], [8, 0],
@@ -63,7 +63,7 @@ function QrArt() {
   );
 }
 
-/* Mockup del chat: cuenta el flujo completo (pedir → confirmación → QR + viaje en vivo)
+/* Mockup del chat: cuenta el flujo completo (pedir → confirmación → pase + viaje en vivo)
  * con el mismo lenguaje visual del copiloto real de /wa-sim. */
 function PhoneMock() {
   return (
@@ -123,7 +123,7 @@ function PhoneMock() {
                 <div>
                   <p className="text-[10.5px] font-bold text-zinc-900">Tu pase de abordaje</p>
                   <p className="mt-0.5 text-[9.5px] leading-4 text-zinc-500">
-                    Muéstralo en el counter para subir a tu taxi.
+                    Muéstralo en el mostrador para subir a tu taxi.
                   </p>
                 </div>
               </div>
@@ -205,7 +205,7 @@ export default function HomePage() {
                 </span>
                 <span className="flex items-center gap-2">
                   <QrCode aria-hidden="true" className="h-4 w-4 text-product-400" />
-                  QR de un solo uso
+                  Pase de abordaje
                 </span>
                 <span className="flex items-center gap-2">
                   <Clock aria-hidden="true" className="h-4 w-4 text-product-400" />
@@ -310,10 +310,10 @@ export default function HomePage() {
 
       <footer className="px-5 pb-10">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 text-sm text-foreground-muted">
-          <span>Taxi Green · Demo comercial</span>
+          <span>Taxi Green · Movilidad aeroportuaria</span>
           <div className="flex gap-4">
             <a className="font-semibold text-product transition hover:text-product-500" href="/counter">
-              Counter
+              Mostrador
             </a>
             <a className="font-semibold text-product transition hover:text-product-500" href="/wa-sim">
               WhatsApp

@@ -10,6 +10,17 @@ const { broadcastReservaEstado, findAsignacionForConductor, recordAudit, tx, ver
         findFirst: vi.fn(),
         update: vi.fn(),
       },
+      pagos: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
+      comprobantes: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+      },
+      auditoria: {
+        create: vi.fn(),
+      },
       viajes: {
         update: vi.fn(),
       },
@@ -44,7 +55,7 @@ vi.mock('@/lib/supabase/server', () => ({
   broadcastReservaEstado,
 }));
 
-import { EstadoAbordaje, EstadoReserva, EstadoViaje, TipoViaje } from '@taxigreen/database';
+import { EstadoAbordaje, EstadoPago, EstadoReserva, EstadoViaje, Prisma, TipoComprobante, TipoPago, TipoViaje } from '@taxigreen/database';
 import { POST } from './route';
 
 const session = {
@@ -58,8 +69,14 @@ const session = {
 
 const assignedReserva = {
   id: 'reserva-1',
+  tenant_id: 'tenant-1',
   voucher_codigo: 'TG-2026-0001',
   tipo_viaje: TipoViaje.recojo_aeropuerto,
+  tipo_pago: TipoPago.voucher_hotel,
+  responsable_pago: 'hotel',
+  requiere_factura: false,
+  pasajero_ruc: null,
+  cotizacion_monto: new Prisma.Decimal('75.00'),
   estado_abordaje: EstadoAbordaje.pendiente_validacion,
   estado: EstadoReserva.asignada,
   viajes: [{ id: 'viaje-1', estado: EstadoViaje.asignado }],
@@ -69,6 +86,16 @@ const serializedFixture = {
   id: 'reserva-1',
   voucher_codigo: 'TG-2026-0001',
   tipo_viaje: TipoViaje.recojo_aeropuerto,
+  tipo_pago: TipoPago.voucher_hotel,
+  perfil_pasajero: 'hotel',
+  responsable_pago: 'hotel',
+  convenio_validado_demo: true,
+  requiere_factura: false,
+  vehiculo_preferencia: 'sedan',
+  pasajeros_cantidad: 2,
+  equipaje_nivel: 'normal',
+  empresa_nombre: null,
+  hotel_nombre: 'Hilton Lima Miraflores',
   fecha_hora_servicio: new Date('2026-06-05T15:00:00.000Z'),
   estado: EstadoReserva.en_curso,
   pasajero_nombre: 'Valeria Mendoza',
@@ -87,6 +114,14 @@ const serializedFixture = {
   token_pasajero: 'tg_demo_passenger_001',
   estado_abordaje: EstadoAbordaje.autorizado,
   counter_validado_en: new Date('2026-06-05T14:58:00.000Z'),
+  cotizacion_monto: new Prisma.Decimal('75.00'),
+  cotizacion_moneda: 'PEN',
+  pago: {
+    tipo_pago: TipoPago.voucher_hotel,
+    estado: EstadoPago.autorizado,
+    monto: new Prisma.Decimal('75.00'),
+    moneda: 'PEN',
+  },
   conductor: {
     id: 'cond-1',
     rating: 4.9,
@@ -133,6 +168,51 @@ beforeEach(() => {
   tx.reservas.findFirst.mockResolvedValue(assignedReserva);
   tx.viajes.update.mockResolvedValue({});
   tx.reservas.update.mockResolvedValue({});
+  tx.pagos.findUnique.mockResolvedValue({
+    id: 'pago-1',
+    tenant_id: 'tenant-1',
+    reserva_id: 'reserva-1',
+    tipo_pago: TipoPago.voucher_hotel,
+    estado: EstadoPago.autorizado,
+    monto: new Prisma.Decimal('75.00'),
+    moneda: 'PEN',
+    proveedor_demo: 'credito_hotel_demo',
+    autorizacion: null,
+    payload_demo: {},
+    autorizado_en: new Date('2026-06-05T14:50:00.000Z'),
+    capturado_en: null,
+    created_at: new Date('2026-06-05T14:50:00.000Z'),
+    updated_at: new Date('2026-06-05T14:50:00.000Z'),
+  });
+  tx.pagos.update.mockImplementation(async (args: Prisma.pagosUpdateArgs) => ({
+    id: 'pago-1',
+    tenant_id: 'tenant-1',
+    reserva_id: 'reserva-1',
+    tipo_pago: TipoPago.voucher_hotel,
+    estado: args.data.estado ?? EstadoPago.por_liquidar,
+    monto: new Prisma.Decimal('75.00'),
+    moneda: 'PEN',
+    proveedor_demo: 'credito_hotel_demo',
+    autorizacion: null,
+    payload_demo: args.data.payload_demo ?? {},
+    autorizado_en: new Date('2026-06-05T14:50:00.000Z'),
+    capturado_en: null,
+    created_at: new Date('2026-06-05T14:50:00.000Z'),
+    updated_at: new Date('2026-06-05T15:30:00.000Z'),
+  }));
+  tx.comprobantes.findFirst.mockImplementation(async (args: Prisma.comprobantesFindFirstArgs) => {
+    if (args.select?.correlativo && Object.keys(args.select).length === 1) return { correlativo: 11 };
+    return null;
+  });
+  tx.comprobantes.create.mockImplementation(async (args: Prisma.comprobantesCreateArgs) => ({
+    id: 'comp-1',
+    tipo: args.data.tipo as TipoComprobante,
+    serie: args.data.serie as string,
+    correlativo: args.data.correlativo as number,
+    monto: args.data.monto as Prisma.Decimal,
+    estado: args.data.estado,
+  }));
+  tx.auditoria.create.mockResolvedValue({});
   findAsignacionForConductor.mockResolvedValue(serializedFixture);
   broadcastReservaEstado.mockResolvedValue({ ok: true });
 });
@@ -171,6 +251,7 @@ describe('POST /api/conductor/asignacion/[id]/estado — gate counter', () => {
     const body = await response.json();
     expect(body.ok).toBe(true);
     expect(body.asignacion.abordaje.autorizado).toBe(true);
+    expect(body.asignacion.comercial.pagoConductor).toBe('Cargo al hotel - no cobres al pasajero');
     expect(tx.viajes.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'viaje-1' },
@@ -207,5 +288,104 @@ describe('POST /api/conductor/asignacion/[id]/estado — gate counter', () => {
       autorizado: true,
       counterValidadoEn: null,
     });
+  });
+
+  it('al finalizar cierra pago y prepara comprobante en la misma transacción', async () => {
+    tx.reservas.findFirst.mockResolvedValue({
+      ...assignedReserva,
+      estado: EstadoReserva.en_curso,
+      estado_abordaje: EstadoAbordaje.autorizado,
+      viajes: [{ id: 'viaje-1', estado: EstadoViaje.a_bordo }],
+    });
+    findAsignacionForConductor.mockResolvedValue({
+      ...serializedFixture,
+      estado: EstadoReserva.por_liquidar,
+      viajes: [
+        {
+          ...serializedFixture.viajes[0],
+          estado: EstadoViaje.finalizado,
+          finalizado_en: new Date('2026-06-05T15:30:00.000Z'),
+        },
+      ],
+    });
+
+    const response = await postEstado(EstadoViaje.finalizado);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true });
+    expect(tx.pagos.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { reserva_id: 'reserva-1' },
+        data: expect.objectContaining({ estado: EstadoPago.por_liquidar }),
+      }),
+    );
+    expect(tx.comprobantes.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tipo: TipoComprobante.boleta,
+          serie: 'B001',
+          correlativo: 12,
+          estado: 'pendiente',
+        }),
+      }),
+    );
+    expect(tx.auditoria.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'pago_demo_cerrado',
+          target_table: 'pagos',
+        }),
+      }),
+    );
+    expect(tx.auditoria.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'comprobante_preparado',
+          target_table: 'comprobantes',
+          target_id: 'comp-1',
+        }),
+      }),
+    );
+  });
+
+  it('F6: si paga el pasajero, finalizar deja por_cobrar y no prepara comprobante', async () => {
+    tx.reservas.findFirst.mockResolvedValue({
+      ...assignedReserva,
+      tipo_pago: TipoPago.app_pago,
+      responsable_pago: 'pasajero',
+      estado: EstadoReserva.en_curso,
+      estado_abordaje: EstadoAbordaje.autorizado,
+      viajes: [{ id: 'viaje-1', estado: EstadoViaje.a_bordo }],
+    });
+    findAsignacionForConductor.mockResolvedValue({
+      ...serializedFixture,
+      estado: EstadoReserva.por_liquidar,
+      viajes: [
+        {
+          ...serializedFixture.viajes[0],
+          estado: EstadoViaje.finalizado,
+          finalizado_en: new Date('2026-06-05T15:30:00.000Z'),
+        },
+      ],
+    });
+
+    const response = await postEstado(EstadoViaje.finalizado);
+
+    expect(response.status).toBe(200);
+    expect(tx.pagos.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { reserva_id: 'reserva-1' },
+        data: expect.objectContaining({ estado: EstadoPago.por_cobrar }),
+      }),
+    );
+    expect(tx.comprobantes.create).not.toHaveBeenCalled();
+    expect(tx.auditoria.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'pago_demo_cerrado',
+          payload: expect.objectContaining({ requiere_accion_pasajero: true }),
+        }),
+      }),
+    );
   });
 });

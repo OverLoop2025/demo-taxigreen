@@ -1,5 +1,7 @@
 import { recordAudit } from '@taxigreen/auditoria';
 import { EstadoAbordaje, EstadoReserva, prisma, Rol } from '@taxigreen/database';
+import { serializarPagoDemo } from '@taxigreen/pagos';
+import { pagoMostradorHumano, resumenComercialHumano } from '@taxigreen/shared';
 import { verifyVoucherToken } from '@taxigreen/voucher';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -17,6 +19,15 @@ const schema = z.object({
 });
 
 function serializeCounterReserva(reserva: NonNullable<Awaited<ReturnType<typeof findReservaByPublicId>>>) {
+  const comercialInput = {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    empresaNombre: reserva.empresa_nombre,
+    hotelNombre: reserva.hotel_nombre,
+    tipoPago: reserva.tipo_pago,
+  };
   return {
     id: reserva.id,
     voucher_codigo: reserva.voucher_codigo,
@@ -35,7 +46,20 @@ function serializeCounterReserva(reserva: NonNullable<Awaited<ReturnType<typeof 
           placa: reserva.conductor.vehiculo?.placa ?? null,
         }
       : null,
-    pago: null,
+    comercial: {
+      perfilPasajero: reserva.perfil_pasajero,
+      responsablePago: reserva.responsable_pago,
+      convenioValidadoDemo: reserva.convenio_validado_demo,
+      requiereFactura: reserva.requiere_factura,
+      resumen: resumenComercialHumano(comercialInput),
+      pagoMostrador: pagoMostradorHumano(comercialInput),
+    },
+    pago: serializarPagoDemo({
+      tipoPago: reserva.tipo_pago,
+      pago: reserva.pago,
+      cotizacionMonto: reserva.cotizacion_monto,
+      cotizacionMoneda: reserva.cotizacion_moneda,
+    }),
   };
 }
 

@@ -4,7 +4,7 @@ import { ThemeProvider, themeNoFlashScript } from '@/components/theme/theme-prov
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Taxi Green — Demo',
+  title: 'Taxi Green',
   description: 'Pide tu Taxi Green, te esperamos en el punto exacto y sigues tu viaje en vivo.',
 };
 

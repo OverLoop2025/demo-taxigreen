@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
     '@taxigreen/asignacion',
     '@taxigreen/bienestar',
     '@taxigreen/rutas',
+    '@taxigreen/pagos',
     '@taxigreen/ia',
   ],
   // Puppeteer y su Chromium NO deben empaquetarse: el bundling de Next rompe

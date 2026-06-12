@@ -116,7 +116,7 @@ export function BienestarCasoClient({ initialIncident, token }: Props) {
                 <p className="text-xs font-semibold uppercase text-foreground-muted">Descripción</p>
                 <h2 className="mt-1 text-lg font-semibold text-product-deep dark:text-product-200">{incident.descripcion}</h2>
                 <p className="mt-2 text-sm text-foreground-muted">
-                  Voucher {incident.voucherCodigo} · {incident.severidad}
+                  Reserva {incident.voucherCodigo} · {incident.severidad}
                 </p>
               </div>
             </div>

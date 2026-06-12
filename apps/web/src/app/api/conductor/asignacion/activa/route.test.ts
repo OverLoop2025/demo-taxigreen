@@ -12,7 +12,7 @@ vi.mock('@/lib/conductor-asignacion-repository', () => ({
 
 import { serializeConductorAsignacion } from '@/lib/conductor-asignacion';
 import { createConductorToken } from '@/lib/conductor-token';
-import { EstadoAbordaje, TipoViaje } from '@taxigreen/database';
+import { EstadoAbordaje, EstadoPago, Prisma, TipoPago, TipoViaje } from '@taxigreen/database';
 import { GET } from './route';
 
 const session = {
@@ -28,6 +28,16 @@ const reservaFixture = {
   id: 'reserva-1',
   voucher_codigo: 'TG-2026-0001',
   tipo_viaje: TipoViaje.recojo_aeropuerto,
+  tipo_pago: TipoPago.voucher_hotel,
+  perfil_pasajero: 'hotel',
+  responsable_pago: 'hotel',
+  convenio_validado_demo: true,
+  requiere_factura: false,
+  vehiculo_preferencia: 'sedan',
+  pasajeros_cantidad: 2,
+  equipaje_nivel: 'normal',
+  empresa_nombre: null,
+  hotel_nombre: 'Hotel Costa',
   fecha_hora_servicio: new Date('2026-06-05T15:00:00.000Z'),
   estado: 'asignada',
   pasajero_nombre: 'Valeria Mendoza',
@@ -46,6 +56,14 @@ const reservaFixture = {
   token_pasajero: 'tg_demo_passenger_001',
   estado_abordaje: EstadoAbordaje.autorizado,
   counter_validado_en: new Date('2026-06-05T14:58:00.000Z'),
+  cotizacion_monto: new Prisma.Decimal('75.00'),
+  cotizacion_moneda: 'PEN',
+  pago: {
+    tipo_pago: TipoPago.voucher_hotel,
+    estado: EstadoPago.autorizado,
+    monto: new Prisma.Decimal('75.00'),
+    moneda: 'PEN',
+  },
   conductor: {
     id: 'cond-1',
     rating: 4.9,
@@ -109,6 +127,8 @@ describe('GET /api/conductor/asignacion/activa', () => {
     expect(body.asignacion.pasajero.nombre).toBe('Valeria Mendoza');
     expect(body.asignacion.viaje.estado).toBe('en_camino');
     expect(body.asignacion.unidad.placa).toBe('ABC-123');
+    expect(body.asignacion.comercial.pagoConductor).toBe('Cargo al hotel - no cobres al pasajero');
+    expect(body.asignacion.cobro.etiqueta).toBe('S/ 75.00 · Cargo al hotel autorizado');
     expect(body.asignacion.abordaje).toEqual({
       requiereCounter: true,
       autorizado: true,

@@ -133,91 +133,145 @@ export function AdminReservasLive({
   }, [tenantId]);
 
   const totals = useMemo(() => {
-    const sinAsignar = reservas.filter((reserva) => !reserva.conductorId).length;
-    const conVoucher = reservas.filter((reserva) => reserva.voucherEmitido).length;
-    return { sinAsignar, conVoucher };
+    const sinAsignar = reservas.filter((reserva) => !reserva.conductorId && !reserva.cancelada).length;
+    const enCurso = reservas.filter((reserva) => reserva.estado === 'en_curso').length;
+    const necesitanUnidad = reservas.filter((reserva) => reserva.necesitaNuevaUnidad);
+    return { sinAsignar, enCurso, necesitanUnidad };
   }, [reservas]);
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2 text-xs font-medium">
-          <span className="rounded-md bg-surface px-3 py-2 text-foreground-muted ring-1 ring-border">
-            {reservas.length} servicios
-          </span>
-          <span className="rounded-md bg-surface px-3 py-2 text-foreground-muted ring-1 ring-border">
-            {totals.sinAsignar} sin asignar
-          </span>
-          <span className="rounded-md bg-surface px-3 py-2 text-foreground-muted ring-1 ring-border">
-            {totals.conVoucher} con QR
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold ${statusClasses(
-              status,
-            )}`}
-          >
-            {status === 'subscribed' ? <Satellite className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-            {statusLabel(status)}
-          </span>
-          <button
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-xs font-medium text-product hover:bg-surface-muted"
-            onClick={() => void refreshReservas()}
-            type="button"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Actualizar
-          </button>
-        </div>
+      {/* Resumen en tarjetas: tres números que importan, nada más. */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { valor: reservas.length, etiqueta: 'Servicios' },
+          { valor: totals.sinAsignar, etiqueta: 'Por asignar' },
+          { valor: totals.enCurso, etiqueta: 'En curso' },
+        ].map((stat) => (
+          <div className="rounded-2xl border border-border bg-surface px-4 py-3" key={stat.etiqueta}>
+            <p className="text-2xl font-bold text-foreground">{stat.valor}</p>
+            <p className="text-xs font-medium text-foreground-muted">{stat.etiqueta}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="overflow-hidden rounded-md border border-border bg-surface">
-        <div className="grid grid-cols-[1.1fr_1.1fr_1.5fr_1fr_1fr_0.8fr] gap-4 border-b border-border bg-surface-muted px-4 py-3 text-xs font-semibold uppercase text-foreground-muted">
-          <span>Reserva</span>
-          <span>Pasajero</span>
-          <span>Ruta</span>
-          <span>Conductor</span>
-          <span>Unidad</span>
-          <span>Estado</span>
+      {/* F7: bandeja prioritaria — un conductor canceló y el pasajero espera unidad. */}
+      {totals.necesitanUnidad.length > 0 ? (
+        <div className="rounded-2xl border border-amber-400/50 bg-amber-50 p-4 dark:bg-amber-400/10">
+          <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+            {totals.necesitanUnidad.length === 1
+              ? 'Un servicio necesita nueva unidad'
+              : `${totals.necesitanUnidad.length} servicios necesitan nueva unidad`}
+          </p>
+          <div className="mt-2 grid gap-2">
+            {totals.necesitanUnidad.map((reserva) => (
+              <Link
+                className="flex items-center justify-between rounded-xl bg-surface px-4 py-3 text-sm shadow-sm transition hover:bg-surface-muted"
+                href={`/admin/reservas/${reserva.id}`}
+                key={`urgente-${reserva.id}`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-foreground">
+                    {reserva.pasajeroNombre} · {reserva.voucherCodigo}
+                  </span>
+                  <span className="block truncate text-xs text-foreground-muted">
+                    El conductor no pudo continuar. {reserva.fechaHoraServicioLabel}
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-lg bg-product px-3 py-1.5 text-xs font-bold text-white">
+                  Asignar unidad
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
-        <div className="divide-y divide-border">
-          {reservas.map((reserva) => (
-            <Link
-              className="grid grid-cols-[1.1fr_1.1fr_1.5fr_1fr_1fr_0.8fr] gap-4 px-4 py-3 text-sm transition hover:bg-surface-muted/70"
-              href={`/admin/reservas/${reserva.id}`}
-              key={reserva.id}
-            >
-              <span className="min-w-0">
-                <span className="block font-semibold text-product-deep dark:text-product-200">{reserva.voucherCodigo}</span>
-                <span className="block text-xs text-foreground-muted">
-                  {reserva.fechaHoraServicioLabel}
+      ) : null}
+
+      <div className="flex items-center justify-end gap-2">
+        <span
+          className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold ${statusClasses(
+            status,
+          )}`}
+        >
+          {status === 'subscribed' ? <Satellite className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+          {statusLabel(status)}
+        </span>
+        <button
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-xs font-medium text-product hover:bg-surface-muted"
+          onClick={() => void refreshReservas()}
+          type="button"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Actualizar
+        </button>
+      </div>
+
+      {/* Tarjetas por servicio: lo humano primero (quién viaja, a dónde, con quién). */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {reservas.map((reserva) => (
+          <Link
+            className={`rounded-2xl border bg-surface p-4 transition hover:border-product/60 hover:shadow-md ${
+              reserva.necesitaNuevaUnidad ? 'border-amber-400/60' : 'border-border'
+            } ${reserva.cancelada ? 'opacity-70' : ''}`}
+            href={`/admin/reservas/${reserva.id}`}
+            key={reserva.id}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold text-foreground">{reserva.pasajeroNombre}</p>
+                <p className="truncate text-xs text-foreground-muted">
+                  {reserva.voucherCodigo} · {reserva.fechaHoraServicioLabel}
                   {reserva.vueloCodigo ? ` · ${reserva.vueloCodigo}` : ''}
-                </span>
+                </p>
+              </div>
+              <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold ${estadoClasses(reserva.estado)}`}>
+                {estadoLabel(reserva.estado)}
               </span>
-              <span className="min-w-0">
-                <span className="block truncate font-medium text-foreground">{reserva.pasajeroNombre}</span>
-                <span className="block truncate text-xs text-foreground-muted">{reserva.pasajeroTelefono}</span>
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-foreground">{reserva.origenTexto}</span>
-                <span className="block truncate text-xs text-foreground-muted">{reserva.destinoTexto}</span>
-              </span>
-              <span className="truncate text-foreground-muted">{reserva.conductorNombre ?? 'Pendiente'}</span>
-              <span className="truncate text-foreground-muted">{reserva.vehiculoLabel ?? 'Pendiente'}</span>
-              <span>
-                <span className={`rounded-md px-2 py-1 text-xs font-semibold ${estadoClasses(reserva.estado)}`}>
-                  {estadoLabel(reserva.estado)}
-                </span>
-              </span>
-            </Link>
-          ))}
-          {reservas.length === 0 ? (
-            <div className="px-4 py-10 text-center text-sm text-foreground-muted">
-              Aún no hay servicios para esta empresa.
             </div>
-          ) : null}
-        </div>
+
+            <p className="mt-3 truncate text-sm text-foreground">{reserva.origenTexto}</p>
+            <p className="truncate text-sm text-foreground-muted">→ {reserva.destinoTexto}</p>
+
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface-muted px-3 py-2">
+              <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                {reserva.conductorNombre
+                  ? `${reserva.conductorNombre}${reserva.vehiculoLabel ? ` · ${reserva.vehiculoLabel}` : ''}`
+                  : reserva.necesitaNuevaUnidad
+                    ? 'Necesita nueva unidad'
+                    : 'Unidad por asignar'}
+              </span>
+              <span className="shrink-0 text-sm font-semibold text-foreground">
+                {reserva.pago ? reserva.pago.montoEtiqueta : ''}
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  reserva.abordaje.requiereMostrador
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300'
+                    : 'bg-success/10 text-success'
+                }`}
+              >
+                {reserva.abordaje.requiereMostrador ? 'Mostrador' : 'Sin mostrador'}
+              </span>
+              <span className="inline-flex rounded-full bg-product/10 px-2 py-0.5 text-[11px] font-semibold text-product">
+                {reserva.comercial.resumen}
+              </span>
+              {reserva.cancelada ? (
+                <span className="inline-flex rounded-full bg-danger/10 px-2 py-0.5 text-[11px] font-semibold text-danger">
+                  {reserva.cancelada.por === 'pasajero' ? 'Canceló el pasajero' : 'Cancelada'}
+                  {reserva.cancelada.motivo ? ` · ${reserva.cancelada.motivo}` : ''}
+                </span>
+              ) : null}
+            </div>
+          </Link>
+        ))}
+        {reservas.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-surface px-4 py-10 text-center text-sm text-foreground-muted lg:col-span-2">
+            Aún no hay servicios para esta empresa.
+          </div>
+        ) : null}
       </div>
 
       <p className="text-xs text-foreground-muted">

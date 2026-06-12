@@ -6,7 +6,10 @@ import {
   type RouteResult,
   type RutaFuente,
 } from '@taxigreen/rutas';
-import { EstadoReserva, EstadoViaje, Prisma, prisma } from '@taxigreen/database';
+import { EstadoAbordaje, EstadoReserva, EstadoViaje, Prisma, prisma } from '@taxigreen/database';
+import { serializarPagoDemo, type PagoResumen } from '@taxigreen/pagos';
+import { pagoPasajeroHumano, resumenComercialHumano } from '@taxigreen/shared';
+import { requiereCounter } from '@/lib/conductor-asignacion';
 
 const passengerSelect = {
   id: true,
@@ -15,6 +18,18 @@ const passengerSelect = {
   token_pasajero: true,
   estado: true,
   tipo_viaje: true,
+  tipo_pago: true,
+  perfil_pasajero: true,
+  responsable_pago: true,
+  convenio_validado_demo: true,
+  requiere_factura: true,
+  vehiculo_preferencia: true,
+  pasajeros_cantidad: true,
+  equipaje_nivel: true,
+  estado_abordaje: true,
+  counter_validado_en: true,
+  cancelada_por: true,
+  cancelada_motivo: true,
   pasajero_nombre: true,
   pasajero_telefono: true,
   pasajero_email: true,
@@ -33,6 +48,8 @@ const passengerSelect = {
   punto_encuentro: true,
   vuelo_codigo: true,
   fecha_hora_servicio: true,
+  cotizacion_monto: true,
+  cotizacion_moneda: true,
   calificacion: true,
   conductor: {
     select: {
@@ -97,6 +114,14 @@ const passengerSelect = {
       updated_at: true,
     },
   },
+  pago: {
+    select: {
+      tipo_pago: true,
+      estado: true,
+      monto: true,
+      moneda: true,
+    },
+  },
   incidencias: {
     where: { deleted_at: null },
     orderBy: { created_at: 'desc' },
@@ -133,6 +158,20 @@ export type PassengerTripData = {
     voucherCodigo: string;
     tipoViaje: string;
     fechaHoraServicio: string;
+    abordaje: {
+      requiereMostrador: boolean;
+      autorizado: boolean;
+      counterValidadoEn: string | null;
+    };
+    cancelada: {
+      por: string;
+      motivo: string | null;
+    } | null;
+  };
+  // F6: qué puede hacer el pasajero AHORA, calculado server-side (la UI nunca decide sola).
+  acciones: {
+    pago: 'pagar_app' | 'confirmar_efectivo' | null;
+    cancelacion: 'libre' | 'con_aviso' | 'solicitud' | null;
   };
   pasajero: {
     nombre: string;
@@ -193,6 +232,18 @@ export type PassengerTripData = {
     estado: string | null;
     pdfUrl: string;
   };
+  pago: PagoResumen | null;
+  comercial: {
+    perfilPasajero: string;
+    responsablePago: string;
+    convenioValidadoDemo: boolean;
+    requiereFactura: boolean;
+    vehiculoPreferencia: string | null;
+    pasajerosCantidad: number | null;
+    equipajeNivel: string | null;
+    resumen: string;
+    pagoPasajero: string;
+  };
   calificacion: PassengerRating | null;
   incidencias: PassengerIncident[];
 };
@@ -251,9 +302,73 @@ function normalizeRating(value: Prisma.JsonValue | null): PassengerRating | null
   };
 }
 
+function serializeComercial(reserva: Pick<
+  PassengerRecord,
+  | 'perfil_pasajero'
+  | 'responsable_pago'
+  | 'convenio_validado_demo'
+  | 'requiere_factura'
+  | 'vehiculo_preferencia'
+  | 'pasajeros_cantidad'
+  | 'equipaje_nivel'
+  | 'empresa_nombre'
+  | 'hotel_nombre'
+  | 'tipo_pago'
+>) {
+  const input = {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    empresaNombre: reserva.empresa_nombre,
+    hotelNombre: reserva.hotel_nombre,
+    tipoPago: reserva.tipo_pago,
+  };
+  return {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    vehiculoPreferencia: reserva.vehiculo_preferencia,
+    pasajerosCantidad: reserva.pasajeros_cantidad,
+    equipajeNivel: reserva.equipaje_nivel,
+    resumen: resumenComercialHumano(input),
+    pagoPasajero: pagoPasajeroHumano(input),
+  };
+}
+
 function isFinished(reserva: PassengerRecord) {
   const viaje = reserva.viajes[0];
   return reserva.estado === EstadoReserva.por_liquidar || viaje?.estado === EstadoViaje.finalizado;
+}
+
+// F6: CTA de pago — solo pasajero responsable, viaje terminado y pago por cobrar.
+function accionPago(reserva: PassengerRecord): 'pagar_app' | 'confirmar_efectivo' | null {
+  if (reserva.responsable_pago !== 'pasajero') return null;
+  if (!isFinished(reserva)) return null;
+  if (reserva.pago?.estado !== 'por_cobrar') return null;
+  if (reserva.pago.tipo_pago === 'app_pago') return 'pagar_app';
+  if (reserva.pago.tipo_pago === 'efectivo') return 'confirmar_efectivo';
+  return null;
+}
+
+// F6: etapa de cancelación (espejo server del endpoint /cancelar; master §5.3).
+function accionCancelacion(reserva: PassengerRecord): 'libre' | 'con_aviso' | 'solicitud' | null {
+  if (reserva.estado === EstadoReserva.cancelada || isFinished(reserva)) return null;
+  const viaje = reserva.viajes[0] ?? null;
+  if (viaje?.estado === EstadoViaje.a_bordo) return null;
+  if (viaje?.estado === EstadoViaje.en_camino || viaje?.estado === EstadoViaje.en_punto) {
+    return 'solicitud';
+  }
+  if (reserva.conductor || viaje?.estado === EstadoViaje.asignado) return 'con_aviso';
+  return 'libre';
+}
+
+// F6: si paga el pasajero, el comprobante existe recién después de capturar el pago.
+function comprobanteDisponible(reserva: PassengerRecord) {
+  if (!isFinished(reserva)) return false;
+  if (reserva.responsable_pago !== 'pasajero') return true;
+  return !reserva.pago || reserva.pago.estado === 'capturado';
 }
 
 function estimateEtaMinutos(reserva: PassengerRecord) {
@@ -368,6 +483,7 @@ export async function serializePassengerTrip(reserva: PassengerRecord): Promise<
   const posicion = reserva.conductor?.posiciones[0] ?? null;
   const unidad = reserva.conductor?.vehiculo ?? null;
   const token = reserva.token_pasajero;
+  const requiereMostrador = requiereCounter(reserva.tipo_viaje);
 
   const driverPosition = posicion
     ? {
@@ -388,6 +504,19 @@ export async function serializePassengerTrip(reserva: PassengerRecord): Promise<
       voucherCodigo: reserva.voucher_codigo,
       tipoViaje: reserva.tipo_viaje,
       fechaHoraServicio: reserva.fecha_hora_servicio.toISOString(),
+      abordaje: {
+        requiereMostrador,
+        autorizado: !requiereMostrador || reserva.estado_abordaje === EstadoAbordaje.autorizado,
+        counterValidadoEn: isoOrNull(reserva.counter_validado_en),
+      },
+      cancelada:
+        reserva.estado === EstadoReserva.cancelada
+          ? { por: reserva.cancelada_por ?? 'equipo', motivo: reserva.cancelada_motivo }
+          : null,
+    },
+    acciones: {
+      pago: accionPago(reserva),
+      cancelacion: accionCancelacion(reserva),
     },
     pasajero: {
       nombre: reserva.pasajero_nombre,
@@ -452,7 +581,7 @@ export async function serializePassengerTrip(reserva: PassengerRecord): Promise<
       fuente: tracking.fuente,
     },
     comprobante: {
-      disponible: isFinished(reserva),
+      disponible: comprobanteDisponible(reserva),
       tipo: comprobante?.tipo ?? null,
       etiqueta: comprobante
         ? `${comprobante.tipo.toUpperCase()} ${comprobante.serie}-${String(comprobante.correlativo).padStart(6, '0')} · ${moneyLabel(comprobante.monto)}`
@@ -460,6 +589,13 @@ export async function serializePassengerTrip(reserva: PassengerRecord): Promise<
       estado: comprobante?.estado ?? null,
       pdfUrl: `/api/pasajero/${token}/comprobante/pdf`,
     },
+    pago: serializarPagoDemo({
+      tipoPago: reserva.tipo_pago,
+      pago: reserva.pago,
+      cotizacionMonto: reserva.cotizacion_monto,
+      cotizacionMoneda: reserva.cotizacion_moneda,
+    }),
+    comercial: serializeComercial(reserva),
     calificacion: normalizeRating(reserva.calificacion),
     incidencias: reserva.incidencias.map((incidencia) => ({
       id: incidencia.id,

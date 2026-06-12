@@ -5,6 +5,16 @@ const asignacionSelect = Prisma.validator<Prisma.reservasSelect>()({
   id: true,
   voucher_codigo: true,
   tipo_viaje: true,
+  tipo_pago: true,
+  perfil_pasajero: true,
+  responsable_pago: true,
+  convenio_validado_demo: true,
+  requiere_factura: true,
+  vehiculo_preferencia: true,
+  pasajeros_cantidad: true,
+  equipaje_nivel: true,
+  empresa_nombre: true,
+  hotel_nombre: true,
   fecha_hora_servicio: true,
   estado: true,
   pasajero_nombre: true,
@@ -23,6 +33,16 @@ const asignacionSelect = Prisma.validator<Prisma.reservasSelect>()({
   token_pasajero: true,
   estado_abordaje: true,
   counter_validado_en: true,
+  cotizacion_monto: true,
+  cotizacion_moneda: true,
+  pago: {
+    select: {
+      tipo_pago: true,
+      estado: true,
+      monto: true,
+      moneda: true,
+    },
+  },
   conductor: {
     select: {
       id: true,

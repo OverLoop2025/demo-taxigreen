@@ -3,8 +3,10 @@
 import {
   Car,
   CheckCircle2,
+  CreditCard,
   Crosshair,
   FileText,
+  Loader2,
   MapPin,
   Maximize2,
   MessageCircle,
@@ -13,6 +15,7 @@ import {
   Plane,
   Search,
   Send,
+  ShieldCheck,
   Star,
   UserRound,
   X,
@@ -667,17 +670,170 @@ function RatingButtons({
   );
 }
 
+// F6: el pasajero paga al finalizar. Pasarela determinista (sin red real): los
+// pasos animados son narrativa; la captura ocurre en un solo POST al confirmar.
+function PaymentActions({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
+  const [fase, setFase] = useState<'idle' | 'procesando' | 'error'>('idle');
+  const [paso, setPaso] = useState<string | null>(null);
+  const accion = data.acciones.pago;
+  if (!accion) return null;
+
+  const pagar = async () => {
+    setFase('procesando');
+    if (accion === 'pagar_app') {
+      setPaso('Conectando con tu banco…');
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      setPaso('Autorizando el pago…');
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    } else {
+      setPaso('Registrando tu pago…');
+    }
+    const response = await fetch(`/api/pasajero/${data.token}/pago`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accion }),
+    });
+    if (!response.ok) {
+      setFase('error');
+      setPaso('No pudimos confirmar el pago. Inténtalo otra vez.');
+      return;
+    }
+    setPaso('¡Pago confirmado!');
+    await refresh();
+    setFase('idle');
+    setPaso(null);
+  };
+
+  return (
+    <div className="mt-3">
+      {fase === 'procesando' ? (
+        <div className="flex h-11 items-center justify-center gap-2 rounded-lg bg-product-muted text-sm font-semibold text-product">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {paso}
+        </div>
+      ) : (
+        <button
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-product text-sm font-semibold text-white"
+          type="button"
+          onClick={pagar}
+        >
+          <CreditCard className="h-4 w-4" />
+          {accion === 'pagar_app' ? `Pagar ahora · ${data.pago?.montoEtiqueta ?? ''}` : 'Ya pagué en efectivo al conductor'}
+        </button>
+      )}
+      {fase === 'error' && paso ? <p className="mt-2 text-sm text-danger">{paso}</p> : null}
+    </div>
+  );
+}
+
+// F6: cancelación escalonada (master §5.3) — el servidor decide la etapa; la UI
+// solo adapta el mensaje. En ruta no cancela: registra la solicitud para el equipo.
+function CancelPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const [status, setStatus] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const etapa = data.acciones.cancelacion;
+  if (!etapa) return null;
+
+  const copy = {
+    libre: {
+      hint: 'Puedes cancelar sin problema: aún no enviamos una unidad.',
+      cta: 'Cancelar reserva',
+    },
+    con_aviso: {
+      hint: 'Tu unidad está siendo preparada. Si cancelas ahora, liberamos al conductor.',
+      cta: 'Cancelar reserva',
+    },
+    solicitud: {
+      hint: 'Tu conductor ya está en camino. El equipo revisará tu solicitud de inmediato.',
+      cta: 'Solicitar cancelación',
+    },
+  }[etapa];
+
+  const cancelar = async () => {
+    setSending(true);
+    setStatus(null);
+    const response = await fetch(`/api/pasajero/${data.token}/cancelar`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ motivo: motivo.trim() || undefined }),
+    });
+    const payload = (await response.json().catch(() => null)) as { resultado?: string } | null;
+    setSending(false);
+    if (!response.ok) {
+      setStatus('No se pudo procesar. Llámanos y lo resolvemos.');
+      return;
+    }
+    if (payload?.resultado === 'solicitud_registrada') {
+      setStatus('Recibimos tu solicitud. El equipo te contactará en breve.');
+      setOpen(false);
+      return;
+    }
+    await refresh();
+  };
+
+  if (!open) {
+    return (
+      <button
+        className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface text-sm font-semibold text-foreground-muted"
+        type="button"
+        onClick={() => setOpen(true)}
+      >
+        <X className="h-4 w-4" />
+        {copy.cta}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-border bg-surface-muted p-4">
+      <p className="text-sm font-semibold text-foreground">{copy.cta}</p>
+      <p className="mt-1 text-sm leading-5 text-foreground-muted">{copy.hint}</p>
+      <input
+        className="mt-3 h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+        placeholder="Motivo (opcional)"
+        value={motivo}
+        onChange={(event) => setMotivo(event.target.value)}
+      />
+      <div className="mt-3 flex gap-2">
+        <button
+          className="inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-danger px-4 text-sm font-semibold text-white disabled:opacity-60"
+          type="button"
+          disabled={sending}
+          onClick={cancelar}
+        >
+          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmar'}
+        </button>
+        <button
+          className="inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-foreground"
+          type="button"
+          onClick={() => setOpen(false)}
+        >
+          Volver
+        </button>
+      </div>
+      {status ? <p className="mt-2 text-sm text-foreground-muted">{status}</p> : null}
+    </div>
+  );
+}
+
 function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
   const [dni, setDni] = useState(data.pasajero.dni ?? '');
   const [nombreDocumento, setNombreDocumento] = useState('');
   const [documentStatus, setDocumentStatus] = useState<string | null>(null);
-  // Revelado progresivo: el PDF sólo se ofrece cuando el comprobante ya existe.
+  // El cierre del viaje ya prepara el comprobante. El pasajero ve descargar como acción principal.
   const [comprobanteListo, setComprobanteListo] = useState(Boolean(data.comprobante.tipo));
   const [rating, setRating] = useState<PassengerRating>(
     data.calificacion ?? { servicio: 5, conductor: 5, unidad: 5, motivo: '', comentario: '' },
   );
   const [ratingStatus, setRatingStatus] = useState<string | null>(null);
   const needsReason = rating.servicio <= 3 || rating.conductor <= 3 || rating.unidad <= 3;
+  const hasComprobante = Boolean(data.comprobante.tipo) || comprobanteListo;
+
+  useEffect(() => {
+    setComprobanteListo(Boolean(data.comprobante.tipo));
+  }, [data.comprobante.tipo]);
 
   const lookupDni = async () => {
     if (!/^\d{8}$/.test(dni)) {
@@ -746,8 +902,36 @@ function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: 
       </div>
 
       <div className="mt-4 grid gap-3">
+        {!data.comprobante.disponible ? (
+          <div className="rounded-xl bg-surface-muted p-3">
+            <p className="text-sm font-semibold text-foreground">Tu comprobante llega con el pago</p>
+            <p className="mt-1 text-sm leading-5 text-foreground-muted">
+              Confirma tu pago arriba y aquí mismo podrás descargar tu comprobante.
+            </p>
+          </div>
+        ) : (
         <div className="rounded-xl bg-surface-muted p-3">
-          <p className="text-sm font-semibold text-foreground">¿Necesitas comprobante?</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {hasComprobante ? 'Tu comprobante está listo' : '¿Necesitas comprobante?'}
+              </p>
+              {data.comprobante.etiqueta ? (
+                <p className="mt-1 text-sm text-foreground-muted">{data.comprobante.etiqueta}</p>
+              ) : null}
+            </div>
+            {hasComprobante ? (
+              <a
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white"
+                href={data.comprobante.pdfUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FileText className="h-4 w-4" />
+                Descargar comprobante
+              </a>
+            ) : null}
+          </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
             <input
               className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
@@ -769,26 +953,20 @@ function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: 
           {documentStatus ? <p className="mt-2 text-sm text-foreground-muted">{documentStatus}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white"
+              className={`inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold ${
+                hasComprobante
+                  ? 'border border-border bg-surface text-product'
+                  : 'bg-product text-white'
+              }`}
               type="button"
               onClick={emitirComprobante}
             >
               <FileText className="h-4 w-4" />
-              Preparar comprobante
+              {hasComprobante ? 'Actualizar datos' : 'Preparar comprobante'}
             </button>
-            {comprobanteListo ? (
-              <a
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-product"
-                href={data.comprobante.pdfUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FileText className="h-4 w-4" />
-                Descargar PDF
-              </a>
-            ) : null}
           </div>
         </div>
+        )}
 
         <div className="rounded-xl bg-surface-muted p-3">
           <div className="flex items-center gap-2">
@@ -1019,6 +1197,8 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
   const lastRouteCalcRef = useRef<{ position: PassengerPosition; ts: number } | null>(null);
   const finished = isFinished(data);
   const estado = toEstadoViaje(data.viaje.estado);
+  const puntoRecojo = data.ruta.puntoEncuentro ?? data.ruta.origen.texto;
+  const puntoRecojoLabel = data.reserva.abordaje.requiereMostrador ? 'Punto de encuentro' : 'Punto de recojo';
 
   const refresh = useCallback(async () => {
     const next = await fetchPassengerData(initialData.token);
@@ -1120,6 +1300,24 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
         if (position) setDriverPosition(position);
       })
       .on('broadcast', { event: 'incidencia' }, () => {
+        void refresh();
+      })
+      .on('broadcast', { event: 'abordaje' }, (event) => {
+        const payload = event.payload as Record<string, unknown>;
+        setData((current) => ({
+          ...current,
+          reserva: {
+            ...current.reserva,
+            abordaje: {
+              ...current.reserva.abordaje,
+              autorizado: true,
+              counterValidadoEn:
+                typeof payload.counter_validado_en === 'string'
+                  ? payload.counter_validado_en
+                  : current.reserva.abordaje.counterValidadoEn,
+            },
+          },
+        }));
         void refresh();
       })
       .subscribe((status) => {
@@ -1247,14 +1445,82 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
           </div>
 
           <BottomSheet level={sheetLevel} onLevelChange={setSheetLevel}>
+            {data.reserva.cancelada ? (
+              <div className="mb-4 rounded-2xl border border-danger/30 bg-danger/10 p-4">
+                <div className="flex items-start gap-3">
+                  <X className="mt-0.5 h-5 w-5 text-danger" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Reserva cancelada</p>
+                    <p className="mt-1 text-sm leading-5 text-foreground-muted">
+                      {data.reserva.cancelada.por === 'pasajero'
+                        ? 'Cancelaste esta reserva. Si la necesitas de nuevo, escríbenos y la reactivamos en minutos.'
+                        : 'El equipo canceló esta reserva. Si tienes dudas, llámanos y lo resolvemos.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <DriverSummary data={data} route={route} finished={finished} />
 
             <div className="mt-4 rounded-2xl border-2 border-product/70 bg-product-muted/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-product">Punto de encuentro</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-product">{puntoRecojoLabel}</p>
               <p className="mt-1 text-xl font-semibold leading-snug text-foreground">
-                {data.ruta.puntoEncuentro ?? 'Salida 3, columna F2'}
+                {puntoRecojo}
               </p>
             </div>
+
+            {data.reserva.abordaje.requiereMostrador ? (
+              <div
+                className={`mt-3 rounded-2xl border p-4 ${
+                  data.reserva.abordaje.autorizado
+                    ? 'border-success/30 bg-success/10'
+                    : 'border-warning/30 bg-warning/10'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <CheckCircle2
+                    className={`mt-0.5 h-5 w-5 ${
+                      data.reserva.abordaje.autorizado ? 'text-success' : 'text-warning'
+                    }`}
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {data.reserva.abordaje.autorizado ? 'Pase validado' : 'Valida tu pase en mostrador'}
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-foreground-muted">
+                      {data.reserva.abordaje.autorizado
+                        ? 'Taxi Green ya dio luz verde al conductor.'
+                        : 'Al llegar al aeropuerto, muestra tu pase de abordaje para activar el recojo.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {data.pago ? (
+              <div className="mt-3 rounded-2xl border border-border bg-surface-muted p-4">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-product-muted text-product">
+                    {data.pago.estado === 'capturado' ? (
+                      <ShieldCheck className="h-5 w-5" />
+                    ) : (
+                      <CreditCard className="h-5 w-5" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Pago</p>
+                    <p className="mt-0.5 text-xl font-semibold text-foreground">{data.pago.montoEtiqueta}</p>
+                    <p className="mt-1 text-sm text-foreground-muted">
+                      {data.pago.metodoLabel} · {data.pago.estadoLabel}
+                    </p>
+                    <p className="mt-2 rounded-xl bg-surface px-3 py-2 text-sm font-semibold text-product-deep">
+                      {data.comercial.pagoPasajero}
+                    </p>
+                    <PaymentActions data={data} refresh={refresh} />
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-2">
               <InfoRow icon={<MapPin className="h-4 w-4" />} label="Recojo" value={data.ruta.origen.texto} />
@@ -1282,6 +1548,8 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
                 <IncidentPanel data={data} refresh={refresh} />
               </div>
             ) : null}
+
+            <CancelPanel data={data} refresh={refresh} />
 
             <a
               className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface text-sm font-semibold text-product"

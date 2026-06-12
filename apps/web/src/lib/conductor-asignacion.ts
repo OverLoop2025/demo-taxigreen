@@ -2,9 +2,12 @@ import {
   EstadoAbordaje,
   EstadoReserva,
   EstadoViaje,
+  Prisma,
   TipoViaje,
   type TipoVehiculo,
 } from '@taxigreen/database';
+import { serializarPagoDemo, type PagoResumen } from '@taxigreen/pagos';
+import { pagoConductorHumano, resumenComercialHumano } from '@taxigreen/shared';
 
 export const estadosViajeSecuencia = [
   EstadoViaje.asignado,
@@ -77,6 +80,18 @@ export type ConductorAsignacionResponse = {
   tipoViaje: string;
   fechaHoraServicio: string;
   estadoReserva: string;
+  cobro: PagoResumen | null;
+  comercial: {
+    perfilPasajero: string;
+    responsablePago: string;
+    convenioValidadoDemo: boolean;
+    requiereFactura: boolean;
+    vehiculoPreferencia: string | null;
+    pasajerosCantidad: number | null;
+    equipajeNivel: string | null;
+    resumen: string;
+    pagoConductor: string;
+  };
   pasajero: {
     nombre: string;
     telefono: string;
@@ -139,6 +154,16 @@ type SerializableReserva = {
   id: string;
   voucher_codigo: string;
   tipo_viaje: string;
+  tipo_pago: string;
+  perfil_pasajero: string;
+  responsable_pago: string;
+  convenio_validado_demo: boolean;
+  requiere_factura: boolean;
+  vehiculo_preferencia: string | null;
+  pasajeros_cantidad: number | null;
+  equipaje_nivel: string | null;
+  empresa_nombre: string | null;
+  hotel_nombre: string | null;
   fecha_hora_servicio: Date;
   estado: string;
   pasajero_nombre: string;
@@ -157,6 +182,14 @@ type SerializableReserva = {
   token_pasajero: string;
   estado_abordaje: EstadoAbordaje | string;
   counter_validado_en: Date | null;
+  cotizacion_monto: Prisma.Decimal | null;
+  cotizacion_moneda: string | null;
+  pago: {
+    tipo_pago: string;
+    estado: string;
+    monto: Prisma.Decimal;
+    moneda: string;
+  } | null;
   conductor: {
     id: string;
     rating: number;
@@ -191,6 +224,29 @@ function isoOrNull(date: Date | null | undefined) {
   return date ? date.toISOString() : null;
 }
 
+function serializeComercial(reserva: SerializableReserva) {
+  const input = {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    empresaNombre: reserva.empresa_nombre,
+    hotelNombre: reserva.hotel_nombre,
+    tipoPago: reserva.tipo_pago,
+  };
+  return {
+    perfilPasajero: reserva.perfil_pasajero,
+    responsablePago: reserva.responsable_pago,
+    convenioValidadoDemo: reserva.convenio_validado_demo,
+    requiereFactura: reserva.requiere_factura,
+    vehiculoPreferencia: reserva.vehiculo_preferencia,
+    pasajerosCantidad: reserva.pasajeros_cantidad,
+    equipajeNivel: reserva.equipaje_nivel,
+    resumen: resumenComercialHumano(input),
+    pagoConductor: pagoConductorHumano(input),
+  };
+}
+
 export function serializeConductorAsignacion(
   reserva: SerializableReserva,
 ): ConductorAsignacionResponse {
@@ -203,6 +259,13 @@ export function serializeConductorAsignacion(
     tipoViaje: reserva.tipo_viaje,
     fechaHoraServicio: reserva.fecha_hora_servicio.toISOString(),
     estadoReserva: reserva.estado,
+    cobro: serializarPagoDemo({
+      tipoPago: reserva.tipo_pago,
+      pago: reserva.pago,
+      cotizacionMonto: reserva.cotizacion_monto,
+      cotizacionMoneda: reserva.cotizacion_moneda,
+    }),
+    comercial: serializeComercial(reserva),
     pasajero: {
       nombre: reserva.pasajero_nombre,
       telefono: reserva.pasajero_telefono,

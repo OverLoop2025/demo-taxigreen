@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { EstadoAbordaje, EstadoReserva, EstadoViaje, TipoViaje } from '@taxigreen/database';
+import {
+  EstadoAbordaje,
+  EstadoPago,
+  EstadoReserva,
+  EstadoViaje,
+  Prisma,
+  TipoPago,
+  TipoViaje,
+} from '@taxigreen/database';
 import {
   estadoAbordajeInicial,
   estadoReservaParaViaje,
@@ -103,6 +111,16 @@ describe('serializeConductorAsignacion — abordaje', () => {
     id: 'reserva-1',
     voucher_codigo: 'TG-2026-0001',
     tipo_viaje: TipoViaje.recojo_aeropuerto,
+    tipo_pago: TipoPago.voucher_hotel,
+    perfil_pasajero: 'hotel',
+    responsable_pago: 'hotel',
+    convenio_validado_demo: true,
+    requiere_factura: false,
+    vehiculo_preferencia: 'sedan',
+    pasajeros_cantidad: 2,
+    equipaje_nivel: 'normal',
+    empresa_nombre: null,
+    hotel_nombre: 'Hotel Costa',
     fecha_hora_servicio: new Date('2026-06-05T15:00:00.000Z'),
     estado: EstadoReserva.asignada,
     pasajero_nombre: 'Valeria Mendoza',
@@ -121,6 +139,14 @@ describe('serializeConductorAsignacion — abordaje', () => {
     token_pasajero: 'tg_demo_passenger_001',
     estado_abordaje: EstadoAbordaje.pendiente_validacion,
     counter_validado_en: null,
+    cotizacion_monto: new Prisma.Decimal('75.00'),
+    cotizacion_moneda: 'PEN',
+    pago: {
+      tipo_pago: TipoPago.voucher_hotel,
+      estado: EstadoPago.autorizado,
+      monto: new Prisma.Decimal('75.00'),
+      moneda: 'PEN',
+    },
     conductor: {
       id: 'cond-1',
       rating: 4.9,
@@ -157,6 +183,9 @@ describe('serializeConductorAsignacion — abordaje', () => {
       autorizado: false,
       counterValidadoEn: null,
     });
+    expect(asignacion.cobro?.montoEtiqueta).toBe('S/ 75.00');
+    expect(asignacion.cobro?.estadoLabel).toBe('Cargo al hotel autorizado');
+    expect(asignacion.comercial.pagoConductor).toBe('Cargo al hotel - no cobres al pasajero');
   });
 
   it('serializa recojo autorizado con timestamp de counter', () => {
@@ -171,6 +200,32 @@ describe('serializeConductorAsignacion — abordaje', () => {
       autorizado: true,
       counterValidadoEn: counterValidadoEn.toISOString(),
     });
+  });
+
+  it('serializa traslado aeropuerto como listo sin mostrador', () => {
+    const asignacion = serializeConductorAsignacion({
+      ...baseReserva,
+      tipo_viaje: TipoViaje.traslado_aeropuerto,
+      perfil_pasajero: 'corporativo',
+      responsable_pago: 'empresa',
+      convenio_validado_demo: true,
+      requiere_factura: true,
+      empresa_nombre: 'ACME Perú',
+      hotel_nombre: null,
+      origen_texto: 'Lobby Hotel Costa Verde, San Isidro',
+      destino_texto: 'Aeropuerto Jorge Chávez - Llegadas',
+      punto_encuentro: null,
+      estado_abordaje: EstadoAbordaje.no_requerido,
+      counter_validado_en: null,
+    });
+
+    expect(asignacion.abordaje).toEqual({
+      requiereCounter: false,
+      autorizado: true,
+      counterValidadoEn: null,
+    });
+    expect(asignacion.puntoEncuentro).toBeNull();
+    expect(asignacion.origen.texto).toBe('Lobby Hotel Costa Verde, San Isidro');
   });
 });
 

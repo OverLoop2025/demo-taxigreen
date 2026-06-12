@@ -20,12 +20,12 @@ const steps = [
   {
     title: 'Ruta en tiempo real',
     duration: '3 min',
-    body: 'Abrir /p/tg_demo_passenger_001 y app conductor. Validar ETA/distancia y badge Ruta real o Estimación.',
+    body: 'Abrir seguimiento pasajero y app conductor. Validar llegada/distancia y badge Ruta real o Estimación.',
   },
   {
-    title: 'Counter QR one-time',
+    title: 'Mostrador y pase one-time',
     duration: '3 min',
-    body: 'Entrar como supervisor a /counter, validar TG-2026-0001, confirmar consumo y reintentar para mostrar bloqueo.',
+    body: 'Entrar como supervisor al mostrador, validar TG-2026-0001, confirmar acceso y reintentar para mostrar bloqueo.',
   },
   {
     title: 'Bienestar y cierre',
@@ -37,8 +37,8 @@ const steps = [
 const objections = [
   'No es una app tipo Uber: digitaliza la operación existente de Taxi Green.',
   'La IA no decide: el copiloto sugiere y el operador confirma.',
-  'El pasajero no instala app: recibe link seguro /p/[token].',
-  'Routing y ETA degradan a estimación si Mapbox falla.',
+  'El pasajero no instala app: recibe un enlace seguro de seguimiento.',
+  'Ruta y llegada degradan a estimación si Mapbox falla.',
   'La demo no activa RLS ni pagos reales; eso queda para MVP.',
 ];
 
@@ -51,7 +51,7 @@ export default function DemoScriptPage() {
           <h1 className="mt-2 text-3xl font-semibold">Guion narrado Taxi Green</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
             Ruta de presentación para cerrar la demo S0-S9 sin improvisar: WhatsApp, despacho, conductor,
-            pasajero, counter, bienestar y plan B.
+            pasajero, mostrador, bienestar y plan B.
           </p>
         </div>
 
@@ -88,9 +88,9 @@ export default function DemoScriptPage() {
           </div>
           <div className="rounded-md border border-border bg-surface p-5">
             <QrCode className="h-6 w-6 text-product" />
-            <h2 className="mt-3 text-lg font-semibold text-product-deep dark:text-product-200">Wow counter</h2>
+            <h2 className="mt-3 text-lg font-semibold text-product-deep dark:text-product-200">Wow mostrador</h2>
             <p className="mt-2 text-sm leading-6 text-foreground-muted">
-              Validar QR, consumirlo y reintentar para enseñar bloqueo idempotente.
+              Validar el pase, confirmar acceso y reintentar para enseñar que vale una sola vez.
             </p>
           </div>
           <div className="rounded-md border border-border bg-surface p-5">
@@ -110,10 +110,10 @@ export default function DemoScriptPage() {
           <div className="mt-4 grid gap-2">
             {[
               'Login conductor con conductor1@taxigreen.demo / PIN 1234.',
-              'Abrir asignación activa y verificar ETA/distancia.',
+              'Abrir asignación activa y verificar llegada/distancia.',
               'Avanzar estados en orden: en camino, llegué, a bordo, finalizado.',
               'Moverse con el teléfono y confirmar broadcast de posición.',
-              'Probar fallback sin red y navegación desde push si hay token Expo.',
+              'Probar fallback sin red y navegación desde avisos push si están activos.',
             ].map((item) => (
               <div className="flex gap-3 rounded-md bg-surface-muted p-3 text-sm" key={item}>
                 <CheckCircle2 className="mt-0.5 h-4 w-4 text-success" />

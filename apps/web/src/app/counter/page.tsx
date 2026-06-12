@@ -16,12 +16,12 @@ export default async function CounterPage() {
             <p className="text-sm font-medium text-product">Mostrador Taxi Green · Aeropuerto Jorge Chávez</p>
             <h1 className="mt-2 text-3xl font-semibold text-foreground">Validar pasajero</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground-muted">
-              Escanea el QR del pasajero para confirmar su acceso. Cada código vale una sola vez.
+              Escanea el pase de abordaje del pasajero para confirmar su acceso. Cada código vale una sola vez.
             </p>
           </div>
           <div className="rounded-xl border border-border bg-surface px-4 py-3 text-sm">
             <p className="font-semibold text-foreground">Operador</p>
-            <p className="mt-1 text-foreground-muted">{session?.user?.email ?? 'counter@taxigreen.demo'}</p>
+            <p className="mt-1 text-foreground-muted">{session?.user?.email ?? 'Operador activo'}</p>
           </div>
         </div>
         <div className="mt-8">

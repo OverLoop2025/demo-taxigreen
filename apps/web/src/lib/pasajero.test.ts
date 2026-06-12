@@ -32,6 +32,16 @@ function makeReserva(overrides: Partial<PassengerRecord> = {}): PassengerRecord 
     token_pasajero: 'tg_demo_passenger_001',
     estado: 'en_curso',
     tipo_viaje: 'recojo_aeropuerto',
+    tipo_pago: 'voucher_hotel',
+    perfil_pasajero: 'hotel',
+    responsable_pago: 'hotel',
+    convenio_validado_demo: true,
+    requiere_factura: false,
+    vehiculo_preferencia: 'sedan',
+    pasajeros_cantidad: 2,
+    equipaje_nivel: 'normal',
+    estado_abordaje: 'autorizado',
+    counter_validado_en: new Date('2026-06-05T14:58:00.000Z'),
     pasajero_nombre: 'Valeria Mendoza',
     pasajero_telefono: '+51 999 111 222',
     pasajero_email: null,
@@ -137,6 +147,7 @@ describe('serializePassengerTrip — tracking sin geometría falsa', () => {
   it('el comprobante sólo está disponible cuando el viaje terminó', async () => {
     const enCurso = await serializePassengerTrip(makeReserva({ destino_lng: -77.0368 }));
     expect(enCurso.comprobante.disponible).toBe(false);
+    expect(enCurso.comercial.pagoPasajero).toContain('Cubierto por Hotel Costa');
 
     const finalizado = await serializePassengerTrip(
       makeReserva({

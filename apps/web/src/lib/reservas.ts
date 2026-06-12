@@ -25,6 +25,7 @@ export async function findReservaByPublicId(id: string) {
         orderBy: { created_at: 'desc' },
         take: 1,
       },
+      pago: true,
     },
   });
 }

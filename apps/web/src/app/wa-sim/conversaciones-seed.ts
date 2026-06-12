@@ -51,6 +51,36 @@ export const conversacionesSeed: ConversacionSeed[] = [
     ],
   },
   {
+    id: 'hotel-costa-verde-traslado',
+    nombre: 'Hotel Costa Verde',
+    subtitulo: 'Traslado al aeropuerto · sin mostrador',
+    fuente: 'WhatsApp hotel',
+    mensajes: [
+      {
+        id: 'm1',
+        autor: 'cliente',
+        hora: '16:22',
+        texto:
+          'Hotel Costa Verde: llevar al aeropuerto al huésped Camila Rojas mañana 18:30, vuelo LA640, recojo en el lobby (Av. Malecón 200, Miraflores), pago con voucher del hotel, tel +51 911 555 333.',
+      },
+    ],
+  },
+  {
+    id: 'acme-personal',
+    nombre: 'ACME Perú · personal',
+    subtitulo: 'Corporativo · paga el pasajero',
+    fuente: 'WhatsApp pasajero',
+    mensajes: [
+      {
+        id: 'm1',
+        autor: 'cliente',
+        hora: '12:18',
+        texto:
+          'Soy analista de ACME Perú, pero este viaje es personal. Necesito recojo aeropuerto para Carlos Ruiz mañana 08:10, vuelo LA2456, destino Miraflores, esta vez lo pago yo con tarjeta, tel 955111222.',
+      },
+    ],
+  },
+  {
     id: 'incompleta-aclaracion',
     nombre: 'Hotel aliado',
     subtitulo: 'Mensaje incompleto · requiere aclaración',

@@ -10,7 +10,7 @@ export default async function LoginCounterPage({
     <LoginForm
       callbackUrl={params.callbackUrl ?? '/counter'}
       subtitle="Acceso del supervisor de módulo"
-      title="Counter Aeropuerto"
+      title="Mostrador Aeropuerto"
     />
   );
 }

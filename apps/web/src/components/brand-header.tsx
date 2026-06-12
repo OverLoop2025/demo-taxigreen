@@ -11,10 +11,10 @@ export function BrandHeader() {
       <div className="flex items-center gap-3">
         {/* Chip de tenant. */}
         <span className="rounded bg-brand-tenant px-2 py-1 text-xs font-semibold">Taxi Green</span>
-        <span className="text-sm opacity-80">Demo en vivo</span>
+        <span className="text-sm opacity-80">Operación en vivo</span>
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-xs opacity-60">Demo final</span>
+        <span className="text-xs opacity-60">Servicio activo</span>
         <ThemeToggle className="h-8 w-8 border-white/25 bg-white/10 text-white hover:bg-white/20" />
       </div>
     </header>

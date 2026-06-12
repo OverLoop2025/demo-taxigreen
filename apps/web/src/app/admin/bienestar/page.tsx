@@ -59,6 +59,7 @@ export default async function AdminBienestarPage() {
               voucher_codigo: true,
               pasajero_nombre: true,
               token_pasajero: true,
+              origen_texto: true,
               punto_encuentro: true,
               conductor: {
                 select: {
@@ -130,7 +131,7 @@ export default async function AdminBienestarPage() {
                   <div className="rounded-md bg-surface-muted p-3">
                     <p className="text-xs font-semibold uppercase text-foreground-muted">Punto</p>
                     <p className="mt-1 font-medium text-foreground">
-                      {incidencia.reserva.punto_encuentro ?? 'Salida 3, columna F2'}
+                      {incidencia.reserva.punto_encuentro ?? incidencia.reserva.origen_texto ?? 'Punto por confirmar'}
                     </p>
                   </div>
                   <div className="rounded-md bg-surface-muted p-3">
