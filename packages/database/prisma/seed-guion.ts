@@ -3,7 +3,11 @@ import {
   EstadoIncidencia,
   EstadoReserva,
   EstadoViaje,
+  PerfilPasajero,
+  Prisma,
   PrismaClient,
+  ResponsablePago,
+  TipoVehiculo,
   SeveridadIncidencia,
   TipologiaIncidencia,
 } from '@prisma/client';
@@ -37,6 +41,7 @@ async function deleteWaDemoReservations() {
   await prisma.auditoria.deleteMany({ where: { target_table: 'reservas', target_id: { in: ids } } });
   await prisma.incidencias.deleteMany({ where: { reserva_id: { in: ids } } });
   await prisma.comprobantes.deleteMany({ where: { reserva_id: { in: ids } } });
+  await prisma.pagos.deleteMany({ where: { reserva_id: { in: ids } } });
   await prisma.viajes.deleteMany({ where: { reserva_id: { in: ids } } });
   await prisma.reservas.deleteMany({ where: { id: { in: ids } } });
 }
@@ -68,14 +73,30 @@ async function main() {
       estado_abordaje: EstadoAbordaje.autorizado,
       counter_validado_en: now,
       counter_usuario_id: null,
-      calificacion: null,
+      calificacion: Prisma.JsonNull,
       pasajero_dni: '44556677',
       pasajero_ruc: null,
+      perfil_pasajero: PerfilPasajero.hotel,
+      responsable_pago: ResponsablePago.hotel,
+      convenio_validado_demo: true,
+      requiere_factura: false,
+      vehiculo_preferencia: TipoVehiculo.sedan,
+      pasajeros_cantidad: 2,
+      equipaje_nivel: 'normal',
+      solicitante_nombre: 'Hilton Lima Miraflores',
+      hotel_nombre: 'Hilton Lima Miraflores',
+      empresa_nombre: null,
       voucher_emitido_en: now,
       raw_ingesta: {
         canal: 'whatsapp_oficial',
-        guion: 'S9',
-        conversaciones: ['protagonista-hotel', 'empresa-factura', 'incompleta-aclaracion'],
+        guion: 'S9/F5',
+        conversaciones: [
+          'protagonista-hotel',
+          'empresa-factura',
+          'hotel-costa-verde-traslado',
+          'acme-personal',
+          'incompleta-aclaracion',
+        ],
         mensaje:
           'Hola, soy Mariana del Hilton Lima Miraflores. Necesito recojo en el Jorge Chávez para la huésped Valeria Mendoza. Llega mañana 03:45 en vuelo LA2456. Punto de encuentro Salida 3 columna F2. Destino Av. Pardo 123, Miraflores.',
       },

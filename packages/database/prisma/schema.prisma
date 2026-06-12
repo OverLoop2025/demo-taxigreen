@@ -38,6 +38,18 @@ enum TipoPago {
   app_pago
 }
 
+enum PerfilPasajero {
+  particular
+  corporativo
+  hotel
+}
+
+enum ResponsablePago {
+  pasajero
+  empresa
+  hotel
+}
+
 enum EstadoReserva {
   ingesta_pendiente
   necesita_revision
@@ -62,6 +74,15 @@ enum EstadoAbordaje {
   no_requerido
   pendiente_validacion
   autorizado
+}
+
+enum EstadoPago {
+  pendiente
+  autorizado
+  por_cobrar
+  capturado
+  por_liquidar
+  rechazado
 }
 
 enum TipoComprobante {
@@ -118,6 +139,7 @@ model tenants {
   viajes               viajes[]
   posiciones_conductor posiciones_conductor[]
   comprobantes         comprobantes[]
+  pagos                pagos[]
   incidencias          incidencias[]
   auditoria            auditoria[]
 }
@@ -218,6 +240,19 @@ model reservas {
   estado_abordaje      EstadoAbordaje @default(no_requerido)
   counter_validado_en  DateTime?
   counter_usuario_id   String?
+  perfil_pasajero      PerfilPasajero  @default(particular)
+  responsable_pago     ResponsablePago @default(pasajero)
+  convenio_validado_demo Boolean       @default(false)
+  requiere_factura     Boolean         @default(false)
+  vehiculo_preferencia TipoVehiculo?
+  pasajeros_cantidad   Int?
+  equipaje_nivel       String?
+  cancelada_por        String?
+  cancelada_motivo     String?
+  cotizacion_monto     Decimal?       @db.Decimal(10, 2)
+  cotizacion_moneda    String?        @default("PEN")
+  cotizacion_fuente    String?
+  cotizacion_calculada_en DateTime?
   raw_ingesta          Json?
   sugerencia_copiloto  Json?
   calificacion         Json?
@@ -231,11 +266,33 @@ model reservas {
 
   viajes       viajes[]
   comprobantes comprobantes[]
+  pago         pagos?
   incidencias  incidencias[]
 
   @@index([tenant_id, estado])
   @@index([tenant_id, canal_origen])
   @@index([tenant_id, tipo_viaje])
+}
+
+model pagos {
+  id             String     @id @default(uuid())
+  tenant_id      String
+  tenant         tenants    @relation(fields: [tenant_id], references: [id])
+  reserva_id     String     @unique
+  reserva        reservas   @relation(fields: [reserva_id], references: [id])
+  tipo_pago      TipoPago
+  estado         EstadoPago @default(pendiente)
+  monto          Decimal    @db.Decimal(10, 2)
+  moneda         String     @default("PEN")
+  proveedor_demo String?
+  autorizacion   String?
+  payload_demo   Json?
+  autorizado_en  DateTime?
+  capturado_en   DateTime?
+  created_at     DateTime   @default(now())
+  updated_at     DateTime   @updatedAt
+
+  @@index([tenant_id])
 }
 
 model viajes {
