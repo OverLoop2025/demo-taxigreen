@@ -100,7 +100,12 @@ export const WHATSAPP_CASOS_S4: WhatsappCaso[] = [
       mensaje:
         'Empresa pide traslado al aeropuerto desde Miraflores para pasajero Luis Nuñez mañana 19:20, RUC 20123456789, factura, tel pasajero 977111222.',
     },
-    esperadoMinimo: { pasajero_ruc: null, tipo_pago: 'factura_empresa' },
+    esperadoMinimo: {
+      pasajero_ruc: null,
+      perfil_pasajero: 'corporativo',
+      responsable_pago: 'pasajero',
+      tipo_pago: null,
+    },
   },
   {
     nombre: 'pago yape',

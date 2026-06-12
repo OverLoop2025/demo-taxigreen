@@ -18,6 +18,14 @@ export const tipoPagoSchema = z.enum([
   'app_pago',
 ]);
 
+export const perfilPasajeroSchema = z.enum(['particular', 'corporativo', 'hotel']);
+
+export const responsablePagoSchema = z.enum(['pasajero', 'empresa', 'hotel']);
+
+export const tipoVehiculoSchema = z.enum(['sedan', 'camioneta', 'van', 'minivan']);
+
+export const equipajeNivelSchema = z.enum(['poco', 'normal', 'grande']);
+
 export const solicitanteTipoSchema = z.enum(['hotel', 'empresa', 'pasajero', 'operador']).nullable();
 
 export const fuenteDecisionSchema = z.enum(['algoritmo', 'llm']);
@@ -43,6 +51,13 @@ export const reservaExtraidaSchema = z.object({
   fecha_hora_servicio: z.string().nullable(),
   vuelo_codigo: z.string().nullable(),
   tipo_pago: tipoPagoSchema.nullable(),
+  perfil_pasajero: perfilPasajeroSchema.nullable(),
+  responsable_pago: responsablePagoSchema.nullable(),
+  convenio_validado_demo: z.boolean(),
+  requiere_factura: z.boolean(),
+  vehiculo_preferencia: tipoVehiculoSchema.nullable(),
+  pasajeros_cantidad: z.number().int().positive().nullable(),
+  equipaje_nivel: equipajeNivelSchema.nullable(),
   pasajeros: z.number().int().positive().nullable(),
   maletas: z.number().int().min(0).nullable(),
   hotel_nombre: z.string().nullable(),
@@ -70,6 +85,10 @@ export const extractorInputSchema = z.object({
 export type CanalOrigen = z.infer<typeof canalOrigenSchema>;
 export type TipoViaje = z.infer<typeof tipoViajeSchema>;
 export type TipoPago = z.infer<typeof tipoPagoSchema>;
+export type PerfilPasajero = z.infer<typeof perfilPasajeroSchema>;
+export type ResponsablePago = z.infer<typeof responsablePagoSchema>;
+export type TipoVehiculo = z.infer<typeof tipoVehiculoSchema>;
+export type EquipajeNivel = z.infer<typeof equipajeNivelSchema>;
 export type SolicitanteTipo = z.infer<typeof solicitanteTipoSchema>;
 export type FuenteDecision = z.infer<typeof fuenteDecisionSchema>;
 export type ReservaExtraida = z.infer<typeof reservaExtraidaSchema>;

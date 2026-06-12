@@ -9,6 +9,8 @@ const PREGUNTAS: Record<string, string> = {
   vuelo_codigo: '¿Cuál es el número de vuelo?',
   punto_encuentro: '¿Cuál será el punto de encuentro en llegadas?',
   tipo_pago: '¿El pago será efectivo, voucher hotel, factura empresa o app?',
+  perfil_pasajero: '¿La reserva es particular o va asociada a una empresa u hotel?',
+  responsable_pago: '¿El servicio lo cubre la empresa/hotel o lo pagarás tú?',
 };
 
 export function preguntasParaCampos(campos: string[]): string[] {

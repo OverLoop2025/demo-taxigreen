@@ -80,9 +80,26 @@ export function detectarAeropuerto(texto: string) {
 }
 
 export function extraerPuntoEncuentro(texto: string): string | null {
-  const match = /salida\s*([0-9a-z]+).*?columna\s*([a-z][0-9]?|[0-9]+)/iu.exec(texto);
-  if (!match?.[1] || !match[2]) return null;
-  return `Salida ${match[1].toUpperCase()}, columna ${match[2].toUpperCase()}`;
+  const salidaColumna = /salida\s*([0-9a-z]+).*?columna\s*([a-z][0-9]?|[0-9]+)/iu.exec(texto);
+  if (salidaColumna?.[1] && salidaColumna[2]) {
+    return `Salida ${salidaColumna[1].toUpperCase()}, columna ${salidaColumna[2].toUpperCase()}`;
+  }
+
+  const puertaColumna = /puerta\s*([0-9a-z]+).*?columna\s*([a-z][0-9]?|[0-9]+)/iu.exec(texto);
+  if (puertaColumna?.[1] && puertaColumna[2]) {
+    return `Puerta ${puertaColumna[1].toUpperCase()}, columna ${puertaColumna[2].toUpperCase()}`;
+  }
+
+  const puerta = /(?:salgo\s+por\s+(?:la\s+)?)?puerta\s*([0-9a-z]+)/iu.exec(texto);
+  if (puerta?.[1]) return `Puerta ${puerta[1].toUpperCase()}`;
+
+  if (/\bzona\s+de\s+llegadas\b/iu.test(texto)) return 'Zona de llegadas';
+  if (/\bllegadas\s+(?:nacionales|internacionales)\b/iu.test(texto)) {
+    const match = /\bllegadas\s+(nacionales|internacionales)\b/iu.exec(texto);
+    return match?.[1] ? `Llegadas ${limpiarNombre(match[1]).toLowerCase()}` : 'Zona de llegadas';
+  }
+
+  return null;
 }
 
 export function normalizarDireccion(texto: string): DireccionNormalizada | null {
@@ -95,7 +112,7 @@ export function normalizarDireccion(texto: string): DireccionNormalizada | null 
   }
 
   const destinoMatch =
-    /(?:destino|a|hacia|llevar(?:lo|la)? a|dejar(?:lo|la)? en)\s+([^.;\n]+(?:miraflores|san isidro|barranco|surco|san borja)[^.;\n]*)/iu.exec(
+    /(?:destino|a|hacia|llevar(?:lo|la)? a|dejar(?:lo|la)? en|desde|recojo en|rec[oó]geme en|salgo de|parto de)\s+([^.;\n]+(?:miraflores|san isidro|barranco|surco|san borja)[^.;\n]*)/iu.exec(
       texto,
     );
   const extracted = destinoMatch?.[1]?.trim();
@@ -171,6 +188,26 @@ export function extraerFechaHoraServicio(texto: string, fechaActualIso?: string)
 }
 
 export function extraerCantidad(texto: string, keyword: 'pasajeros' | 'maletas'): number | null {
+  const normalized = normalizarTexto(texto);
+  if (keyword === 'pasajeros') {
+    if (/\b(?:solo\s+voy\s+yo|voy\s+solo|voy\s+sola|una\s+persona|1\s*(?:persona|pasajero|pax))\b/u.test(normalized)) {
+      return 1;
+    }
+    const palabras: Array<[RegExp, number]> = [
+      [/\bdos\s+(?:personas|pasajeros|pax)\b/u, 2],
+      [/\btres\s+(?:personas|pasajeros|pax)\b/u, 3],
+      [/\bcuatro\s+(?:personas|pasajeros|pax)\b/u, 4],
+      [/\bcinco\s+(?:personas|pasajeros|pax)\b/u, 5],
+      [/\bseis\s+(?:personas|pasajeros|pax)\b/u, 6],
+    ];
+    const match = palabras.find(([pattern]) => pattern.test(normalized));
+    if (match) return match[1];
+  }
+
+  if (keyword === 'maletas' && /\b(?:sin\s+maletas|sin\s+equipaje|solo\s+mochila)\b/u.test(normalized)) {
+    return 0;
+  }
+
   const plural =
     keyword === 'pasajeros'
       ? /(\d+)\s*(?:pasajeros|pax|personas|adultos)\b/iu

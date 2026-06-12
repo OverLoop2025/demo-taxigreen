@@ -12,6 +12,12 @@ export const DIRECCIONES_CANONICAS: ZonaLima[] = [
     aliases: ['av pardo 123', 'avenida pardo 123', 'pardo 123', 'av. pardo 123'],
   },
   {
+    texto: 'Hotel Costa Verde, Av. Malecón 200, Miraflores',
+    lat: -12.1297,
+    lng: -77.0369,
+    aliases: ['av malecon 200', 'av. malecon 200', 'malecón 200', 'malecon 200', 'hotel costa verde'],
+  },
+  {
     texto: 'San Isidro, Lima',
     lat: -12.0975,
     lng: -77.0364,

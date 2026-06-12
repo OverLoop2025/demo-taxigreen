@@ -17,6 +17,10 @@ export const HOTELES: HotelCanonico[] = [
     aliases: ['jw marriott', 'marriott lima'],
   },
   {
+    nombre: 'Hotel Costa Verde',
+    aliases: ['hotel costa verde', 'costa verde'],
+  },
+  {
     nombre: 'Hotel B',
     aliases: ['hotel b', 'hotel barranco'],
   },
