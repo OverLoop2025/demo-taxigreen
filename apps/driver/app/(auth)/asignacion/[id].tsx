@@ -4,13 +4,15 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { TouchButton } from '@/components/TouchButton';
 import { AssignmentMap } from '@/components/map/AssignmentMap';
 import { ApiError } from '@/features/api/client';
 import {
+  cancelDriverAssignment,
   changeDriverAssignmentState,
   getDriverAssignment,
+  type MotivoCancelacion,
 } from '@/features/assignment/client';
 import {
   getNextTripAction,
@@ -22,6 +24,7 @@ import { useAuth } from '@/features/auth/use-auth';
 import { useLocationTracking } from '@/features/location';
 import { useNetworkStatus } from '@/features/network/use-network-status';
 import { useRealtime } from '@/features/realtime';
+import { proximaManiobra } from '@/features/routing/guidance';
 import { useDriverRoute } from '@/features/routing/use-route';
 import type { AssignmentMapMode } from '@/components/map/AssignmentMap';
 
@@ -33,6 +36,15 @@ function KeepAwakeGate() {
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
+
+// F7: motivos cerrados de cancelación (mismo catálogo que valida el servidor).
+const MOTIVOS_CANCELACION: Array<{ valor: MotivoCancelacion; etiqueta: string }> = [
+  { valor: 'problema_mecanico', etiqueta: 'Problema mecánico' },
+  { valor: 'no_llego_a_tiempo', etiqueta: 'No llego a tiempo' },
+  { valor: 'emergencia_personal', etiqueta: 'Emergencia personal' },
+  { valor: 'error_de_asignacion', etiqueta: 'Error de asignación' },
+  { valor: 'otro', etiqueta: 'Otro' },
+];
 
 function showToast(message: string) {
   if (Platform.OS === 'android') {
@@ -117,20 +129,28 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+function isValidLatLng(point: Coordinates): point is Coordinates & { lat: number; lng: number } {
+  return (
+    typeof point.lat === 'number' &&
+    Number.isFinite(point.lat) &&
+    point.lat >= -90 &&
+    point.lat <= 90 &&
+    typeof point.lng === 'number' &&
+    Number.isFinite(point.lng) &&
+    point.lng >= -180 &&
+    point.lng <= 180
+  );
+}
+
 // Cobro estimado ESTABLE del viaje (origen→destino), no del tramo vivo: no fluctúa
 // con el GPS. Tarifa simple Lima (mockup de demo; el pago real es "otro costal").
 function cobroEstimado(origen: Coordinates, destino: Coordinates): string | null {
-  if (
-    typeof origen.lat !== 'number' ||
-    typeof origen.lng !== 'number' ||
-    typeof destino.lat !== 'number' ||
-    typeof destino.lng !== 'number'
-  ) {
+  if (!isValidLatLng(origen) || !isValidLatLng(destino)) {
     return null;
   }
   const km = haversineKm({ lat: origen.lat, lng: origen.lng }, { lat: destino.lat, lng: destino.lng }) * 1.3;
   const monto = 7.5 + 3.2 * km;
-  const redondeado = Math.round(monto / 0.5) * 0.5;
+  const redondeado = Math.max(15, Math.round(monto / 0.5) * 0.5);
   return `S/ ${redondeado.toFixed(2)}`;
 }
 
@@ -172,6 +192,11 @@ export default function AssignmentScreen() {
   const [expanded, setExpanded] = useState(false);
   const [mapModeOverride, setMapModeOverride] = useState<AssignmentMapMode | null>(null);
   const [mapRecenterKey, setMapRecenterKey] = useState(0);
+  // F7: hoja de cancelación con motivo (el despacho reasigna otra unidad).
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelMotivo, setCancelMotivo] = useState<MotivoCancelacion | null>(null);
+  const [cancelComentario, setCancelComentario] = useState('');
+  const [cancelSending, setCancelSending] = useState(false);
   const autoRetryArmed = useRef(false);
   const prevOnlineRef = useRef<boolean | null>(null);
 
@@ -275,7 +300,7 @@ export default function AssignmentScreen() {
 
   useEffect(() => {
     if (!lastAbordaje || lastAbordaje.reservaId !== reservaId) return;
-    setNotice('Counter validó el pase. Ya puedes iniciar la ruta.');
+    setNotice('Mostrador validó el pase. Ya puedes iniciar la ruta.');
     void loadAssignment(true);
     clearLastAbordaje();
   }, [clearLastAbordaje, lastAbordaje, loadAssignment, reservaId]);
@@ -286,6 +311,29 @@ export default function AssignmentScreen() {
     // Mensajes de la fase anterior nunca sobreviven a un cambio de estado.
     setNotice(null);
   }, [estadoViaje]);
+
+  // F7: cancelable solo antes de subir al pasajero; después es una incidencia.
+  const puedeCancelar =
+    estadoViaje === 'asignado' || estadoViaje === 'en_camino' || estadoViaje === 'en_punto';
+
+  const submitCancel = useCallback(async () => {
+    if (!reservaId || !session?.token || !cancelMotivo || cancelSending) return;
+    setCancelSending(true);
+    try {
+      await cancelDriverAssignment({
+        reservaId,
+        token: session.token,
+        motivo: cancelMotivo,
+        comentario: cancelComentario.trim() || undefined,
+      });
+      showToast('Viaje cancelado. El despacho asignará otra unidad.');
+      router.replace('/(auth)/home');
+    } catch (cancelError) {
+      setCancelSending(false);
+      setError(cancelError instanceof Error ? cancelError.message : 'No se pudo cancelar el viaje.');
+      setCancelOpen(false);
+    }
+  }, [cancelComentario, cancelMotivo, cancelSending, reservaId, router, session?.token]);
 
   if (loading) {
     return (
@@ -312,10 +360,14 @@ export default function AssignmentScreen() {
   }
 
   const estadoBanner: EstadoViaje = estadoViaje ?? 'asignado';
-  const punto = assignment.puntoEncuentro ?? 'Salida 3, columna F2';
+  const punto = assignment.puntoEncuentro ?? assignment.origen.texto;
   const destino = assignment.destino.texto;
   const mostrandoDestino = estadoViaje === 'a_bordo' || estadoViaje === 'finalizado';
-  const focalLabel = mostrandoDestino ? 'Destino' : 'Punto de encuentro';
+  const focalLabel = mostrandoDestino
+    ? 'Destino'
+    : assignment.abordaje?.requiereCounter
+      ? 'Punto de encuentro'
+      : 'Punto de recojo';
   const focalValue = mostrandoDestino ? destino : punto;
   const unidadLabel = assignment.unidad
     ? `${assignment.unidad.placa} · ${assignment.unidad.marca} ${assignment.unidad.modelo}`
@@ -327,15 +379,24 @@ export default function AssignmentScreen() {
       assignment.abordaje?.requiereCounter &&
       !assignment.abordaje?.autorizado,
   );
+  const sinMostradorListo = Boolean(
+    estadoViaje === 'asignado' &&
+      assignment.abordaje &&
+      !assignment.abordaje.requiereCounter,
+  );
 
-  // Próxima maniobra para la guía tipo navegador. Sin progreso GPS real en la demo,
-  // mostramos la primera maniobra de giro (paso 1) y la distancia hasta ella (la
-  // longitud del tramo de salida). Si sólo hay un paso, usamos ese.
-  const pasos = route.route.pasos;
-  const maniobraIdx = pasos.length > 1 ? 1 : 0;
-  const maniobra = pasos[maniobraIdx] ?? null;
-  const distanciaManiobra =
-    pasos.length > 1 ? pasos[0]?.distanciaMetros ?? null : maniobra?.distanciaMetros ?? null;
+  // Próxima maniobra REAL según el avance del conductor sobre la ruta: el GPS se
+  // proyecta sobre la polilínea y se elige el primer giro que sigue por delante.
+  // Así el banner nunca anuncia un giro ya ejecutado (ni el lado equivocado).
+  const guiaManiobra = proximaManiobra({
+    pasos: route.route.pasos,
+    geometry: route.route.geometry,
+    gps: tracking.lastLocation
+      ? { lat: tracking.lastLocation.lat, lng: tracking.lastLocation.lng }
+      : null,
+  });
+  const maniobra = guiaManiobra?.paso ?? null;
+  const distanciaManiobra = guiaManiobra?.distanciaMetros ?? null;
   const tieneManiobra = mapMode === 'drive' && Boolean(maniobra) && estadoViaje !== 'finalizado';
   const routeSubtitle =
     route.status === 'calculating'
@@ -343,7 +404,9 @@ export default function AssignmentScreen() {
       : rutaFuenteHumano(route.route.fuente);
   // Cálculo puro y barato (no hook): seguro tras los early returns. El cobro es
   // estable (origen→destino), así que no fluctúa con el GPS.
-  const cobro = cobroEstimado(assignment.origen, assignment.destino);
+  const cobro = assignment.cobro?.montoEtiqueta ?? cobroEstimado(assignment.origen, assignment.destino);
+  const cobroLabel = assignment.cobro ? 'Cobro' : 'Cobro estimado';
+  const cobroEstado = assignment.comercial?.pagoConductor ?? assignment.cobro?.estadoLabel ?? null;
 
   return (
     <View className="flex-1 bg-background">
@@ -416,12 +479,14 @@ export default function AssignmentScreen() {
               </>
             )}
           </View>
-          <View className="flex-row items-center justify-between bg-ink-800 px-4 py-3">
-            <Text className="text-base font-bold text-white">
-              {etaHumano(estadoViaje, route.route.duracionSegundos)}
-            </Text>
-            <Text className="text-xs font-semibold text-zinc-400">{routeSubtitle}</Text>
-          </View>
+          {tieneManiobra ? null : (
+            <View className="flex-row items-center justify-between bg-ink-800 px-4 py-3">
+              <Text className="text-base font-bold text-white">
+                {etaHumano(estadoViaje, route.route.duracionSegundos)}
+              </Text>
+              <Text className="text-xs font-semibold text-zinc-400">{routeSubtitle}</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -458,29 +523,30 @@ export default function AssignmentScreen() {
       </View>
 
       {driverModeUi ? (
-        <View className="absolute inset-x-3 bottom-5 rounded-3xl border border-white/10 bg-ink-900/95 px-4 pb-4 pt-4 shadow-2xl">
+        /* Modo conductor: panel mínimo (patrón Waze) — solo destino, llegada y la
+           acción del viaje. El cobro y los detalles viven en la vista de resumen. */
+        <View className="absolute inset-x-3 bottom-5 rounded-3xl border border-white/10 bg-ink-900/95 px-4 pb-3 pt-3 shadow-2xl">
           <View className="flex-row items-center gap-3">
-            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-brand">
-              <Ionicons name="flag" size={26} color="#0A0A0B" />
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-brand">
+              <Ionicons name="flag" size={20} color="#0A0A0B" />
             </View>
             <View className="flex-1">
-              <Text className="text-xs font-bold uppercase tracking-wide text-zinc-400">Destino</Text>
-              <Text className="mt-0.5 text-xl font-black text-white" numberOfLines={1}>
+              <Text className="text-lg font-black leading-6 text-white" numberOfLines={1}>
                 {destino}
               </Text>
-              <Text className="mt-1 text-sm font-semibold text-zinc-400" numberOfLines={1}>
-                {etaHumano(estadoViaje, route.route.duracionSegundos)} · {distanciaRutaHumana(route.route.distanciaMetros)} · {routeSubtitle}
+              <Text className="mt-0.5 text-sm font-semibold text-zinc-400" numberOfLines={1}>
+                {etaHumano(estadoViaje, route.route.duracionSegundos)} · {distanciaRutaHumana(route.route.distanciaMetros)}
               </Text>
             </View>
           </View>
 
           {error ? (
-            <View className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3">
+            <View className="mt-2 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-2">
               <Text className="text-sm font-semibold text-red-300">{error}</Text>
             </View>
           ) : null}
 
-          <View className="mt-4">
+          <View className="mt-3">
             {pendingRetry ? (
               <TouchButton
                 label={`Reintentar: ${accionPrincipalLabel(estadoBanner, pendingRetry)}`}
@@ -498,6 +564,15 @@ export default function AssignmentScreen() {
               <TouchButton label="Actualizar" tone="secondary" onPress={() => loadAssignment()} />
             )}
           </View>
+          {puedeCancelar ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCancelOpen(true)}
+              className="mt-2 items-center py-1"
+            >
+              <Text className="text-sm font-semibold text-zinc-500">No puedo continuar este viaje</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <View className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-5 pb-8 pt-3 shadow-2xl">
@@ -520,16 +595,32 @@ export default function AssignmentScreen() {
 
           {cobro ? (
             <View className="mt-3 flex-row items-center justify-between rounded-2xl border border-brand/40 bg-surface-muted px-4 py-3">
-              <Text className="text-sm font-bold uppercase tracking-wide text-foreground-muted">Cobro estimado</Text>
+              <View className="flex-1 pr-3">
+                <Text className="text-sm font-bold uppercase tracking-wide text-foreground-muted">{cobroLabel}</Text>
+                {cobroEstado ? (
+                  <Text className="mt-0.5 text-xs font-semibold text-foreground-muted" numberOfLines={1}>
+                    {cobroEstado}
+                  </Text>
+                ) : null}
+              </View>
               <Text className="text-xl font-black text-foreground">{cobro}</Text>
             </View>
           ) : null}
 
           {abordajeBloqueado ? (
             <View className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/15 px-4 py-3">
-              <Text className="text-sm font-bold text-foreground">Esperando validación del counter</Text>
+              <Text className="text-sm font-bold text-foreground">Esperando validación del mostrador</Text>
               <Text className="mt-1 text-sm leading-5 text-foreground-muted">
                 El pasajero validará su pase al llegar. Te avisaremos cuando puedas iniciar.
+              </Text>
+            </View>
+          ) : null}
+
+          {sinMostradorListo ? (
+            <View className="mt-3 rounded-2xl border border-brand/40 bg-brand/15 px-4 py-3">
+              <Text className="text-sm font-bold text-foreground">Listo para ir al punto de recojo</Text>
+              <Text className="mt-1 text-sm leading-5 text-foreground-muted">
+                Este traslado no requiere mostrador. Inicia cuando estés listo.
               </Text>
             </View>
           ) : null}
@@ -590,8 +681,76 @@ export default function AssignmentScreen() {
               <TouchButton label="Actualizar" tone="secondary" onPress={() => loadAssignment()} />
             )}
           </View>
+          {puedeCancelar ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCancelOpen(true)}
+              className="mt-3 items-center py-1"
+            >
+              <Text className="text-sm font-semibold text-foreground-muted">
+                No puedo continuar este viaje
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       )}
+
+      {/* F7: hoja de cancelación con motivo. El despacho reasigna otra unidad y el
+          pasajero recibe la disculpa con su nueva unidad por el canal del chat. */}
+      {cancelOpen ? (
+        <View className="absolute inset-0 justify-end bg-black/60">
+          <Pressable className="flex-1" onPress={() => setCancelOpen(false)} />
+          <View className="rounded-t-3xl bg-surface px-5 pb-8 pt-5">
+            <Text className="text-xl font-bold text-foreground">¿Por qué no puedes continuar?</Text>
+            <Text className="mt-1 text-sm leading-5 text-foreground-muted">
+              El despacho asignará otra unidad para cuidar el tiempo del pasajero.
+            </Text>
+            <View className="mt-4 gap-2">
+              {MOTIVOS_CANCELACION.map((opcion) => {
+                const activo = cancelMotivo === opcion.valor;
+                return (
+                  <Pressable
+                    key={opcion.valor}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: activo }}
+                    onPress={() => setCancelMotivo(opcion.valor)}
+                    className={`flex-row items-center gap-3 rounded-2xl border px-4 py-3 ${
+                      activo ? 'border-brand bg-brand/10' : 'border-border bg-surface-muted'
+                    }`}
+                  >
+                    <View
+                      className={`h-5 w-5 items-center justify-center rounded-full border-2 ${
+                        activo ? 'border-brand' : 'border-border'
+                      }`}
+                    >
+                      {activo ? <View className="h-2.5 w-2.5 rounded-full bg-brand" /> : null}
+                    </View>
+                    <Text className="text-base font-semibold text-foreground">{opcion.etiqueta}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <TextInput
+              className="mt-3 min-h-12 rounded-2xl border border-border bg-surface-muted px-4 py-3 text-base text-foreground"
+              placeholder="Cuéntanos brevemente (opcional)"
+              placeholderTextColor="#71717A"
+              value={cancelComentario}
+              onChangeText={setCancelComentario}
+              multiline
+            />
+            <View className="mt-4 gap-2">
+              <TouchButton
+                label="Confirmar cancelación"
+                tone="danger"
+                disabled={!cancelMotivo}
+                loading={cancelSending}
+                onPress={() => void submitCancel()}
+              />
+              <TouchButton label="Volver" tone="secondary" onPress={() => setCancelOpen(false)} />
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

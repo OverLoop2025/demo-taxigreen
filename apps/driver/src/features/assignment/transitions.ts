@@ -9,7 +9,7 @@ const nextActions: Partial<Record<EstadoViaje, NextTripAction>> = {
   en_camino: {
     estado: 'en_punto',
     label: 'Llegué',
-    helper: 'Confirma que estás en Salida 3, columna F2.',
+    helper: 'Confirma que estás en el punto de recojo.',
   },
   en_punto: {
     estado: 'a_bordo',
@@ -30,7 +30,7 @@ export function getNextTripAction(
   if (estado === 'asignado' && abordaje?.requiereCounter && !abordaje.autorizado) {
     return {
       estado: 'en_camino',
-      label: 'Esperando counter',
+      label: 'Esperando mostrador',
       helper: 'El pasajero validará su pase al llegar.',
       bloqueada: true,
     } satisfies NextTripAction;

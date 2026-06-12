@@ -383,7 +383,6 @@ export function AssignmentMap({
   }
 
   const { Camera, LineLayer, MapView, MarkerView, ShapeSource, VectorSource } = Mapbox;
-  const ornamentBottom = fill ? 238 : 10;
 
   return (
     <View
@@ -393,11 +392,9 @@ export function AssignmentMap({
       style={fill ? styles.fillContainer : undefined}
     >
       <MapView
-        attributionEnabled
-        attributionPosition={{ bottom: ornamentBottom, left: 8 }}
+        attributionEnabled={false}
         compassEnabled={false}
-        logoEnabled
-        logoPosition={{ bottom: ornamentBottom, left: 38 }}
+        logoEnabled={false}
         scaleBarEnabled={false}
         gestureSettings={{
           doubleTapToZoomInEnabled: true,

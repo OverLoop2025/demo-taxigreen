@@ -28,6 +28,27 @@ export type DriverAssignment = {
   tipoViaje: string;
   fechaHoraServicio: string;
   estadoReserva: EstadoReserva;
+  cobro: {
+    metodo: string;
+    metodoLabel: string;
+    estado: string;
+    estadoLabel: string;
+    monto: string;
+    moneda: string;
+    montoEtiqueta: string;
+    etiqueta: string;
+  } | null;
+  comercial: {
+    perfilPasajero: string;
+    responsablePago: string;
+    convenioValidadoDemo: boolean;
+    requiereFactura: boolean;
+    vehiculoPreferencia: string | null;
+    pasajerosCantidad: number | null;
+    equipajeNivel: string | null;
+    resumen: string;
+    pagoConductor: string;
+  };
   pasajero: {
     nombre: string;
     telefono: string;

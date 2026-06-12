@@ -78,8 +78,19 @@ export default function HomeScreen() {
       activeAssignment.abordaje?.requiereCounter &&
       !activeAssignment.abordaje?.autorizado,
   );
-  const ctaViaje = viajeBloqueado ? 'Esperando counter' : viajeEnCurso ? 'Abrir viaje' : 'Empezar';
-  const tituloViaje = viajeBloqueado ? 'Esperando validación' : viajeEnCurso ? 'Viaje en curso' : 'Tienes un viaje';
+  const viajeSinMostrador = Boolean(
+    activeAssignment?.viaje?.estado === 'asignado' &&
+      activeAssignment.abordaje &&
+      !activeAssignment.abordaje.requiereCounter,
+  );
+  const ctaViaje = viajeBloqueado ? 'Esperando mostrador' : viajeEnCurso ? 'Abrir viaje' : 'Empezar';
+  const tituloViaje = viajeBloqueado
+    ? 'Esperando validación'
+    : viajeSinMostrador
+      ? 'Listo para ir al punto de recojo'
+      : viajeEnCurso
+        ? 'Viaje en curso'
+        : 'Tienes un viaje';
   // Unidad COHERENTE: la del viaje vigente (la que eligió el despacho, que puede ser
   // una reasignación temporal) manda sobre la unidad predefinida del conductor.
   const unidadDelViaje = activeAssignment?.unidad ?? null;
@@ -145,6 +156,15 @@ export default function HomeScreen() {
           <View className="px-5 py-5">
             <Text className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Pasajero</Text>
             <Text className="mt-1 text-xl font-bold text-foreground">{passengerName ?? 'Listo para revisar'}</Text>
+            {viajeBloqueado ? (
+              <Text className="mt-2 text-sm leading-5 text-foreground-muted">
+                El mostrador dará luz verde cuando el pasajero valide su pase.
+              </Text>
+            ) : viajeSinMostrador ? (
+              <Text className="mt-2 text-sm leading-5 text-foreground-muted">
+                Este traslado no requiere mostrador. Puedes iniciar hacia el punto de recojo.
+              </Text>
+            ) : null}
             <TouchButton
               label={ctaViaje}
               disabled={viajeBloqueado}

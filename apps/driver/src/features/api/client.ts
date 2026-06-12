@@ -22,7 +22,7 @@ const baseUrl = env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
 // Códigos internos del backend → mensaje legible para el chofer. El código crudo
 // sigue disponible en `ApiError.payload` para quien necesite ramificar lógica.
 const MENSAJES_POR_CODIGO: Record<string, string> = {
-  counter_pendiente: 'El counter aún no valida el pase del pasajero. Te avisaremos con la luz verde.',
+  counter_pendiente: 'El mostrador aún no valida el pase del pasajero. Te avisaremos con la luz verde.',
   transicion_invalida: 'El viaje cambió de estado en el sistema. Actualizamos la información.',
   asignacion_no_encontrada: 'Este viaje ya no está asignado a tu usuario.',
   viaje_no_encontrado: 'No encontramos el viaje en el sistema.',

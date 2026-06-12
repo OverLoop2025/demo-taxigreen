@@ -27,6 +27,35 @@ export function getDriverTrips(token: string) {
   });
 }
 
+export type MotivoCancelacion =
+  | 'problema_mecanico'
+  | 'no_llego_a_tiempo'
+  | 'emergencia_personal'
+  | 'error_de_asignacion'
+  | 'otro';
+
+// F7: el conductor cancela con motivo; el despacho reasigna otra unidad.
+export function cancelDriverAssignment({
+  reservaId,
+  token,
+  motivo,
+  comentario,
+}: {
+  reservaId: string;
+  token: string;
+  motivo: MotivoCancelacion;
+  comentario?: string;
+}) {
+  return apiFetch<{ ok: boolean; resultado: string }>(
+    `/api/conductor/asignacion/${reservaId}/cancelar`,
+    {
+      method: 'POST',
+      token,
+      body: { motivo, comentario },
+    },
+  );
+}
+
 export function changeDriverAssignmentState({
   reservaId,
   token,

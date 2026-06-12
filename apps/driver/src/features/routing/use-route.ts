@@ -15,6 +15,8 @@ export type DriverRoutePaso = {
   tipo: string;
   modifier: string | null;
   nombre: string | null;
+  // [lng, lat] de la maniobra; permite elegir el próximo giro según el GPS.
+  location?: [number, number] | null;
 };
 
 export type DriverRouteResult = {
@@ -106,11 +108,20 @@ function isRealGeometry(result: DriverRouteResult) {
   return result.fuente === 'mapbox' && (result.geometry?.coordinates.length ?? 0) > 2;
 }
 
+// Si un tramo NUEVO recibe respuesta sin geometría real (throttle del servidor o
+// timeout de Mapbox), reintentamos solos en unos segundos: sin esto, el mapa se
+// queda sin línea hasta que el GPS cambie de tramo (~110 m), que es exactamente
+// el "la ruta no se traza" reportado al abrir la pantalla.
+const RETRY_DELAY_MS = 3200;
+const MAX_RETRIES_POR_TRAMO = 2;
+
 export function useDriverRoute({ assignment, driverLocation, token }: UseDriverRouteArgs) {
   const [route, setRoute] = useState<DriverRouteResult>(emptyRoute);
   const [status, setStatus] = useState<'idle' | 'calculating' | 'ready' | 'fallback'>('idle');
   const lastCalcRef = useRef<{ key: string; ts: number } | null>(null);
   const renderedKeyRef = useRef<string | null>(null);
+  const retriesRef = useRef<{ key: string; count: number }>({ key: '', count: 0 });
+  const [retryTick, setRetryTick] = useState(0);
 
   const leg = useMemo(() => (assignment ? legForPhase(assignment, driverLocation) : null), [assignment, driverLocation]);
   const legKeyValue = leg ? legKey(leg) : null;
@@ -135,6 +146,7 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
     if (last && last.key === key && now - last.ts < MIN_RECALC_MS) return;
 
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     lastCalcRef.current = { key, ts: now };
     setStatus('calculating');
 
@@ -143,6 +155,19 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
       // preferible esperar el recálculo a dibujar una línea que no nace del puck.
       setRoute(emptyRoute());
     }
+
+    const scheduleRetry = () => {
+      if (renderedKeyRef.current === key) return; // ya hay curva real de este tramo
+      if (retriesRef.current.key !== key) retriesRef.current = { key, count: 0 };
+      if (retriesRef.current.count >= MAX_RETRIES_POR_TRAMO) return;
+      retriesRef.current.count += 1;
+      retryTimer = setTimeout(() => {
+        if (cancelled) return;
+        // Liberar el candado del cliente para que el efecto vuelva a llamar.
+        lastCalcRef.current = null;
+        setRetryTick((tick) => tick + 1);
+      }, RETRY_DELAY_MS);
+    };
 
     void apiFetch<DriverRouteResult>('/api/rutas/calcular', {
       method: 'POST',
@@ -169,19 +194,26 @@ export function useDriverRoute({ assignment, driverLocation, token }: UseDriverR
           pasos: real ? result.pasos ?? [] : renderedKeyRef.current === key ? current.pasos : [],
           cache: result.cache,
         }));
-        if (real) renderedKeyRef.current = key;
+        if (real) {
+          renderedKeyRef.current = key;
+          retriesRef.current = { key, count: 0 };
+        } else {
+          scheduleRetry();
+        }
         setStatus(real ? 'ready' : 'fallback');
       })
       .catch(() => {
         if (cancelled) return;
         // Error de red: conservamos lo que haya (nunca una recta), sólo marcamos fallback.
+        scheduleRetry();
         setStatus('fallback');
       });
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [assignment?.id, legKeyValue, token]);
+  }, [assignment?.id, legKeyValue, token, retryTick]);
 
   return { route, status, leg };
 }
