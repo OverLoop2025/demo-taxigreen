@@ -478,7 +478,8 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
 
     if (guidedStep === 'personas') {
       const cantidad = /^\s*(\d{1,2})\s*$/.exec(text)?.[1];
-      if (cantidad === '1') agregar('Viajo solo yo.');
+      // Frases calcadas al diccionario del extractor ("solo voy yo" / "N personas").
+      if (cantidad === '1') agregar('Solo voy yo, 1 persona.');
       else if (cantidad) agregar(`Somos ${cantidad} personas.`);
       else agregar(text);
       preguntarGuiado('equipaje');
