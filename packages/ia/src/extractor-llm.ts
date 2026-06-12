@@ -24,6 +24,11 @@ const CAMPOS_DETERMINISTICOS_PRIORITARIOS: Array<keyof ReservaExtraida> = [
   'vuelo_codigo',
   'punto_encuentro',
   'tipo_pago',
+  'perfil_pasajero',
+  'responsable_pago',
+  'vehiculo_preferencia',
+  'pasajeros_cantidad',
+  'equipaje_nivel',
   'pasajero_dni',
   'pasajero_ruc',
 ];

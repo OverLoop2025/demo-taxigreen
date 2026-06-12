@@ -11,6 +11,10 @@ const canalOrigenSchema = z.enum([
 
 const tipoViajeSchema = z.enum(['recojo_aeropuerto', 'traslado_aeropuerto', 'city']);
 const tipoPagoSchema = z.enum(['efectivo', 'voucher_hotel', 'factura_empresa', 'app_pago']);
+const perfilPasajeroSchema = z.enum(['particular', 'corporativo', 'hotel']);
+const responsablePagoSchema = z.enum(['pasajero', 'empresa', 'hotel']);
+const tipoVehiculoSchema = z.enum(['sedan', 'camioneta', 'van', 'minivan']);
+const equipajeNivelSchema = z.enum(['poco', 'normal', 'grande']);
 const solicitanteTipoSchema = z.enum(['hotel', 'empresa', 'pasajero', 'operador']).nullable();
 
 export const llmExtraccionSchema = z.object({
@@ -35,6 +39,13 @@ export const llmExtraccionSchema = z.object({
     fecha_hora_servicio: z.string().nullable(),
     vuelo_codigo: z.string().nullable(),
     tipo_pago: tipoPagoSchema.nullable(),
+    perfil_pasajero: perfilPasajeroSchema.nullable(),
+    responsable_pago: responsablePagoSchema.nullable(),
+    convenio_validado_demo: z.boolean(),
+    requiere_factura: z.boolean(),
+    vehiculo_preferencia: tipoVehiculoSchema.nullable(),
+    pasajeros_cantidad: z.number().int().positive().nullable(),
+    equipaje_nivel: equipajeNivelSchema.nullable(),
     pasajeros: z.number().int().positive().nullable(),
     maletas: z.number().int().min(0).nullable(),
     hotel_nombre: z.string().nullable(),

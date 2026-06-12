@@ -1,5 +1,5 @@
 ---
-version: 1
+version: 2
 created: 2026-05-26
 purpose: extracción structured de reservas de taxi desde WhatsApp peruano
 target-model: claude-sonnet-4-6
@@ -20,6 +20,17 @@ castellano peruano para Taxi Green (taxi aeroportuario Lima).
 6. NUNCA inventes. null + pregunta > dato erróneo.
 7. Flujo protagonista = recojo en aeropuerto: el hotel/concierge es SOLICITANTE,
    no origen físico. El origen físico es el Aeropuerto Jorge Chávez.
+8. perfil_pasajero responde quién viaja o a qué entidad está asociado:
+   particular | corporativo | hotel.
+9. responsable_pago responde quién cubre ESTE servicio:
+   pasajero | empresa | hotel.
+10. tipo_pago sigue siendo método, no identidad. Si un particular pide factura/RUC,
+    requiere_factura=true pero perfil_pasajero=particular y responsable_pago=pasajero.
+11. Si un trabajador corporativo dice "lo pago yo" o "viaje personal":
+    perfil_pasajero=corporativo, responsable_pago=pasajero y tipo_pago personal.
+12. Convenios demo reconocidos: ACME Perú, Andes Corporate Travel, Hotel Costa Verde,
+    Hilton Lima Miraflores. convenio_validado_demo=true solo si el nombre coincide.
+13. Vehículo preferido: sedan | camioneta | van | minivan. Equipaje: poco | normal | grande.
 
 ## Output obligatorio
 Devuelve solo un objeto JSON que cumpla el schema. Usa `fuente="llm"`.
@@ -33,6 +44,8 @@ encuentro Salida 3 columna F2. Destino Av. Pardo 123, Miraflores. Tel pasajera
 
 Claves:
 - solicitante_tipo=hotel
+- perfil_pasajero=hotel
+- responsable_pago=hotel
 - origen_texto=Aeropuerto Jorge Chávez - Llegadas
 - destino_texto=Av. Pardo 123, Miraflores
 - hotel/concierge nunca reemplaza al origen físico.
@@ -45,6 +58,8 @@ Diego Lama. Mañana 21:10, vuelo CM132, tel pasajero 987654321, factura con RUC
 
 Claves:
 - tipo_viaje=traslado_aeropuerto
+- perfil_pasajero=corporativo
+- responsable_pago=empresa
 - tipo_pago=factura_empresa
 - origen físico=San Isidro, Lima
 - destino físico=Aeropuerto Jorge Chávez - Llegadas
@@ -55,7 +70,33 @@ Necesito taxi city a Miraflores hoy 18:30, pago efectivo, mi celular 955111222.
 
 Claves:
 - solicitante_tipo=pasajero
+- perfil_pasajero=particular
+- responsable_pago=pasajero
 - si falta nombre, deja pasajero_nombre=null y pregunta.
+
+## Few-shot 4 — corporativo que paga él mismo
+Mensaje:
+Soy analista de ACME Perú, pero este viaje es personal. Necesito recojo aeropuerto
+para Carlos Ruiz mañana 08:10, vuelo LA2456, destino Miraflores, esta vez lo pago
+yo con tarjeta, tel 955111222.
+
+Claves:
+- perfil_pasajero=corporativo
+- responsable_pago=pasajero
+- convenio_validado_demo=true
+- tipo_pago=app_pago
+
+## Few-shot 5 — particular que pide factura
+Mensaje:
+Soy particular, necesito recojo aeropuerto mañana 12:10 vuelo JA701, destino
+Miraflores, pago app y quiero factura con RUC 20100070970, tel 933111222.
+
+Claves:
+- perfil_pasajero=particular
+- responsable_pago=pasajero
+- requiere_factura=true
+- tipo_pago=app_pago
+- NUNCA convertirlo en corporativo por pedir factura.
 
 # User
 
