@@ -6,6 +6,7 @@ type MapboxManeuver = {
   instruction?: unknown;
   type?: unknown;
   modifier?: unknown;
+  location?: unknown;
 };
 
 type MapboxStep = {
@@ -53,12 +54,20 @@ function parsePasos(route: MapboxRoute): RoutePaso[] {
   for (const step of steps) {
     const instruccion = typeof step.maneuver?.instruction === 'string' ? step.maneuver.instruction : null;
     if (!instruccion) continue;
+    const rawLocation = step.maneuver?.location;
+    const location =
+      Array.isArray(rawLocation) &&
+      typeof rawLocation[0] === 'number' &&
+      typeof rawLocation[1] === 'number'
+        ? ([rawLocation[0], rawLocation[1]] as [number, number])
+        : null;
     pasos.push({
       instruccion,
       distanciaMetros: typeof step.distance === 'number' ? Math.round(step.distance) : 0,
       tipo: typeof step.maneuver?.type === 'string' ? step.maneuver.type : 'continue',
       modifier: typeof step.maneuver?.modifier === 'string' ? step.maneuver.modifier : null,
       nombre: typeof step.name === 'string' && step.name.length > 0 ? step.name : null,
+      location,
     });
   }
   return pasos;

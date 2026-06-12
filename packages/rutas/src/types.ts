@@ -22,6 +22,8 @@ export type RoutePaso = {
   tipo: string;
   modifier: string | null;
   nombre: string | null;
+  /** [lng, lat] de la maniobra: permite guía dinámica (próximo giro según GPS). */
+  location: [number, number] | null;
 };
 
 export type RouteRequest = {
