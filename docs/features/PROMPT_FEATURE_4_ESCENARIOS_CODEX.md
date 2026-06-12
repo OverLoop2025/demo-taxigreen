@@ -1,4 +1,4 @@
-# PROMPT Feature 4 — Escenarios A/B end-to-end y pulido de counter/copy (Codex)
+# PROMPT Feature 4 — Escenarios A/B end-to-end y pulido de mostrador/copy (Codex)
 
 > Prerrequisito: Features 1-3 cerradas y CI verde. Lee sus `ESTADO_FEATURE_*.md`: si algún contrato
 > difiere del master, el código real + master mandan sobre este prompt.
@@ -15,8 +15,8 @@ Implementar **Feature 4 del plan maestro** `docs/features/MASTER_FLUJO_OPERACION
 (§3.2, §6 Feature 4):
 
 > Los dos escenarios del negocio quedan demo-ables de punta a punta y sin contaminarse:
-> **A** (aeropuerto → ciudad, con counter y luz verde) y **B** (hotel/punto externo → aeropuerto,
-> SIN counter, conductor inicia de inmediato, enlace en vivo directo). Hoy B ni siquiera existe como
+> **A** (aeropuerto → ciudad, con mostrador y luz verde) y **B** (hotel/punto externo → aeropuerto,
+> SIN mostrador, conductor inicia de inmediato, enlace en vivo directo). Hoy B ni siquiera existe como
 > dato canónico: `seed.ts` crea una sola reserva (la protagonista A).
 
 ## Lecturas obligatorias
@@ -30,6 +30,7 @@ Implementar **Feature 4 del plan maestro** `docs/features/MASTER_FLUJO_OPERACION
 - `apps/web/src/app/admin/reservas/[id]/{page.tsx,reserva-detalle.tsx}`
 - `apps/web/src/app/p/[token]/seguimiento-cliente.tsx`
 - `apps/web/src/app/counter/voucher-validator.tsx`
+- `docs/features/ESTADO_FEATURE_3.md` (cierre financiero + scanner QR con `jsqr`)
 
 ## NO tocar
 
@@ -61,24 +62,25 @@ aeropuerto" / "traslado al aeropuerto desde San Isidro" → `traslado_aeropuerto
 En `whatsapp-simulator.tsx` (+ lo que el action deba exponer, p. ej. `tipo_viaje` en el retorno de
 `crearReservaDesdeIngesta`):
 
-- **A (requiere counter)**: comportamiento F5 actual intacto — tarjeta con pase QR, enlace en vivo
-  SOLO tras validación (polling).
-- **B (no requiere counter)**: la tarjeta de confirmación NO presenta el QR como requisito de
+- **A (requiere mostrador)**: comportamiento F5 actual intacto — tarjeta con pase QR, enlace en vivo
+  SOLO tras validación (polling). Desde F3, si el modo copiloto está activo, la asignación automática
+  puede ocurrir después de la validación y el chat recién ahí informa conductor/placa.
+- **B (no requiere mostrador)**: la tarjeta de confirmación NO presenta el QR como requisito de
   abordaje; incluye el botón "Seguir mi taxi en vivo" DIRECTAMENTE (sin polling) y el texto cambia a
   "Tu conductor va en camino al punto de recojo". El panel del operador refleja "No requiere
-  counter".
+  mostrador".
 
 ### 4. Driver: banners por escenario
 
 Con los datos de F1 (`abordaje.requiereCounter`):
 
-- A bloqueado: "Esperando validación del counter" (ya de F1).
+- A bloqueado: "Esperando validación del mostrador" (ajustar copy si aún dice counter).
 - B: home y pantalla de viaje dicen "Listo para ir al punto de recojo" y el CTA es inmediato
-  (verificar que NINGÚN copy de counter aparece en B).
+  (verificar que NINGÚN copy de mostrador aparece en B).
 
 ### 5. Admin + pasajero
 
-- Admin: chip "Requiere counter" / "Sin counter" en el detalle (y en la lista si hay columna de tipo).
+- Admin: chip "Requiere mostrador" / "Sin mostrador" en el detalle (y en la lista si hay columna de tipo).
 - Pasajero (opcional pero recomendado): suscripción al evento `abordaje` en `reserva-{id}` para
   mostrar "Pase validado ✓" en vivo en escenario A.
 
@@ -88,13 +90,13 @@ Grep de superficies visibles (NUNCA identificadores/enums/columnas/tests):
 
 - "voucher" visible solo cuando hable del método `voucher_hotel` ("Cargo al hotel").
 - El QR siempre es "pase de abordaje"; el código TG-… siempre es "Reserva".
-- Counter: "Validar pasajero / Confirmar acceso / Luz verde".
+- Mostrador: "Validar pasajero / Confirmar acceso / Luz verde".
 - Sin "ETA/Realtime/token/HMAC/idempotente" en UI (auditar lo nuevo de F1-F3).
 
 ### 7. Tests
 
 - E2E nuevo `tests/e2e/escenario-b.spec.ts` AUTO-CONTENIDO: crear B vía wa-sim (conversación nueva)
-  → confirmar → la tarjeta trae enlace en vivo directo (sin counter) → asignar conductor →
+  → confirmar → la tarjeta trae enlace en vivo directo (sin mostrador) → asignar conductor →
   `POST estado en_camino` → **200 a la primera** (sin 409) → finalizar → pago cerrado según F3.
 - E2E A (`counter-gate.spec.ts` de F1) sigue verde sin cambios.
 - Unit de ingesta (tarea 2).
@@ -102,13 +104,13 @@ Grep de superficies visibles (NUNCA identificadores/enums/columnas/tests):
 ## Verificación final obligatoria
 
 Batería completa del master §7 + smoke manual de las DOS demos con `db:seed-operacional`:
-A bloqueada → counter → luz verde → viaje → cierre; B directa → viaje → cierre. Capturas de driver
-(banners A y B), wa-sim (tarjetas A y B), counter y pasajero.
+A bloqueada → mostrador → luz verde → viaje → cierre; B directa → viaje → cierre. Capturas de driver
+(banners A y B), wa-sim (tarjetas A y B), mostrador y pasajero.
 
 ## DoD
 
 - [ ] Demo A y demo B ejecutables de punta a punta desde `db:seed-operacional`.
-- [ ] B jamás muestra counter/pase como requisito (chat, driver, admin, pasajero).
+- [ ] B jamás muestra mostrador/pase como requisito (chat, driver, admin, pasajero).
 - [ ] A conserva intacto el flujo F5 + gate F1.
 - [ ] Ingesta con tests A/B y default documentado.
 - [ ] Copy sin "voucher" fuera de `voucher_hotel`; cero jerga nueva.
@@ -118,5 +120,5 @@ A bloqueada → counter → luz verde → viaje → cierre; B directa → viaje 
 
 `docs/features/ESTADO_FEATURE_4.md` + actualizar `docs/DOCUMENTACION_TECNICA.md` y
 `docs/GUIA_PRUEBAS_DEMO.md` (guion de las dos demos). Con esto el plan maestro queda completo:
-reserva → cotización/pago → pase → asignación bloqueada → counter → luz verde → viaje → cierre →
+reserva → cotización/pago → pase → asignación bloqueada → mostrador → luz verde → viaje → cierre →
 comprobante, en sus dos escenarios.

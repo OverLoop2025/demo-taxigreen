@@ -1,7 +1,7 @@
 # Guía de pruebas manuales — Taxi Green Demo
 
-**Última actualización:** 2026-06-11  
-**Cubre:** Sprint 0-9 + Feature 1 post-S9  
+**Última actualización:** 2026-06-11
+**Cubre:** Sprint 0-9 + Features 1-5 post-S9
 **Objetivo:** que una persona no técnica pueda levantar la app, entrar a las pantallas y comprobar el flujo construido.
 
 ---
@@ -29,16 +29,20 @@ Hoy la demo ya permite comprobar este recorrido:
 17. Reportar objeto olvidado y responderlo desde la app conductor.
 18. Ver el caso en `/bienestar/[caso]` y la bandeja `/admin/bienestar`.
 19. Abrir la landing pública `/` y entrar al flujo pasajero.
-20. Probar ruta/ETA real con Mapbox o fallback determinista.
-21. Entrar como supervisor counter y validar el QR una sola vez.
-22. Probar que un recojo de aeropuerto queda bloqueado para el conductor hasta que counter dé luz verde.
-23. Restaurar el guion completo con un solo comando antes de cada demo.
+20. Probar ruta y llegada estimada real con Mapbox o fallback determinista.
+21. Entrar como supervisor de mostrador y validar el pase una sola vez.
+22. Probar que un recojo de aeropuerto queda bloqueado para el conductor hasta que mostrador dé luz verde.
+23. Probar el escenario B hotel -> aeropuerto sin mostrador ni pase como requisito.
+24. Probar identidad comercial: quién viaja (`perfil_pasajero`) separado de quién paga (`responsable_pago`).
+25. Probar correcciones de borrador en WhatsApp: el mensaje más reciente manda y re-cotiza.
+26. Restaurar el guion completo con un solo comando antes de cada demo.
 
 La app conductor ya tiene login, sesión segura, Home, Perfil, push degradable, recepción Realtime de asignaciones,
 detalle activo, estados secuenciales, ubicación foreground, tracking pasajero, comprobante/calificación y objeto
-olvidado E2E básico. Sprint 9 suma routing real, counter QR one-time, landing, reset de guion y CI mobile smoke.
-Feature 1 post-S9 suma el gate operacional: para `recojo_aeropuerto`, el conductor no puede iniciar hasta que el
-counter valide el pase QR.
+olvidado E2E básico. Sprint 9 suma routing real, pase one-time, landing, reset de guion y CI mobile smoke.
+Features 1-5 post-S9 suman el flujo operacional perfecto: gate de mostrador para `recojo_aeropuerto`, pago demo
+persistido, cierre financiero conectado, escenario B `traslado_aeropuerto` sin mostrador e identidad comercial
+(`perfil_pasajero`/`responsable_pago`) visible de punta a punta.
 
 ---
 
@@ -100,18 +104,24 @@ de presentar:
 pnpm --filter @taxigreen/database db:seed-guion
 ```
 
-Ese comando deja la reserva protagonista en curso, precarga posiciones, limpia reservas de prueba y deja el QR listo
-para validar en counter.
+Ese comando deja la reserva protagonista en curso, precarga posiciones, limpia reservas de prueba y deja el pase listo
+para validar en mostrador.
 
-Para probar específicamente el bloqueo de Feature 1, usa este seed alternativo:
+Para probar específicamente las dos demos operacionales A/B de Features 1-4, usa este seed alternativo:
 
 ```bash
 pnpm --filter @taxigreen/database db:seed-operacional
 ```
 
-Ese comando deja la reserva protagonista asignada a Raúl Quispe, pero todavía sin luz verde de counter. Es el punto
-correcto para verificar que la app conductor muestre "Esperando counter" y que la API devuelva `counter_pendiente`.
-Cuando termines esa prueba, vuelve al guion visual con:
+Ese comando deja:
+
+- A (`TG-2026-0001`): recojo aeropuerto asignado a Raúl Quispe, todavía sin luz verde de mostrador; identidad
+  comercial `hotel/hotel` con Hilton Lima Miraflores.
+- B (`TG-2026-0002`): traslado Hotel Costa Verde -> aeropuerto asignado a Mario Huamán, sin mostrador requerido;
+  identidad comercial `corporativo/empresa` con ACME Perú.
+
+Es el punto correcto para verificar que A muestre "Esperando mostrador" y que B permita iniciar directo al punto de
+recojo. Cuando termines esa prueba, vuelve al guion visual con:
 
 ```bash
 pnpm --filter @taxigreen/database db:seed-guion
@@ -164,7 +174,7 @@ Email: admin@taxigreen.demo
 Contraseña: demo1234
 ```
 
-Supervisor counter:
+Supervisor de mostrador:
 
 ```text
 URL: http://localhost:3000/login-counter
@@ -255,8 +265,32 @@ Qué revisar:
 - Debe verse "Recojo en aeropuerto".
 - Debe verse el conductor Raúl Quispe y la unidad `ABC-123`.
 - Debe verse el punto "Salida 3, columna F2".
-- En la tarjeta de ruta debe aparecer distancia y ETA.
+- En la tarjeta de ruta debe aparecer distancia y llegada estimada.
 - Si Mapbox está activo, puede aparecer ruta real; si falla o no hay token, la pantalla conserva una estimación textual.
+
+### Paso 2C — Demo A/B desde seed operacional
+
+Ejecuta:
+
+```bash
+pnpm --filter @taxigreen/database db:seed-operacional
+```
+
+Demo A — aeropuerto -> ciudad:
+
+- Abre `/admin/reservas` y entra a `TG-2026-0001`.
+- Debe verse `Requiere mostrador`.
+- En app conductor con `conductor1@taxigreen.demo / 1234`, el viaje debe aparecer bloqueado antes de iniciar.
+- Si intentas iniciar por API o app antes de validar, debe fallar con `counter_pendiente`.
+- En `/counter`, valida el pase de `TG-2026-0001`; después de la luz verde, el conductor puede avanzar.
+
+Demo B — hotel -> aeropuerto:
+
+- Abre `/admin/reservas` y entra a `TG-2026-0002`.
+- Debe verse `Sin mostrador`.
+- En app conductor con `conductor2@taxigreen.demo / 2345`, el viaje debe decir `Listo para ir al punto de recojo`.
+- El conductor puede iniciar `En camino` sin pasar por `/counter`.
+- El link pasajero `tg_demo_passenger_002` debe hablar de `Punto de recojo`, no de punto de encuentro.
 
 Smoke rápido de ruta real desde terminal:
 
@@ -272,6 +306,38 @@ distanciaMetros: número mayor a 1000
 duracionSegundos: número mayor a 60
 geometry.type: "LineString"
 ```
+
+### Paso 2D — Demo F5: identidad comercial y borrador corregible
+
+En `/wa-sim`, cada conversación debe mostrar perfil/responsable en humano:
+
+- Hilton: `Hotel · paga el hotel` y pago cubierto por Hilton Lima Miraflores.
+- ACME empresa: `Corporativo · paga la empresa` y pago cubierto por ACME Perú.
+- ACME personal: `Corporativo · paga el pasajero`; no debe volverse `factura_empresa`.
+- Particular con factura: `Particular · paga el pasajero`; `requiere_factura=true`, sin volverse corporativo.
+- Empresa sin convenio: `Corporativo · paga el pasajero`; el método queda por aclarar si el cliente no dio efectivo/app.
+- Hotel Costa Verde: `Hotel · paga el hotel`.
+
+Prueba de corrección del borrador:
+
+1. Abre la conversación Hilton.
+2. Haz clic en `Extraer`.
+3. Verifica en el panel derecho `Personas = 2` y `Encuentro = Salida 3, columna F2`.
+4. Escribe en el chat:
+
+```text
+Me equivoqué, solo voy yo y salgo por la puerta 4.
+```
+
+5. Debe actualizarse el panel a `Personas = 1` y `Encuentro = Puerta 4`.
+6. La tarjeta de pago debe seguir mostrando `Tarifa estimada protegida`.
+
+Qué revisar después de confirmar una reserva F5:
+
+- `/admin/reservas/[id]`: bloque `Cliente` con perfil, responsable, convenio, factura, personas/equipaje/vehículo.
+- `/counter`: línea `Responsable` debajo del pago.
+- `/p/[token]`: bloque de pago dice `Cubierto por...` o `Pagas al finalizar...` según responsable.
+- App conductor: la ficha de cobro dice `Cargo al hotel/empresa - no cobres al pasajero` o `Cobra al finalizar`.
 
 ### Paso 3 — Extrae datos
 
@@ -415,7 +481,8 @@ Qué revisar:
 
 - La pantalla debe verse como una herramienta de módulo/counter, no como página de marketing.
 - Debe existir un campo para ingresar QR o voucher manualmente.
-- Si el navegador soporta cámara vía `BarcodeDetector`, puedes intentar escaneo. Si no, usa manual.
+- La cámara usa `BarcodeDetector` si el navegador lo trae y `jsqr` como respaldo. Si el navegador bloquea permisos,
+  usa el ingreso manual.
 
 Prueba manual segura:
 
@@ -557,14 +624,14 @@ Salida 3, columna F2
 Si la reserva es `recojo_aeropuerto` y estás usando `db:seed-operacional`, el botón principal debe aparecer como:
 
 ```text
-Esperando counter
+Esperando mostrador
 ```
 
-Eso es correcto. Significa que el pasajero todavía no fue validado en el counter del aeropuerto.
+Eso es correcto. Significa que el pasajero todavía no fue validado en el mostrador del aeropuerto.
 
 Para habilitarlo:
 
-1. Abre `/counter` como supervisor.
+1. Abre `/counter` como supervisor de mostrador.
 2. Valida `TG-2026-0001`.
 3. Pulsa `Confirmar acceso y dar luz verde`.
 4. Vuelve a la app conductor. El botón debe habilitarse sin reinstalar ni reiniciar la app.
@@ -990,9 +1057,11 @@ No uses `db:reset` salvo que realmente quieras borrar y reconstruir la base comp
 
 ## 14. Qué falta construir en próximos sprints
 
-### Pendiente después de Sprint 9
+### Pendiente después de Feature 5
 
-- Pegar el `RAILWAY_TOKEN` real en GitHub Secrets para deploy automático desde GitHub Actions.
+- Feature 6: pago al finalizar para pasajero, botón demo en `/p/[token]` y cancelación escalonada del pasajero.
+- Feature 7: cancelación del conductor, reasignación y disculpas.
+- Feature 8: conversación guiada con menús y preferencia de vehículo explícita.
 - Grabar video respaldo de la demo.
 - Smoke físico Android con dev client/EAS si se quiere enseñar mapa nativo y push real en teléfono.
 
@@ -1030,3 +1099,49 @@ Si no aparece badge `IA`:
 - Es normal si `IA_HABILITADA=false`.
 - Para probar IA real necesitas `IA_HABILITADA=true` y `ANTHROPIC_API_KEY`.
 - Aunque falle IA, la demo debe seguir funcionando con `Algoritmo`.
+
+---
+
+## 16. Novedades F6-F8: pago al finalizar, cancelaciones, reserva guiada y letrero
+
+### 16.1 Pago del pasajero al finalizar (F6)
+
+1. En `/wa-sim`, crea una reserva donde pague el pasajero (di "pago yo con tarjeta" o "pago en efectivo").
+2. Asigna conductor y completa el viaje hasta **Finalizar** (app del chofer o API).
+3. Abre el link del pasajero `/p/[token]`: la tarjeta de pago muestra **"Pagar ahora"** (tarjeta/app) o **"Ya pagué en efectivo al conductor"**.
+4. Antes de pagar, el comprobante aparece bloqueado ("Tu comprobante llega con el pago"). Paga → el pago queda confirmado y el comprobante se puede descargar.
+5. Si la reserva la cubre el hotel/empresa, **nunca** aparece botón de pago: dice "Cubierto por …".
+
+### 16.2 Cancelación del pasajero por etapa (F6)
+
+- Sin conductor asignado: botón **"Cancelar reserva"** (cancela al toque).
+- Con unidad asignada: cancela y libera al conductor (su app vuelve a "sin asignación").
+- Con la unidad en camino: el botón cambia a **"Solicitar cancelación"** (crea un caso para el equipo, no cancela sola).
+- Con el pasajero a bordo: ya no hay cancelación, solo soporte.
+
+### 16.3 Cancelación del conductor + reasignación (F7)
+
+1. Con un viaje asignado/en camino, en la app del chofer toca **"No puedo continuar este viaje"**, elige un motivo y confirma.
+2. En `/admin` aparece la bandeja ámbar **"necesita nueva unidad"** con CTA directo.
+3. Si el chat de `/wa-sim` está abierto con **modo copiloto ON**, el sistema reasigna solo y el chat publica la disculpa con la nueva unidad y placa. Con copiloto OFF, avisa "estamos asignando otra" y la disculpa sale al reasignar manualmente.
+4. El enlace del pasajero no cambia; el mapa muestra la nueva unidad.
+
+### 16.4 Reserva guiada en WhatsApp (F8)
+
+1. En `/wa-sim`, escribe exactamente: **"Necesito reservar un taxi"**.
+2. El bot pregunta con opciones numeradas (servicio, particular/empresa, quién paga, personas, equipaje, vehículo). Responde con el número o con texto libre.
+3. Al final pide los datos del viaje en un mensaje; de ahí sigue el flujo normal (resumen + tarifa + "¿Confirmas?").
+4. Si eliges "Van para grupo grande", la tarifa sube (×1.40); "Sedán" no cambia el precio.
+
+### 16.5 Letrero del mostrador (F8)
+
+1. En `/counter`, valida un código (paso "revisar pasajero").
+2. Toca **"Mostrar letrero al pasajero"**: la pantalla se pone en negro a pantalla completa con el nombre en letras gigantes y el vuelo — levanta la tablet para llamar al pasajero.
+3. Toca la pantalla para volver. También disponible tras confirmar el acceso.
+4. **"Cambiar unidad"** abre el despacho de esa reserva por si el mostrador decide otra unidad.
+
+### 16.6 Mapa del chofer estilo Waze (fixes)
+
+- La instrucción de giro ahora sigue tu GPS: anuncia el próximo giro real con metros en vivo (ya no se queda pegada en una maniobra pasada).
+- Si la ruta no aparece al abrir la pantalla, se reintenta sola en ~3 segundos (antes quedaba en blanco hasta moverse ~110 m).
+- Sin logo de Mapbox ni botón ⓘ; el panel inferior solo muestra destino, llegada y la acción del viaje.

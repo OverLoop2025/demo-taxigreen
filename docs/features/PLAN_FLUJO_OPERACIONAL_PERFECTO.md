@@ -747,7 +747,7 @@ Al validar un QR, el counter debe mostrar:
 - Reserva encontrada.
 - Metodo de pago y estado:
   - "Cargo a hotel autorizado"
-  - "Credito empresa autorizado"
+  - "Crédito empresa autorizado"
   - "Pago app autorizado"
   - "Pago en efectivo pendiente"
 - Conductor asignado.

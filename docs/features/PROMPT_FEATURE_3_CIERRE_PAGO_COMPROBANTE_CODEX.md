@@ -3,6 +3,22 @@
 > Prerrequisito: Features 1 y 2 cerradas (`ESTADO_FEATURE_1.md`, `ESTADO_FEATURE_2.md`) y CI verde.
 > `cerrarPagoDemo` ya existe en `packages/pagos` (lo entregó F2); aquí se conecta.
 
+Estado F2 real al arrancar:
+
+- Migración aplicada: `20260611010000_feature2_pagos_demo`.
+- `reservas` ya tiene `cotizacion_monto`, `cotizacion_moneda`, `cotizacion_fuente`, `cotizacion_calculada_en`.
+- `pagos.reserva_id` es `@unique`; relación uno-a-uno `reservas.pago`.
+- `@taxigreen/pagos` ya exporta `calcularCotizacionDemo`, `autorizarPagoDemo`, `cerrarPagoDemo`,
+  `serializarPagoDemo`, `estadoPagoHumano`, `formatMonto`.
+- Auditoría F2.1: `autorizarPagoDemo` genera `AUT-*` solo para `app_pago`; `voucher_hotel` y
+  `factura_empresa` quedan `autorizado` por crédito demo con `autorizacion=null`.
+- `calcularCotizacionDemo` ya valida rangos lat/lng, aplica mínimo `S/ 15.00` y rechaza montos de
+  pago no positivos.
+- WhatsApp Sim ya crea cotización+pago y audita `pago_demo_autorizado`.
+- Counter, pasajero, admin y conductor ya leen `pago/cobro` serializado.
+- DB restaurada con `db:seed-guion`: protagonista `TG-2026-0001` queda `en_curso`, abordaje `autorizado`,
+  pago `voucher_hotel/autorizado`, monto `S/ 75.00`, proveedor `credito_hotel_demo`, `autorizacion=null`.
+
 ---
 
 Actúa como ingeniero senior full-stack del monorepo `demo-taxigreen` (stack y reglas en
@@ -34,6 +50,8 @@ Implementar **Feature 3 del plan maestro** `docs/features/MASTER_FLUJO_OPERACION
 - SUNAT real (el PDF demo se conserva tal cual).
 - La numeración serie/correlativo existente (`@@unique([tipo, serie, correlativo])`).
 - El gate de F1 ni la autorización de F2.
+- No reimplementar cotización/autorización ni copy de pago: usar `@taxigreen/pagos`.
+- No volver a fijar `ABC-123` en e2e de pasajero; las pruebas paralelas pueden reasignar la protagonista.
 
 ## Tareas (en orden)
 

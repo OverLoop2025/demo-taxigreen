@@ -1,6 +1,6 @@
 # Documentación Técnica — Demo Taxi Green
 
-**Versión:** 1.12 · **Fecha:** 2026-06-11 · **Cubre:** Sprint 0-9 + Feature 1 post-S9 — demo completa verificada localmente y en producción + gate de counter operacional.
+**Versión:** 1.16 · **Fecha:** 2026-06-11 · **Cubre:** Sprint 0-9 + Features 1-5 post-S9 — flujo operacional perfecto A/B + identidad comercial verificados localmente.
 **Ámbito:** este documento describe **todo lo que existe hoy en el monorepo de software**. Para el *qué construir*
 y el *por qué de negocio*, la fuente de verdad es [`_FUENTE_DESARROLLO/`](../_FUENTE_DESARROLLO/) y
 [`07_PLAN_EJECUCION/`](../07_PLAN_EJECUCION/); este doc no los reemplaza, los **complementa con el estado real del código**.
@@ -11,7 +11,11 @@ Documentos vivos relacionados:
 - [`ESTADO_SPRINT_9.md`](ESTADO_SPRINT_9.md) — cierre real de Sprint 9.
 - [`GUIA_PRUEBAS_DEMO.md`](GUIA_PRUEBAS_DEMO.md) — guía no técnica para levantar y probar S0-S9.
 - [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md) — fuente de verdad post-S9 para endurecimiento operacional.
-- [`features/ESTADO_FEATURE_1.md`](features/ESTADO_FEATURE_1.md) — cierre del gate de counter y estado de abordaje.
+- [`features/ESTADO_FEATURE_1.md`](features/ESTADO_FEATURE_1.md) — cierre del gate de mostrador y estado de abordaje.
+- [`features/ESTADO_FEATURE_2.md`](features/ESTADO_FEATURE_2.md) — cierre de cotización y pago demo persistido.
+- [`features/ESTADO_FEATURE_3.md`](features/ESTADO_FEATURE_3.md) — cierre financiero y comprobante conectado.
+- [`features/ESTADO_FEATURE_4.md`](features/ESTADO_FEATURE_4.md) — cierre de escenarios A/B end-to-end.
+- [`features/ESTADO_FEATURE_5.md`](features/ESTADO_FEATURE_5.md) — identidad comercial y borrador corregible.
 
 ---
 
@@ -33,10 +37,14 @@ Realtime `conductor-{id}` y navegación a asignación. Sprint 7 agrega detalle a
 Bearer, estados secuenciales, ubicación foreground y broadcast `posicion`/`estado` en `reserva-{id}`.
 Sprint 8 agrega `/p/[token]` con tracking público, Mapbox/fallback textual, comprobante/calificación, incidencia de
 objeto olvidado, `/bienestar/[caso]`, `/admin/bienestar` y respuesta mínima del conductor. Sprint 9 agrega routing
-real con Mapbox Directions + fallback determinista, `/counter` con QR de un solo uso, landing pública, reset de guion,
-mobile smoke CI, fail-fast runtime de secretos y corrección del redirect PDF en Railway. Feature 1 post-S9 endurece
-el flujo operacional: un `recojo_aeropuerto` asignado ya no puede iniciar ruta hasta que el counter valide el pase
-QR; el estado de abordaje vive en `reservas` y se refleja en la app conductor por Realtime.
+real con Mapbox Directions + fallback determinista, `/counter` con pase de un solo uso, landing pública, reset de guion,
+mobile smoke CI, fail-fast runtime de secretos y corrección del redirect PDF en Railway. Feature 1 endurece
+el flujo operacional: un `recojo_aeropuerto` asignado ya no puede iniciar ruta hasta que el mostrador valide el pase
+de abordaje; el estado de abordaje vive en `reservas` y se refleja en la app conductor por Realtime. Feature 2 agrega
+cotización y pago demo persistidos. Feature 3 conecta cierre de viaje, pago y comprobante. Feature 4 cierra los dos
+escenarios de negocio: A con mostrador y B sin mostrador, con enlace en vivo directo y conductor habilitado desde el
+inicio. Feature 5 separa quién viaja de quién paga (`perfil_pasajero`/`responsable_pago`), corrige sesgos reales del
+extractor y formaliza el borrador corregible con tarifa estimada protegida por versiones.
 El monorepo conserva el pipeline `typecheck/lint/test/build` en verde.
 
 ---
@@ -86,7 +94,8 @@ determinista. Nada del flujo determinista cambia.
 | Hosting | Railway (web) · Supabase (DB/Realtime/Storage) · Expo Go (driver) | — |
 
 **Decisiones de arquitectura cerradas:** Backend = **Next.js** (Route Handlers + Server Actions), no NestJS.
-**Monolito modular** en monorepo, no microservicios. DB **PostgreSQL** (no Mongo). **10 tablas** en demo (no 17).
+**Monolito modular** en monorepo, no microservicios. DB **PostgreSQL** (no Mongo). **11 tablas** post-S9
+por incorporación reusable de `pagos`.
 Identidad visual = **paleta AZUL** (sistema dual). Detalle y justificación en `07_PLAN_EJECUCION/PLAN_SOFTWARE §7`.
 
 ---
@@ -144,8 +153,8 @@ demo-taxigreen/
 │     └─ src/ components/* · features/{api,assignment,auth,incidents,location,network,push,realtime,routing} · lib/env.ts (Zod, EXPO_PUBLIC_*)
 │
 ├─ packages/
-│  ├─ database/            Prisma 6 — schema 10 tablas + migraciones + seed protagonista + seed-guion/seed-operacional
-│  ├─ shared/              tokens AZUL (colors/typography) + FLUJO_PROTAGONISTA + test de tokens
+│  ├─ database/            Prisma 6 — schema 11 tablas post-S9 + migraciones + seed protagonista + seed-guion/seed-operacional
+│  ├─ shared/              tokens Taxi Green (colors/typography) + FLUJO_PROTAGONISTA + test de tokens
 │  ├─ ia/                  LLMProvider + AnthropicProvider real + withFallback + loader prompts + extractor/racionalizador LLM
 │  │  └─ prompts/          ingesta-whatsapp.v1.md · aclaracion-datos-faltantes.v1.md · asignacion-racional.v1.md · clasificacion-incidencia.v1.md
 │  ├─ ingesta/             DETERMINISTA (parser reservas WhatsApp) — implementado en S4
@@ -163,7 +172,7 @@ demo-taxigreen/
 │  ├─ docker-compose.yml   Postgres 17 + PostGIS local (opcional)
 │  └─ supabase/ init/01-extensions.sql (postgis, pgcrypto) · migrations/.gitkeep
 │
-├─ tests/e2e/              Playwright: smoke, voucher, admin, wa-sim, asignación sugerida, link pasajero, rutas y gate counter
+├─ tests/e2e/              Playwright: smoke, voucher, admin, wa-sim, asignación sugerida, link pasajero, rutas, gate mostrador y escenario B
 │                         (corre con `pnpm e2e`)
 │
 └─ .github/workflows/
@@ -192,16 +201,16 @@ asignacion, bienestar, rutas, voucher, comprobantes, auditoria}`, `@taxigreen/in
 - `src/lib/logger.ts` (Pino) · `src/lib/sentry.ts` (dummy con misma API que `@sentry/nextjs`).
 - `src/components/ui/button.tsx` — botón con variantes en azul (`bg-product`); placeholder sin radix (ver §7).
 - `src/app/page.tsx` — landing pública de demo con CTA WhatsApp y entrada al link pasajero protagonista.
-- `src/app/counter/` — supervisor counter: validación manual/cámara progresiva de voucher QR y consumo one-time.
+- `src/app/counter/` — supervisor de mostrador: validación manual/cámara progresiva del pase de abordaje y consumo one-time.
 - `src/app/demo/guion-narrado/` — guion interno de presentación para preparar demo/video.
-- `src/app/api/rutas/calcular/route.ts` — endpoint server-side de ruta/ETA con token pasajero o Bearer conductor.
-- `src/app/wa-sim/` — simulador WhatsApp Web de S4: conversaciones seed, extracción, panel JSON/confianza y creación de reserva.
+- `src/app/api/rutas/calcular/route.ts` — endpoint server-side de ruta/llegada estimada con token pasajero o Bearer conductor.
+- `src/app/wa-sim/` — simulador WhatsApp Web: conversaciones A/B, extracción, cotización/pago demo y creación auditada de reserva.
 - `src/app/api/ingesta/extraer/route.ts` — endpoint de ingesta con `extraerReservaConFallback`.
 - `src/app/api/asignacion/sugerir/route.ts` — endpoint protegido para sugerir conductor+unidad.
 - `src/app/api/conductor/login/route.ts` — login móvil email+PIN, JWT Bearer 12h y auditoría `login_driver_mobile`.
 - `src/app/api/conductor/fcm-token/route.ts` — guarda Expo/FCM token en `usuarios.fcm_token` con Bearer.
 - `src/app/api/conductor/asignacion/[id]/route.ts` — detalle móvil tenant-safe de reserva asignada al conductor.
-- `src/app/api/conductor/asignacion/[id]/estado/route.ts` — transición secuencial de viaje, gate de counter para
+- `src/app/api/conductor/asignacion/[id]/estado/route.ts` — transición secuencial de viaje, gate de mostrador para
   `recojo_aeropuerto`, auditoría y broadcast.
 - `src/lib/conductor-token.ts` — firma/verifica JWT móvil (`jose`).
 - `src/lib/conductor-asignacion.ts` — secuencia `asignado -> en_camino -> en_punto -> a_bordo -> finalizado`,
@@ -229,12 +238,12 @@ asignacion, bienestar, rutas, voucher, comprobantes, auditoria}`, `@taxigreen/in
 - `src/features/network` — polling básico de conectividad y reintento conservador.
 - `src/features/push` — canal Android `asignacion`, permisos, Expo Push Token y tap listener.
 - `src/features/realtime` — cliente Supabase RN y canal `conductor-{conductorId}`.
-- `src/features/routing/use-route.ts` — recalcula ruta/ETA contra `/api/rutas/calcular` con fallback local.
+- `src/features/routing/use-route.ts` — recalcula ruta/llegada estimada contra `/api/rutas/calcular` con fallback local.
 - `src/lib/env.ts` — env tipadas con Zod (prefijo `EXPO_PUBLIC_*`, incluye `EXPO_PUBLIC_EXPO_PROJECT_ID`).
 
 **packages/database**
-- `prisma/schema.prisma` — schema Prisma real: 10 tablas de demo, enums operativos, campos post-S9 de abordaje
-  (`estado_abordaje`, `counter_validado_en`, `counter_usuario_id`). La tabla/relación de pagos queda para Feature 2.
+- `prisma/schema.prisma` — schema Prisma real: 11 tablas post-S9, enums operativos, campos de abordaje
+  (`estado_abordaje`, `counter_validado_en`, `counter_usuario_id`), cotización y tabla `pagos`.
 - `src/index.ts` — cliente Prisma singleton (patrón global, log condicionado por `NODE_ENV`).
 - `package.json` — scripts `db:migrate/db:deploy/db:seed/db:seed-guion/db:seed-operacional/db:studio/db:reset` listos.
 
@@ -359,8 +368,8 @@ y grants de lectura para `reservas`.
 
 Conforme al plan, S0-S9 dejan cimentación, datos, auth, artefactos físico-digitales, despacho operativo, ingesta
 WhatsApp determinista, sugerencia automática de asignación, app conductor operativa con estados/ubicación foreground,
-tracking público del pasajero, comprobante/calificación, objeto olvidado E2E, routing real con fallback, counter QR
-one-time, landing y reset/guion. Lo que queda fuera es deliberadamente MVP o externo a la demo.
+tracking público del pasajero, comprobante/calificación, objeto olvidado E2E, routing real con fallback, pase one-time
+en mostrador, landing y reset/guion. Lo que queda fuera es deliberadamente MVP o externo a la demo.
 
 **Prohibido en toda la demo** (no construir aunque se pida): app pasajero nativa, OAuth pasajero, portal `/empresa`,
 OCR on-device, biometría, background location, RLS activo, cadena RENIEC, 9 tipologías extra de bienestar,
@@ -396,7 +405,7 @@ Estado actual: Sprint 1 implementado. El detalle operativo vive en
 
 Cambios principales:
 
-- Prisma schema con las 10 tablas exactas de demo + migracion inicial.
+- Prisma schema con las 10 tablas iniciales de demo + migracion inicial.
 - Seed protagonista idempotente con admin, counter, conductores, vehiculos, reserva, viaje, comprobante,
   incidencia y auditoria.
 - Auth.js v5 con credentials admin/counter/driver, guards de rutas y logout.
@@ -620,7 +629,7 @@ Pendiente ambiental S8: Android físico/dev client para push real de incidencia 
 ruta del link pasajero mantiene fallback textual; **el routing real (Directions) se planifica e integra en S9** (ver
 §19), no queda fuera del producto.
 
-Sprint 9 ya implementó routing en tiempo real, `/counter` con QR de un solo uso, landing, reset/guion,
+Sprint 9 ya implementó routing en tiempo real, `/counter` con pase de un solo uso, landing, reset/guion,
 endurecimientos y preparación de deploy Railway.
 
 ---
@@ -631,8 +640,8 @@ Estado actual: Sprint 9 implementado y verificado localmente. El detalle operati
 [`ESTADO_SPRINT_9.md`](ESTADO_SPRINT_9.md). El diseño original sigue documentado en
 > [`PLAN_RUTAS_TIEMPO_REAL_S9.md`](PLAN_RUTAS_TIEMPO_REAL_S9.md).
 
-**Qué se construyó:** distancia real por carretera, ETA real con tráfico, ruta dibujada que sigue las calles y
-recálculo cuando el conductor se mueve. **No fue scope creep:** la regla de negocio #7 exige "GPS, ETA y mapa
+**Qué se construyó:** distancia real por carretera, llegada estimada real con tráfico, ruta dibujada que sigue las calles y
+recálculo cuando el conductor se mueve. **No fue scope creep:** la regla de negocio #7 exige "GPS, llegada estimada y mapa
 reales" y `PLAN_SOFTWARE §7.8` presupuesta Mapbox a **USD 0**; solo su implementación estaba diferida.
 
 **Patrón (calca `packages/ia`):** `packages/rutas` con (a) **estimador determinista siempre
@@ -647,7 +656,7 @@ in-memory + throttle**; el token de Directions (`MAPBOX_SERVER_TOKEN`) queda ser
 (`en_camino`→punto, `a_bordo`→destino). Geometría se actualiza con `setData` **sin recrear el mapa** (respeta el
 fix de auditoría S8).
 
-**Inventario que cambió:** `packages/rutas` (nuevo), `api/rutas/calcular` (nuevo), `lib/pasajero.ts` (ETA pasa a
+**Inventario que cambió:** `packages/rutas` (nuevo), `api/rutas/calcular` (nuevo), `lib/pasajero.ts` (llegada estimada pasa a
 ser fallback; contrato `tracking` gana `geometry`/`distancia`/`duración`/`fuente`), `p/[token]/seguimiento-cliente.tsx`
 (pinta geometry real + badge + recálculo), driver `AssignmentMap.tsx` + nuevo `features/routing/use-route.ts`,
 `seed-guion.ts` (polyline pre-cargada). **No se toca** `packages/asignacion/heuristica.ts` (S5 sigue con
@@ -712,7 +721,7 @@ typecheck lint test`) salvo el E2E del counter (necesita pila viva + reseed) y l
 | [`apps/web/src/lib/conductor-asignacion-repository.test.ts`](../apps/web/src/lib/conductor-asignacion-repository.test.ts) | **Contrato de aislamiento** (lo que separa "funciona" de "es seguro"): el `where` de Prisma filtra por `tenant_id`, `conductor_id`, `deleted_at`, usuario `rol=conductor` `activo` no borrado, y la activa excluye `cancelada` y ordena por servicio más reciente. Borrar cualquier eje del scope (un conductor vería reservas de otro, o de otro tenant, o desactivado) → rojo. |
 | [`apps/web/src/app/api/conductor/asignacion/activa/route.test.ts`](../apps/web/src/app/api/conductor/asignacion/activa/route.test.ts) | Endpoint clave de móvil (asignación al abrir sin push): `401` sin Bearer / token inválido, asignación serializada con token válido, `{ asignacion: null }` sin viaje, y que **no filtra** `password_hash`/`voucher_qr_payload`. También verifica el contrato `abordaje`. Tokens Bearer **reales** (no mock del verificador). |
 | [`apps/web/src/app/api/conductor/asignacion/[id]/estado/route.test.ts`](../apps/web/src/app/api/conductor/asignacion/[id]/estado/route.test.ts) | Gate server-side de Feature 1: `recojo_aeropuerto + pendiente_validacion` devuelve `409 counter_pendiente` sin mutar viaje/reserva; `recojo_aeropuerto + autorizado` avanza; `traslado_aeropuerto` no se bloquea. |
-| [`apps/web/src/lib/pasajero.test.ts`](../apps/web/src/lib/pasajero.test.ts) | **Anti-recta del servidor**: con estimación determinista NO entrega geometría (recta) pero sí ETA/distancia; con curva Mapbox real (100 vértices) sí; geometría Mapbox degenerada de 2 puntos NO se pinta (guard `>2`); sin coordenadas no calcula ruta ni inventa trazo (fallback textual); comprobante sólo disponible al finalizar. Protege que el link `/p/[token]` no mienta visualmente. Ver [[mapas-solo-ruta-real]]. |
+| [`apps/web/src/lib/pasajero.test.ts`](../apps/web/src/lib/pasajero.test.ts) | **Anti-recta del servidor**: con estimación determinista NO entrega geometría (recta) pero sí llegada/distancia; con curva Mapbox real (100 vértices) sí; geometría Mapbox degenerada de 2 puntos NO se pinta (guard `>2`); sin coordenadas no calcula ruta ni inventa trazo (fallback textual); comprobante sólo disponible al finalizar. Protege que el link `/p/[token]` no mienta visualmente. Ver [[mapas-solo-ruta-real]]. |
 | [`apps/web/src/lib/auth/secret.test.ts`](../apps/web/src/lib/auth/secret.test.ts) | Fail-fast de `AUTH_SECRET`: lanza en runtime de producción sin secreto; NO lanza en build de producción ni en CI. Evita firmar sesiones JWT con la clave de desarrollo en producción. |
 | [`apps/web/src/lib/conductor-asignacion.test.ts`](../apps/web/src/lib/conductor-asignacion.test.ts) (ampliado) | Máquina de estados del viaje + dominio de abordaje: recorrido completo hacia adelante, rechazo de retroceso, estado terminal, helpers `requiereCounter`/`estadoAbordajeInicial`/`puedeIniciarRuta` y serializer móvil con `abordaje`. |
 | [`packages/asignacion/src/heuristica.test.ts`](../packages/asignacion/src/heuristica.test.ts) (ampliado) | Van preferida sobre minivan con >4 pax; la distancia penaliza con cola/match iguales; distancia mock estable sin coordenadas; `getPesosAsignacion` lee `ASIGNACION_PESO_*` del entorno, los overrides ganan, valores no numéricos vuelven al default y el cambio se propaga a `factores.pesos`. |
@@ -800,7 +809,7 @@ mode web a negro/gris/verde queda **pendiente de confirmación** del usuario.
 
 ---
 
-## 22. Feature 1 post-S9 — gate de counter y estado de abordaje (2026-06-11)
+## 22. Feature 1 post-S9 — gate de mostrador y estado de abordaje (2026-06-11)
 
 Fuente de verdad: [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md).
 Estado de cierre: [`features/ESTADO_FEATURE_1.md`](features/ESTADO_FEATURE_1.md).
@@ -820,7 +829,7 @@ Qué cambió:
 - Se agregan broadcasts `abordaje` en `reserva-{id}` y `conductor-{conductorId}`. Si el counter valida antes de que
   exista conductor, la autorización queda persistida y la asignación futura nace habilitada.
 - La app conductor recibe `abordaje` en el contrato de asignación, bloquea el CTA con microcopy humano
-  ("Esperando counter") y refresca al recibir la luz verde.
+  ("Esperando mostrador") y refresca al recibir la luz verde.
 - `/counter` muestra conductor/unidad cuando existen, o "Falta asignar conductor"; al confirmar muestra una luz verde
   explícita.
 - `db:seed-guion` conserva el guion visual en curso como autorizado; `db:seed-operacional` deja la protagonista
@@ -852,3 +861,181 @@ Pendiente intencional para Feature 2:
 
 - El contrato de counter ya trae `pago: null`; Feature 2 lo llenará con cotización y pago demo persistidos.
 - No se implementó pasarela ni cierre financiero en Feature 1.
+
+---
+
+## 23. Feature 2 post-S9 — pago demo y cotización persistida (2026-06-11)
+
+Fuente de verdad: [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md).
+Estado de cierre: [`features/ESTADO_FEATURE_2.md`](features/ESTADO_FEATURE_2.md).
+
+Qué cambió:
+
+- `reservas` gana `cotizacion_monto`, `cotizacion_moneda`, `cotizacion_fuente` y `cotizacion_calculada_en`.
+- Nuevo enum `EstadoPago` y nueva tabla `pagos` (`reserva_id @unique`) para que cada reserva tenga un estado financiero
+  demo uno-a-uno.
+- Nuevo paquete `@taxigreen/pagos`:
+  - `calcularCotizacionDemo()` calcula tarifa determinística, valida rangos lat/lng y cae al tarifario demo si la coordenada no es confiable.
+  - `autorizarPagoDemo()` autoriza por método (`pasarela_demo`, `credito_hotel_demo`, `credito_empresa_demo`,
+    `efectivo_en_unidad`).
+    Solo `app_pago` genera autorización `AUT-*`; crédito hotel/empresa queda con `autorizacion=null`.
+  - `cerrarPagoDemo()` queda listo para Feature 3.
+  - `serializarPagoDemo()` y `estadoPagoHumano()` centralizan copy humano.
+- WhatsApp Sim muestra tarifa antes de confirmar y, al confirmar, crea reserva + cotización + pago en una transacción,
+  auditando `pago_demo_autorizado`.
+- Counter, pasajero, admin y conductor leen el mismo `pago` serializado.
+- La app conductor deja el cálculo local como fallback legacy y prioriza `assignment.cobro`.
+- `seed.ts` crea pago autorizado para la protagonista; `seed-guion.ts`/`seed-operacional.ts` limpian `pagos` antes
+  de borrar reservas `TG-WA-*`.
+
+Verificación de cierre:
+
+- `pnpm --filter @taxigreen/database db:deploy`: migración `20260611010000_feature2_pagos_demo` aplicada en Supabase.
+- `pnpm --filter @taxigreen/pagos test`: 15/15 tras F2.1.
+- `pnpm --filter @taxigreen/web test`: 61/61.
+- `pnpm turbo run typecheck lint test build`: 60/60 tareas.
+- `pnpm e2e`: 9/9 contra `next start` en `localhost:3000`.
+- `pnpm --filter @taxigreen/driver exec expo export --platform android`: EXIT 0, 1430 módulos.
+- Smoke no destructivo post `db:seed-guion`: pasajero y counter devuelven `S/ 75.00 · Cargo al hotel autorizado`.
+  DB final: `proveedor_demo=credito_hotel_demo`, `autorizacion=null`.
+
+Estado DB final tras restaurar guion:
+
+- `reservas=1`, `pagos=1`, `TG-WA-*=0`, `incidencias=1`.
+- Protagonista `TG-2026-0001`: `en_curso`, abordaje `autorizado`, pago `voucher_hotel/autorizado`.
+
+Auditoría profunda F2.1:
+
+- Se corrigió el contrato de autorización: hotel/empresa ya no generan `HOT-*`/`EMP-*`; solo app pago genera `AUT-*`.
+- Se blindaron coordenadas fuera de rango y montos no positivos en `@taxigreen/pagos`.
+- Se alineó el fallback móvil `cobroEstimado()` con el mínimo `S/ 15.00` y validación lat/lng.
+- `crearReservaDesdeIngesta()` valida fecha/hora antes de abrir transacción.
+- La lista admin muestra pago desde la fila principal; el detalle conserva el bloque ampliado.
+
+Pendiente intencional para Feature 3:
+
+- Conectar `cerrarPagoDemo()` a `EstadoViaje.finalizado`.
+- Preparar comprobante con monto real y auditar cierre financiero.
+
+---
+
+## 24. Feature 3 post-S9 — cierre financiero y comprobante conectado (2026-06-11)
+
+Fuente de verdad: [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md).
+Estado de cierre: [`features/ESTADO_FEATURE_3.md`](features/ESTADO_FEATURE_3.md).
+
+Qué cambió:
+
+- `apps/web/src/lib/comprobantes.ts` centraliza la preparación del comprobante:
+  - `prepararComprobanteDemo(tx, ...)` corre dentro del `Prisma.TransactionClient` recibido.
+  - Monto: `pagos.monto -> reservas.cotizacion_monto -> S/ 75.00` legacy explícito.
+  - Tipo por defecto: `factura_empresa -> factura`; resto -> `boleta`.
+  - Series estables: `B001`, `F001`, `T001`.
+- `POST /api/conductor/asignacion/[id]/estado`, al recibir `finalizado`, ejecuta dentro de la misma transacción:
+  - cierre de viaje;
+  - `cerrarPagoDemo()`;
+  - preparación de comprobante `pendiente`;
+  - auditoría `pago_demo_cerrado` y `comprobante_preparado`.
+- `POST /api/pasajero/[token]/comprobante` ya no puede preparar comprobante antes del fin del viaje:
+  responde `409 viaje_no_terminado`.
+- `/p/[token]` prioriza `Descargar comprobante` cuando el cierre ya lo dejó listo.
+- Admin muestra `Pago y comprobante` como un bloque financiero único.
+- `/counter` abre cámara con `getUserMedia` y usa `BarcodeDetector` si existe o `jsqr` como fallback universal.
+- WhatsApp Sim evita resumen duplicado en modo copiloto y difiere el anuncio de conductor/placa hasta que el mostrador
+  valida el pase.
+
+Pruebas agregadas:
+
+- Helper de comprobantes: 6 casos.
+- API conductor `finalizado`: pago cerrado + comprobante preparado.
+- API pasajero comprobante: 409 antes de terminar y monto real al terminar.
+- E2E `counter-gate`: extendido hasta cierre financiero y CTA `Descargar comprobante`.
+
+Verificación ejecutada durante implementación:
+
+- `pnpm --filter @taxigreen/web test -- --run`: 70/70.
+- `pnpm --filter @taxigreen/web lint`: verde.
+- `pnpm --filter @taxigreen/web typecheck`: verde.
+- `pnpm turbo run typecheck lint test build`: 60/60 tareas.
+- `pnpm e2e`: 9/9 contra `next start`.
+- `pnpm --filter @taxigreen/driver exec expo export --platform android`: EXIT 0, 1430 módulos.
+- Smoke temporal `app_pago`: cierre `capturado` + comprobante `pendiente` por `S/ 88.50`; datos limpiados al final.
+- DB restaurada con `db:seed-guion`.
+
+Siguiente paso:
+
+- Feature 4 separa escenarios A/B: aeropuerto con mostrador vs traslado al aeropuerto sin mostrador.
+
+---
+
+## 25. Feature 4 post-S9 — escenarios A/B end-to-end (2026-06-11)
+
+Fuente de verdad: [`features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md`](features/MASTER_FLUJO_OPERACIONAL_PERFECTO.md).
+Estado de cierre: [`features/ESTADO_FEATURE_4.md`](features/ESTADO_FEATURE_4.md).
+
+Qué cambió:
+
+- El contrato `tipo_viaje` define si una reserva requiere mostrador: `recojo_aeropuerto` sí; `traslado_aeropuerto`
+  y `city` no.
+- `estadoAbordajeInicial()` nace como `pendiente_validacion` solo para A y `no_requerido` para B.
+- `/wa-sim` crea A con pase de abordaje y enlace diferido; crea B con seguimiento directo.
+- La app conductor puede iniciar B sin 409 de mostrador; A conserva gate server-side.
+- Admin, pasajero, counter y driver muestran copy humano por escenario: `Mostrador` / `Sin mostrador`,
+  `Punto de encuentro` / `Punto de recojo`.
+- Seeds A/B quedan idempotentes: `TG-2026-0001` para A y `TG-2026-0002` para B.
+
+Verificación de cierre:
+
+- `pnpm turbo run typecheck lint test build`: 60/60.
+- Playwright completo contra `next start` fresco en `localhost:3100`: 10/10.
+- `expo export --platform android`: EXIT 0.
+- DB restaurada con `db:seed-operacional`.
+
+---
+
+## 26. Feature 5 post-S9 — identidad comercial y borrador corregible (2026-06-11)
+
+Fuente de verdad: [`features/MASTER_FLUJO_COMERCIAL_Y_LIBERTAD.md`](features/MASTER_FLUJO_COMERCIAL_Y_LIBERTAD.md).
+Estado de cierre: [`features/ESTADO_FEATURE_5.md`](features/ESTADO_FEATURE_5.md).
+
+Contrato de datos nuevo en `reservas`:
+
+- `perfil_pasajero`: `particular | corporativo | hotel`, responde quién viaja o a qué entidad está asociado.
+- `responsable_pago`: `pasajero | empresa | hotel`, responde quién cubre este servicio.
+- `convenio_validado_demo`: booleano derivado de diccionario determinista (`ACME Perú`, `Andes Corporate Travel`,
+  `Hotel Costa Verde`, `Hilton Lima Miraflores`).
+- `requiere_factura`: atributo de comprobante; nunca convierte a un particular en corporativo.
+- `vehiculo_preferencia`, `pasajeros_cantidad`, `equipaje_nivel`: señales persistidas para asignación, UI y F8.
+- `cancelada_por`, `cancelada_motivo`: nacen en F5 para que F6/F7 no requieran otra migración de cancelaciones.
+
+Invariantes comerciales:
+
+- `responsable_pago != pasajero` implica `tipo_pago in (voucher_hotel, factura_empresa)`.
+- `responsable_pago=pasajero` implica pago personal (`efectivo`/`app_pago`) o método aún por aclarar.
+- `requiere_factura=true` no cambia `perfil_pasajero`.
+- Un trabajador de empresa puede quedar `perfil_pasajero=corporativo` y `responsable_pago=pasajero`.
+
+Cambios principales:
+
+- Migración `20260611020000_feature5_identidad_comercial` aplicada en Supabase con backfill desde `tipo_pago`.
+- `packages/ingesta` corrige E1-E5: vuelo + origen residencial, intención reciente sobre contexto, factura ≠ empresa,
+  léxico Jorge Chávez y campos comerciales nuevos.
+- `/wa-sim` manda el último mensaje como intención actual y el historial anterior como contexto; las correcciones
+  actualizan el borrador y re-cotizan como “Tarifa estimada protegida vN”.
+- `packages/shared/src/comercial` centraliza copy humano para chat, pasajero, mostrador, admin y driver.
+- Serializers de admin, pasajero, counter y conductor exponen `comercial` con resumen y copy de cobro por responsable.
+- `packages/asignacion` usa `vehiculo_preferencia` como señal de match sin tocar la prioridad de cola.
+- `packages/ia/prompts/ingesta-whatsapp.v1.md` sube a versión lógica 2 e instruye el contrato perfil/responsable.
+- Seeds A/B: A queda `hotel/hotel` con Hilton Lima Miraflores; B queda `corporativo/empresa` con ACME Perú.
+
+Verificación de cierre:
+
+- `pnpm --filter @taxigreen/ingesta test`: 13/13 con los 6 casos de matriz + E1/E2/E3/E4.
+- `pnpm --filter @taxigreen/web test`: 71/71.
+- `pnpm --filter @taxigreen/asignacion test`: 15/15.
+- `pnpm --filter @taxigreen/database db:deploy`: migración F5 aplicada.
+- `pnpm --filter @taxigreen/database db:seed-operacional`: A/B F5 idempotentes.
+
+Siguiente paso:
+
+- Feature 6 implementa pago al finalizar y libertades del pasajero usando `responsable_pago` como fuente semántica.
