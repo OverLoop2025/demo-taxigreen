@@ -100,8 +100,16 @@ type ChatMensaje = Mensaje & {
 const CONFIRMACION_CLIENTE = /^\s*(s[ií]\b|s[ií][,.!]|confirmo|claro|ok\b|dale|de acuerdo|correcto)/iu;
 
 function esSaludo(texto: string): boolean {
-  if (texto.length > 70) return false;
-  return /^\s*(hola|buenas?\s*(tardes?|noches?|d[ií]as?)?|buenos?\s*(d[ií]as?|tardes?|noches?)|hi\b|hey\b|buen\s*d[ií]a|saludos|ola|good\s*(morning|evening|afternoon))\s*[!.,]?\s*$/iu.test(texto);
+  if (texto.length > 90) return false;
+  // No es saludo si menciona datos de reserva
+  if (/\d|aeropuerto|hotel|taxi|vuelo|reserva|av\.|avenida|calle|jir[oó]n/i.test(texto)) return false;
+  // Saludo simple (mensaje entero es saludo)
+  if (/^\s*(hola|buenas?\s*(tardes?|noches?|d[ií]as?)?|buenos?\s*(d[ií]as?|tardes?|noches?)|hi\b|hey\b|buen\s*d[ií]a|saludos|ola|good\s*(morning|evening|afternoon|day))\s*[!.,]?\s*$/iu.test(texto)) return true;
+  // Saludo compuesto: "Hola buenas tardes", "Hola, buenos días", "Hola cómo están"
+  if (/^\s*hola[,.]?\s+(buenas?\s*(tardes?|noches?|d[ií]as?)|buenos?\s*(d[ií]as?|tardes?|noches?)|buen\s*d[ií]a|c[oó]mo\s+est[aá])/iu.test(texto)) return true;
+  // Solo "buenas" seguido de nada o una despedida
+  if (/^\s*(buenas?\s*(tardes?|noches?|d[ií]as?)?|buenos?\s*(d[ií]as?|tardes?|noches?))\s*[!.,]?\s*$/iu.test(texto)) return true;
+  return false;
 }
 
 function esIntencionDeReserva(texto: string) {
@@ -1377,9 +1385,10 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     return () => { cancelled = true; };
   }, [extraccion]);
 
-  // Copiloto auto
+  // Copiloto auto — no actúa mientras el flujo guiado esté en curso
   useEffect(() => {
     if (!copilotoAuto || !extraccion || confirmada || loading || esperandoConfirmacionCliente || autoConfirmingRef.current) return;
+    if (guidedStep !== null) return; // flujo guiado tiene prioridad
     if (extraccion.confianza >= 0.7 && pagoPreviewLoading) return;
     const key = `${selectedId}:${extraccion.reserva.raw_texto}:${extraccion.preguntas_aclaracion.join('|')}:${Math.round(extraccion.confianza * 100)}`;
     if (autoHandledRef.current === key) return;
@@ -1428,7 +1437,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     }
   }, [
     copilotoAuto, extraccion, confirmada, loading, selectedId,
-    pagoPreview, pagoPreviewLoading, cotizacionVersion, esperandoConfirmacionCliente,
+    pagoPreview, pagoPreviewLoading, cotizacionVersion, esperandoConfirmacionCliente, guidedStep,
   ]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
