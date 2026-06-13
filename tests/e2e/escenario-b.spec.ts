@@ -30,7 +30,7 @@ test('escenario B: hotel hacia aeropuerto nace sin mostrador y el conductor inic
   await page.getByRole('button', { name: /Extraer/i }).click();
 
   await expect(page.getByText('Hotel Costa Verde, Av. Malecón 200, Miraflores').first()).toBeVisible();
-  await expect(page.getByText('Aeropuerto Jorge Chávez - Llegadas', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Aeropuerto Jorge Chávez - Salidas', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('traslado aeropuerto').first()).toBeVisible();
   await expect(page.getByText(/Listo para confirmar/i).first()).toBeVisible();
 
