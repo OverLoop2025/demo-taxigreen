@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   asignarConductorAutomatico,
+  buscarReservaPorCodigo,
   crearReservaDesdeIngesta,
   obtenerSeguimientoReserva,
   previsualizarPagoDesdeIngesta,
@@ -33,10 +34,10 @@ import {
 } from './actions';
 import { FECHA_SIMULADOR_ISO, type ConversacionSeed } from './conversaciones-seed';
 
+// ─── Tipos base ──────────────────────────────────────────────────────────────
+
 type Mensaje = ConversacionSeed['mensajes'][number];
 
-// Confirmación que el copiloto envía DENTRO del chat al cliente. En A (recojo
-// aeropuerto) el enlace se revela tras mostrador; en B va directo porque no hay mostrador.
 type ConfirmacionChat = {
   pasajero: string;
   codigo: string;
@@ -58,12 +59,58 @@ type ConfirmacionChat = {
   pago: PagoDemoChat;
 };
 
-// Mensaje del chat: texto simple (seed/cliente), tarjeta de confirmación rica, o
-// botón de enlace en vivo (post-validación del mostrador para escenario A).
-type ChatMensaje = Mensaje & { confirmacion?: ConfirmacionChat; enlace?: string };
+// ─── Flujo interactivo ───────────────────────────────────────────────────────
 
-// Respuesta afirmativa del cliente a "¿Confirmas la reserva?" (modo copiloto).
+type OpcionInteractiva = {
+  valor: string;
+  etiqueta: string;
+  descripcion?: string;
+  emoji?: string;
+};
+
+type ComponenteInteractivo =
+  | { tipo: 'intent-selector'; opciones: OpcionInteractiva[] }
+  | { tipo: 'radio-group'; campo: string; etiqueta: string; opciones: OpcionInteractiva[] }
+  | { tipo: 'date-time-picker' }
+  | { tipo: 'location-options'; modo: 'destino' | 'origen' }
+  | { tipo: 'code-lookup' };
+
+type GuidedStep =
+  | 'intent'
+  | 'tipo_usuario'
+  | 'flujo'
+  | 'zona_llegada'
+  | 'nombre_pasajero'
+  | 'fecha'
+  | 'destino'
+  | 'origen_b'
+  | 'responsable_pago'
+  | 'vehiculo'
+  | 'datos'
+  | 'code_lookup';
+
+type ChatMensaje = Mensaje & {
+  confirmacion?: ConfirmacionChat;
+  enlace?: string;
+  interactivo?: ComponenteInteractivo;
+};
+
+// ─── Detección de saludo / intención ─────────────────────────────────────────
+
 const CONFIRMACION_CLIENTE = /^\s*(s[ií]\b|s[ií][,.!]|confirmo|claro|ok\b|dale|de acuerdo|correcto)/iu;
+
+function esSaludo(texto: string): boolean {
+  if (texto.length > 70) return false;
+  return /^\s*(hola|buenas?\s*(tardes?|noches?|d[ií]as?)?|buenos?\s*(d[ií]as?|tardes?|noches?)|hi\b|hey\b|buen\s*d[ií]a|saludos|ola|good\s*(morning|evening|afternoon))\s*[!.,]?\s*$/iu.test(texto);
+}
+
+function esIntencionDeReserva(texto: string) {
+  if (texto.length > 80 || /\d/.test(texto)) return false;
+  if (/aeropuerto|hotel|av\.|avenida|calle|jir[oó]n|recojo|recoger|llevar|vuelo/i.test(texto)) return false;
+  return /\b(reservar?|necesito|quiero|solicitar)\b[\s\S]*\bun?\s*taxi\b/i.test(texto);
+}
+
+// ─── Helpers de formato ───────────────────────────────────────────────────────
 
 function formatFechaCorta(iso: string) {
   return new Date(iso).toLocaleString('es-PE', {
@@ -79,43 +126,6 @@ function formatFechaCorta(iso: string) {
 function horaAhora() {
   return new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
 }
-
-const FIELD_GROUPS: Array<{
-  label: string;
-  keys: Array<[keyof ReservaExtraida, string]>;
-}> = [
-  {
-    label: 'Servicio',
-    keys: [
-      ['tipo_viaje', 'Tipo'],
-      ['fecha_hora_servicio', 'Fecha'],
-      ['tipo_pago', 'Pago'],
-      ['perfil_pasajero', 'Perfil'],
-      ['responsable_pago', 'Responsable'],
-      ['vuelo_codigo', 'Vuelo'],
-      ['punto_encuentro', 'Encuentro'],
-    ],
-  },
-  {
-    label: 'Ruta',
-    keys: [
-      ['origen_texto', 'Origen'],
-      ['destino_texto', 'Destino'],
-    ],
-  },
-  {
-    label: 'Personas',
-    keys: [
-      ['solicitante_tipo', 'Solicita'],
-      ['solicitante_nombre', 'Nombre'],
-      ['pasajero_nombre', 'Pasajero'],
-      ['pasajero_telefono', 'Teléfono'],
-      ['pasajeros_cantidad', 'Personas'],
-      ['equipaje_nivel', 'Equipaje'],
-      ['vehiculo_preferencia', 'Vehículo'],
-    ],
-  },
-];
 
 function formatValue(value: ReservaExtraida[keyof ReservaExtraida]) {
   if (value === null || value === '') return 'Pendiente';
@@ -159,8 +169,6 @@ function identidadDesdeExtraccion(reserva: ReservaExtraida) {
   };
 }
 
-// Estado humano de la reserva sugerida (líder del panel, no el %): qué falta y qué
-// puede hacer el operador ahora. El % queda como dato secundario discreto.
 function estadoReserva(result: ExtraccionReservaResultado | null, confirmada: boolean) {
   if (confirmada) return { label: 'Enviada al cliente', tone: 'ok' as const };
   if (!result) return { label: 'Esperando mensaje', tone: 'idle' as const };
@@ -175,8 +183,42 @@ const ESTADO_TONE: Record<'ok' | 'warn' | 'idle', string> = {
   idle: 'bg-[#e9edef] text-[#667781]',
 };
 
-// Tarjeta que el pasajero recibe en el chat. En A muestra pase de abordaje; en B
-// muestra seguimiento directo sin requisito de mostrador.
+const FIELD_GROUPS: Array<{ label: string; keys: Array<[keyof ReservaExtraida, string]> }> = [
+  {
+    label: 'Servicio',
+    keys: [
+      ['tipo_viaje', 'Tipo'],
+      ['fecha_hora_servicio', 'Fecha'],
+      ['tipo_pago', 'Pago'],
+      ['perfil_pasajero', 'Perfil'],
+      ['responsable_pago', 'Responsable'],
+      ['vuelo_codigo', 'Vuelo'],
+      ['punto_encuentro', 'Encuentro'],
+    ],
+  },
+  {
+    label: 'Ruta',
+    keys: [
+      ['origen_texto', 'Origen'],
+      ['destino_texto', 'Destino'],
+    ],
+  },
+  {
+    label: 'Personas',
+    keys: [
+      ['solicitante_tipo', 'Solicita'],
+      ['solicitante_nombre', 'Nombre'],
+      ['pasajero_nombre', 'Pasajero'],
+      ['pasajero_telefono', 'Teléfono'],
+      ['pasajeros_cantidad', 'Personas'],
+      ['equipaje_nivel', 'Equipaje'],
+      ['vehiculo_preferencia', 'Vehículo'],
+    ],
+  },
+];
+
+// ─── Sub-componentes del chat ─────────────────────────────────────────────────
+
 function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
   return (
     <div className="w-[268px] max-w-full">
@@ -184,7 +226,6 @@ function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
         <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-[#075E54]" />
         <p className="text-sm font-semibold text-[#0a332f]">Reserva confirmada</p>
       </div>
-
       <div className="mt-2 rounded-lg bg-white p-3 shadow-sm">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#667781]">Tu reserva</p>
         <p className="text-base font-bold tracking-wider text-[#0a332f]">{data.codigo}</p>
@@ -196,7 +237,6 @@ function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
           {data.destino} · {data.fecha}
         </p>
       </div>
-
       <div className="mt-2 rounded-lg bg-white p-3 shadow-sm">
         <div className="flex items-start gap-2">
           <CreditCard aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[#075E54]" />
@@ -209,14 +249,12 @@ function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
           </div>
         </div>
       </div>
-
       {data.requiereMostrador ? (
         <div className="mt-2 rounded-lg bg-white p-3 shadow-sm">
           <div className="flex items-center gap-2">
             <QrCode aria-hidden="true" className="h-4 w-4 text-[#075E54]" />
             <p className="text-sm font-semibold text-[#0a332f]">Tu pase de abordaje</p>
           </div>
-          {/* QR dinámico (PNG firmado servido por /api/voucher/[id]/qr); next/image no aporta aquí. */}
           <img
             alt={`Pase de abordaje de la reserva ${data.codigo}`}
             className="mx-auto mt-2 h-40 w-40 rounded-md border border-[#e3ece9]"
@@ -233,12 +271,11 @@ function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
             <p className="text-sm font-semibold text-[#0a332f]">Seguimiento activo</p>
           </div>
           <p className="mt-1 text-[11px] leading-4 text-[#3b4a47]">
-            No necesitas pasar por mostrador. Tu conductor va directo al punto de recojo. El enlace queda activo desde ahora.
+            No necesitas pasar por mostrador. Tu conductor va directo al punto de recojo.
           </p>
           <EnlaceMensaje link={data.link} />
         </div>
       )}
-
       <p className="mt-2 px-1 text-[11px] leading-4 text-[#3b4a47]">
         {data.requiereMostrador
           ? 'Al validar tu pase en el mostrador te llega aquí el enlace para seguir tu taxi en vivo.'
@@ -248,7 +285,6 @@ function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
   );
 }
 
-// Botón de enlace en vivo: directo en B; revelado tras mostrador en A.
 function EnlaceMensaje({ link }: { link: string }) {
   return (
     <a
@@ -266,47 +302,265 @@ function EnlaceMensaje({ link }: { link: string }) {
   );
 }
 
-// F8: pasos del flujo guiado ("Necesito reservar un taxi" sin datos).
-type GuidedStep = 'servicio' | 'perfil' | 'responsable' | 'personas' | 'equipaje' | 'vehiculo' | 'datos';
+// ─── Componente interactivo del chat ─────────────────────────────────────────
 
-const PREGUNTA_GUIADA: Record<GuidedStep, string> = {
-  servicio:
-    '¡Hola! Con gusto te reservo un Taxi Green. ¿Qué necesitas?\n1. Me recogen en el aeropuerto\n2. Me llevan al aeropuerto\n3. Otro traslado en la ciudad',
-  perfil:
-    '¿La reserva es particular o va asociada a una empresa u hotel?\n1. Particular\n2. Empresa u hotel',
-  responsable:
-    '¿El servicio lo cubre la empresa u hotel, o lo pagarás tú?\n1. Lo cubre la empresa/hotel\n2. Lo pago yo',
-  personas: '¿Cuántas personas viajan?',
-  equipaje:
-    '¿Cuánto equipaje llevan?\n1. Poco equipaje\n2. Maletas normales\n3. Varias maletas o equipaje grande',
-  vehiculo:
-    '¿Prefieres algún tipo de vehículo?\n1. El mejor disponible\n2. Sedán\n3. Más espacio para equipaje\n4. Van para grupo grande',
-  datos:
-    '¡Perfecto! Para terminar, cuéntame en un solo mensaje: nombre del pasajero, teléfono, fecha y hora, vuelo (si aplica), la dirección de recojo o destino, y si va a nombre de una empresa u hotel, dime cuál.',
-};
+function ComponenteInteractivoChat({
+  interactivo,
+  contestado,
+  seleccionado,
+  onSeleccionar,
+}: {
+  interactivo: ComponenteInteractivo;
+  contestado: boolean;
+  seleccionado: string | undefined;
+  onSeleccionar: (valor: string, etiqueta: string) => void;
+}) {
+  const [fechaVal, setFechaVal] = useState('');
+  const [horaVal, setHoraVal] = useState('');
+  const [locTexto, setLocTexto] = useState('');
+  const [locMode, setLocMode] = useState<null | 'texto'>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [codigoVal, setCodigoVal] = useState('');
 
-// Mensaje de pura intención (sin datos todavía): dispara el flujo guiado.
-function esIntencionDeReserva(texto: string) {
-  if (texto.length > 80 || /\d/.test(texto)) return false;
-  if (/aeropuerto|hotel|av\.|avenida|calle|jir[oó]n|recojo|recoger|llevar|vuelo/i.test(texto)) return false;
-  return /\b(reservar?|necesito|quiero|solicitar)\b[\s\S]*\bun?\s*taxi\b/i.test(texto);
+  if (contestado) {
+    return (
+      <div className="mt-2 rounded-lg bg-[#e1f7d5] px-3 py-2 text-xs font-semibold text-[#075E54]">
+        ✓ {seleccionado}
+      </div>
+    );
+  }
+
+  switch (interactivo.tipo) {
+    case 'intent-selector':
+      return (
+        <div className="mt-3 flex flex-col gap-2">
+          {interactivo.opciones.map((op) => (
+            <button
+              className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2] active:scale-[0.98]"
+              key={op.valor}
+              onClick={() => onSeleccionar(op.valor, op.etiqueta)}
+              type="button"
+            >
+              {op.emoji && <span className="text-xl leading-none">{op.emoji}</span>}
+              <div>
+                <p className="text-sm font-semibold text-[#0a332f]">{op.etiqueta}</p>
+                {op.descripcion && <p className="mt-0.5 text-xs leading-4 text-[#667781]">{op.descripcion}</p>}
+              </div>
+            </button>
+          ))}
+        </div>
+      );
+
+    case 'radio-group':
+      return (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {interactivo.opciones.map((op) => (
+            <button
+              className="flex items-center gap-1.5 rounded-full border-2 border-[#128C7E] bg-white px-4 py-2 text-sm font-semibold text-[#075E54] transition hover:bg-[#e7fde2] active:scale-95"
+              key={op.valor}
+              onClick={() => onSeleccionar(op.valor, op.etiqueta)}
+              type="button"
+            >
+              {op.emoji && <span>{op.emoji}</span>}
+              {op.etiqueta}
+            </button>
+          ))}
+        </div>
+      );
+
+    case 'date-time-picker': {
+      const hoy = new Date().toISOString().split('T')[0] ?? '';
+      return (
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input
+              className="min-w-0 flex-1 rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
+              min={hoy}
+              onChange={(e) => setFechaVal(e.target.value)}
+              type="date"
+              value={fechaVal}
+            />
+            <input
+              className="w-[104px] rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
+              onChange={(e) => setHoraVal(e.target.value)}
+              type="time"
+              value={horaVal}
+            />
+          </div>
+          <button
+            className="rounded-lg bg-[#128C7E] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
+            disabled={!fechaVal || !horaVal}
+            onClick={() => {
+              const dt = new Date(`${fechaVal}T${horaVal}`);
+              const etiqueta = dt.toLocaleString('es-PE', {
+                timeZone: 'America/Lima',
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              onSeleccionar(`${fechaVal}T${horaVal}:00`, etiqueta);
+            }}
+            type="button"
+          >
+            Confirmar fecha y hora
+          </button>
+        </div>
+      );
+    }
+
+    case 'location-options': {
+      const isDestino = interactivo.modo === 'destino';
+
+      if (locMode === 'texto') {
+        return (
+          <div className="mt-3 flex flex-col gap-2">
+            <input
+              autoFocus
+              className="rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
+              onChange={(e) => setLocTexto(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && locTexto.trim().length >= 4) {
+                  onSeleccionar(locTexto.trim(), locTexto.trim());
+                }
+              }}
+              placeholder={isDestino ? 'Av. Pardo 123, Miraflores  ó  https://maps.app.goo.gl/…' : 'Hotel Costa Verde, Av. Malecón 200, Miraflores'}
+              value={locTexto}
+            />
+            <div className="flex gap-2">
+              <button
+                className="flex-1 rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm font-medium text-[#667781] transition hover:bg-gray-50"
+                onClick={() => setLocMode(null)}
+                type="button"
+              >
+                Volver
+              </button>
+              <button
+                className="flex-1 rounded-lg bg-[#128C7E] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
+                disabled={locTexto.trim().length < 4}
+                onClick={() => onSeleccionar(locTexto.trim(), locTexto.trim())}
+                type="button"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="mt-3 flex flex-col gap-2">
+          {!isDestino && (
+            <button
+              className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2] disabled:opacity-60"
+              disabled={geoLoading}
+              onClick={() => {
+                if (!navigator.geolocation) {
+                  setLocMode('texto');
+                  return;
+                }
+                setGeoLoading(true);
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    const txt = `Mi ubicación GPS (${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)})`;
+                    setGeoLoading(false);
+                    onSeleccionar(txt, txt);
+                  },
+                  () => {
+                    setGeoLoading(false);
+                    setLocMode('texto');
+                  },
+                  { enableHighAccuracy: true, timeout: 8000 },
+                );
+              }}
+              type="button"
+            >
+              {geoLoading ? (
+                <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-[#128C7E]" />
+              ) : (
+                <span className="mt-0.5 text-xl leading-none">📡</span>
+              )}
+              <div>
+                <p className="text-sm font-semibold text-[#0a332f]">Compartir mi ubicación GPS</p>
+                <p className="mt-0.5 text-xs leading-4 text-[#667781]">El sistema usa tu GPS para encontrarte</p>
+              </div>
+            </button>
+          )}
+          <button
+            className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2]"
+            onClick={() => setLocMode('texto')}
+            type="button"
+          >
+            <span className="mt-0.5 text-xl leading-none">📍</span>
+            <div>
+              <p className="text-sm font-semibold text-[#0a332f]">
+                {isDestino ? 'Escribir o pegar enlace de destino' : 'Escribir dirección de recojo'}
+              </p>
+              <p className="mt-0.5 text-xs leading-4 text-[#667781]">
+                {isDestino ? 'Dirección completa o enlace de Google Maps' : 'Dirección o nombre del lugar'}
+              </p>
+            </div>
+          </button>
+          {isDestino && (
+            <button
+              className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2]"
+              onClick={() => setLocMode('texto')}
+              type="button"
+            >
+              <span className="mt-0.5 text-xl leading-none">🗺️</span>
+              <div>
+                <p className="text-sm font-semibold text-[#0a332f]">Pegar enlace de Google Maps</p>
+                <p className="mt-0.5 text-xs leading-4 text-[#667781]">https://maps.app.goo.gl/…</p>
+              </div>
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    case 'code-lookup':
+      return (
+        <div className="mt-3 flex flex-col gap-2">
+          <input
+            className="rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
+            maxLength={20}
+            onChange={(e) => setCodigoVal(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && codigoVal.trim().length >= 4) {
+                onSeleccionar(codigoVal.trim(), codigoVal.trim());
+              }
+            }}
+            placeholder="TG-2026-0001"
+            value={codigoVal}
+          />
+          <button
+            className="rounded-lg bg-[#128C7E] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
+            disabled={codigoVal.trim().length < 4}
+            onClick={() => onSeleccionar(codigoVal.trim(), codigoVal.trim())}
+            type="button"
+          >
+            Buscar reserva
+          </button>
+        </div>
+      );
+  }
+  // Guarda de exhaustividad: el union type cubre todos los casos arriba
+  return null;
 }
 
-function opcionElegida(texto: string, max: number): number | null {
-  const match = /^\s*([1-9])\s*\.?\s*$/.exec(texto);
-  if (!match) return null;
-  const opcion = Number(match[1]);
-  return opcion >= 1 && opcion <= max ? opcion : null;
-}
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export function WhatsappSimulator({ conversaciones }: { conversaciones: ConversacionSeed[] }) {
   const router = useRouter();
-  // Chats creados a mano para probar la ingesta desde cero (se anteponen al seed).
+
+  // Chats manuales (creados con el botón +)
   const [chatsManuales, setChatsManuales] = useState<ConversacionSeed[]>([]);
   const todasConversaciones = useMemo(
     () => [...chatsManuales, ...conversaciones],
     [chatsManuales, conversaciones],
   );
+
   const initial = conversaciones[0]!;
   const [selectedId, setSelectedId] = useState(initial.id);
   const [messages, setMessages] = useState<ChatMensaje[]>(initial.mensajes);
@@ -322,38 +576,44 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   const [autorizacionPago, setAutorizacionPago] = useState<string | null>(null);
   const [reservaId, setReservaId] = useState<string | null>(null);
   const [datosPedidos, setDatosPedidos] = useState(false);
-  // Modo copiloto: apagado por defecto (modo seguro). Encendido, el copiloto pide
-  // datos, resume y crea cuando EL CLIENTE confirma; en A revela asignación tras mostrador.
   const [copilotoAuto, setCopilotoAuto] = useState(false);
   const [esperandoConfirmacionCliente, setEsperandoConfirmacionCliente] = useState(false);
   const [enlaceEnviado, setEnlaceEnviado] = useState(false);
   const [conductorAsignado, setConductorAsignado] = useState<string | null>(null);
-  // Guards SINCRÓNICOS (refs): con StrictMode los efectos corren dos veces en dev y
-  // un guard en state (asíncrono) deja pasar duplicados (resumen/enlace dobles).
+  const [guidedStep, setGuidedStep] = useState<GuidedStep | null>(null);
+
+  // Mapa de mensajes interactivos ya contestados: id → etiqueta seleccionada
+  const [mensajesContestados, setMensajesContestados] = useState<Map<string, string>>(new Map());
+
+  // Refs para guards síncronos (evitan dobles disparos con StrictMode)
   const autoHandledRef = useRef<string | null>(null);
   const enlaceEnviadoRef = useRef(false);
   const autoConfirmingRef = useRef(false);
   const cotizacionKeyRef = useRef<string | null>(null);
   const resumenEmitidoRef = useRef(0);
-  // F7: vigilancia de la unidad asignada ("nombre · placa" última vista).
   const unidadVistaRef = useRef<string | null>(null);
   const avisoSinUnidadRef = useRef(false);
   const reasignandoRef = useRef(false);
-  // F8: reserva guiada — el bot pregunta con opciones y traduce cada respuesta a
-  // lenguaje natural que alimenta el MISMO extractor (un solo motor de borrador).
-  const [guidedStep, setGuidedStep] = useState<GuidedStep | null>(null);
+
+  // Scroll al último mensaje cuando llegan nuevos
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages]);
+
+  // Contexto del flujo guiado: accesible síncronamente (ref, no state)
   const guidedTextoRef = useRef<string[]>([]);
+  const guidedContextRef = useRef<{
+    intent?: 'reservar' | 'consultar' | 'queja';
+    tipoUsuario?: 'independiente' | 'corporativo';
+    flujo?: 'A' | 'B';
+  }>({});
+
   const [isPending, startTransition] = useTransition();
 
-  const selected = todasConversaciones.find((conversation) => conversation.id === selectedId) ?? initial;
-  const inboundText = useMemo(
-    () =>
-      messages
-        .filter((message) => message.autor === 'cliente')
-        .map((message) => message.texto)
-        .join('\n'),
-    [messages],
-  );
+  const selected = todasConversaciones.find((c) => c.id === selectedId) ?? initial;
+
+  // ─── Navegación entre conversaciones ──────────────────────────────────────
 
   function selectConversation(conversation: ConversacionSeed) {
     setSelectedId(conversation.id);
@@ -369,6 +629,10 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     setReservaId(null);
     setDatosPedidos(false);
     setEsperandoConfirmacionCliente(false);
+    setGuidedStep(null);
+    setEnlaceEnviado(false);
+    setConductorAsignado(null);
+    setMensajesContestados(new Map());
     autoHandledRef.current = null;
     enlaceEnviadoRef.current = false;
     autoConfirmingRef.current = false;
@@ -378,9 +642,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     avisoSinUnidadRef.current = false;
     reasignandoRef.current = false;
     guidedTextoRef.current = [];
-    setGuidedStep(null);
-    setEnlaceEnviado(false);
-    setConductorAsignado(null);
+    guidedContextRef.current = {};
   }
 
   function nuevoChatManual() {
@@ -395,22 +657,18 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     selectConversation(nuevo);
   }
 
+  // ─── Extracción ───────────────────────────────────────────────────────────
+
   function extractionPayloadFrom(sourceMessages: ChatMensaje[]) {
     const inbound = sourceMessages
-      .filter((message) => message.autor === 'cliente')
-      .map((message) => message.texto.trim())
+      .filter((m) => m.autor === 'cliente')
+      .map((m) => m.texto.trim())
       .filter(Boolean);
     const mensaje = inbound.at(-1) ?? '';
     const previous = inbound.slice(0, -1).join('\n');
-    // F8: las respuestas del flujo guiado ya traducidas ("Somos 2 personas.")
-    // entran como contexto natural; el extractor no necesita entender "2".
     const guiado = guidedTextoRef.current.join('\n');
     const contextoConversacion = [selected.nombre, guiado, previous].filter(Boolean).join('\n');
-
-    return {
-      mensaje,
-      contextoConversacion: contextoConversacion || undefined,
-    };
+    return { mensaje, contextoConversacion: contextoConversacion || undefined };
   }
 
   async function extractFromMessages(sourceMessages: ChatMensaje[]) {
@@ -423,19 +681,12 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       const response = await fetch('/api/ingesta/extraer', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          ...payload,
-          fechaActualIso: FECHA_SIMULADOR_ISO,
-        }),
+        body: JSON.stringify({ ...payload, fechaActualIso: FECHA_SIMULADOR_ISO }),
       });
       const json = (await response.json()) as unknown;
-      if (!response.ok) {
-        const errorJson = json as { error?: string };
-        throw new Error(errorJson.error ?? 'Extracción fallida.');
-      }
-      if (typeof json === 'object' && json && 'error' in json) {
-        const errorJson = json as { error?: string };
-        throw new Error(errorJson.error ?? 'Extracción fallida.');
+      if (!response.ok || (typeof json === 'object' && json && 'error' in json)) {
+        const err = json as { error?: string };
+        throw new Error(err.error ?? 'Extracción fallida.');
       }
       setExtraccion(json as ExtraccionReservaResultado);
     } catch (err) {
@@ -445,109 +696,413 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     }
   }
 
+  // Extrae usando solo el contexto acumulado del flujo guiado (sin messages history)
+  async function extractGuided() {
+    const texto = guidedTextoRef.current.join('\n');
+    if (!texto.trim()) return;
+    setLoading(true);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const response = await fetch('/api/ingesta/extraer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mensaje: texto,
+          contextoConversacion: selected.nombre,
+          fechaActualIso: FECHA_SIMULADOR_ISO,
+        }),
+      });
+      const json = (await response.json()) as unknown;
+      if (!response.ok || (typeof json === 'object' && json && 'error' in json)) {
+        const err = json as { error?: string };
+        throw new Error(err.error ?? 'Extracción fallida.');
+      }
+      setExtraccion(json as ExtraccionReservaResultado);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Extracción fallida.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ─── Flujo guiado interactivo ─────────────────────────────────────────────
+
   function preguntarGuiado(step: GuidedStep) {
     setGuidedStep(step);
+
+    let texto = '';
+    let interactivo: ComponenteInteractivo | undefined;
+
+    switch (step) {
+      case 'intent':
+        texto = '¡Hola! Bienvenido a Taxi Green. ¿En qué te puedo ayudar hoy?';
+        interactivo = {
+          tipo: 'intent-selector',
+          opciones: [
+            { valor: 'reservar', etiqueta: 'Reservar un taxi', descripcion: 'Recojo en aeropuerto, traslado o city', emoji: '🚕' },
+            { valor: 'consultar', etiqueta: 'Consultar mi reserva', descripcion: 'Ver estado de una reserva existente', emoji: '📋' },
+            { valor: 'queja', etiqueta: 'Reportar un problema', descripcion: 'Objeto olvidado, queja u otra incidencia', emoji: '⚠️' },
+          ],
+        };
+        break;
+
+      case 'tipo_usuario':
+        texto = '¿Cómo viajas? Elige una opción:';
+        interactivo = {
+          tipo: 'radio-group',
+          campo: 'perfil_pasajero',
+          etiqueta: '¿Cómo viajas?',
+          opciones: [
+            { valor: 'independiente', etiqueta: 'Viajero independiente', emoji: '👤' },
+            { valor: 'corporativo', etiqueta: 'Empresa o corporativo', emoji: '🏢' },
+          ],
+        };
+        break;
+
+      case 'flujo':
+        texto = '¿Qué servicio necesitas?';
+        interactivo = {
+          tipo: 'radio-group',
+          campo: 'tipo_viaje',
+          etiqueta: '¿Qué servicio?',
+          opciones: [
+            { valor: 'recojo_aeropuerto', etiqueta: 'Me recogen en el aeropuerto', emoji: '✈️' },
+            { valor: 'traslado_aeropuerto', etiqueta: 'Me llevan al aeropuerto', emoji: '🧳' },
+            { valor: 'city', etiqueta: 'Traslado en la ciudad', emoji: '🏙️' },
+          ],
+        };
+        break;
+
+      case 'zona_llegada':
+        texto = '¿Tu vuelo es nacional o internacional?';
+        interactivo = {
+          tipo: 'radio-group',
+          campo: 'zona_llegada',
+          etiqueta: '¿Nacional o internacional?',
+          opciones: [
+            { valor: 'nacional', etiqueta: 'Nacional (dentro del Perú)', emoji: '🇵🇪' },
+            { valor: 'internacional', etiqueta: 'Internacional', emoji: '🌎' },
+          ],
+        };
+        break;
+
+      case 'nombre_pasajero':
+        // Texto libre — no es interactivo (el counter lo necesita para el letrero)
+        texto = '¿Cuál es el nombre completo del pasajero? El operador del mostrador lo buscará por su nombre.';
+        interactivo = undefined;
+        break;
+
+      case 'fecha':
+        texto = '¿Para cuándo necesitas el servicio?';
+        interactivo = { tipo: 'date-time-picker' };
+        break;
+
+      case 'destino':
+        texto = '¿A dónde te dirigimos?';
+        interactivo = { tipo: 'location-options', modo: 'destino' };
+        break;
+
+      case 'origen_b':
+        texto = '¿Desde dónde te recogemos?';
+        interactivo = { tipo: 'location-options', modo: 'origen' };
+        break;
+
+      case 'responsable_pago':
+        texto = '¿El servicio lo cubre tu empresa o lo pagas tú?';
+        interactivo = {
+          tipo: 'radio-group',
+          campo: 'responsable_pago',
+          etiqueta: '¿Quién paga?',
+          opciones: [
+            { valor: 'empresa', etiqueta: 'Lo cubre mi empresa', emoji: '🏢' },
+            { valor: 'pasajero', etiqueta: 'Lo pago yo', emoji: '💳' },
+          ],
+        };
+        break;
+
+      case 'vehiculo':
+        texto = '¿Cuánto equipaje llevas? (Elige o salta para continuar con el mejor disponible)';
+        interactivo = {
+          tipo: 'radio-group',
+          campo: 'vehiculo',
+          etiqueta: '¿Necesitas vehículo especial?',
+          opciones: [
+            { valor: 'cualquiera', etiqueta: 'El mejor disponible', emoji: '🚗' },
+            { valor: 'sedan', etiqueta: 'Sedán', emoji: '🚘' },
+            { valor: 'camioneta', etiqueta: 'Camioneta (más espacio)', emoji: '🚙' },
+            { valor: 'van', etiqueta: 'Van (grupo grande)', emoji: '🚐' },
+          ],
+        };
+        break;
+
+      case 'code_lookup':
+        texto =
+          guidedContextRef.current.intent === 'queja'
+            ? '¿Cuál es el código de tu reserva? Lo encontrarás en el mensaje de confirmación.'
+            : '¿Cuál es el código de tu reserva? (Ej: TG-2026-0001)';
+        interactivo = { tipo: 'code-lookup' };
+        break;
+
+      case 'datos':
+        texto =
+          '¡Perfecto! Para terminar, cuéntame en un solo mensaje: nombre del pasajero, teléfono, fecha y hora, vuelo (si aplica), y la dirección de recojo o destino.';
+        interactivo = undefined;
+        break;
+    }
+
     setMessages((prev) => [
       ...prev,
-      { id: `guia-${step}-${Date.now()}`, autor: 'taxigreen', hora: horaAhora(), texto: PREGUNTA_GUIADA[step] },
+      {
+        id: `guia-${step}-${Date.now()}`,
+        autor: 'taxigreen',
+        hora: horaAhora(),
+        texto,
+        interactivo,
+      },
     ]);
   }
 
-  // F8: traduce la respuesta del paso actual a lenguaje natural (el buffer alimenta
-  // al extractor) y pregunta lo siguiente. Devuelve true si el flujo sigue
-  // preguntando (no extraer todavía); false cuando toca extraer.
-  function procesarPasoGuiado(text: string): boolean {
-    if (!guidedStep) return false;
-    const agregar = (frase: string | null) => {
-      if (frase) guidedTextoRef.current.push(frase);
+  // Procesa la selección del usuario en un componente interactivo y avanza el flujo
+  function procesarSeleccionInteractiva(valor: string, etiqueta: string) {
+    const step = guidedStep;
+    if (!step) return;
+
+    switch (step) {
+      case 'intent':
+        guidedContextRef.current = { intent: valor as 'reservar' | 'consultar' | 'queja' };
+        if (valor === 'reservar') {
+          preguntarGuiado('tipo_usuario');
+        } else {
+          preguntarGuiado('code_lookup');
+        }
+        return;
+
+      case 'tipo_usuario':
+        guidedContextRef.current.tipoUsuario = valor as 'independiente' | 'corporativo';
+        guidedTextoRef.current.push(valor === 'independiente' ? 'Soy un viajero particular.' : 'Soy cliente corporativo.');
+        preguntarGuiado('flujo');
+        return;
+
+      case 'flujo':
+        if (valor === 'recojo_aeropuerto') {
+          guidedContextRef.current.flujo = 'A';
+          guidedTextoRef.current.push('Necesito que me recojan en el aeropuerto Jorge Chávez.');
+          preguntarGuiado('zona_llegada');
+        } else if (valor === 'traslado_aeropuerto') {
+          guidedContextRef.current.flujo = 'B';
+          guidedTextoRef.current.push('Necesito que me lleven al aeropuerto.');
+          preguntarGuiado('fecha');
+        } else {
+          guidedTextoRef.current.push('Necesito un traslado en la ciudad.');
+          preguntarGuiado('fecha');
+        }
+        return;
+
+      case 'zona_llegada':
+        guidedTextoRef.current.push(valor === 'nacional' ? 'Mi vuelo es nacional.' : 'Mi vuelo es internacional.');
+        // Flujo A: siempre pedir nombre (el counter lo necesita para el letrero)
+        preguntarGuiado('nombre_pasajero');
+        return;
+
+      case 'fecha':
+        guidedTextoRef.current.push(`El servicio es para el ${etiqueta}.`);
+        if (guidedContextRef.current.flujo === 'A') {
+          preguntarGuiado('destino');
+        } else if (guidedContextRef.current.flujo === 'B') {
+          preguntarGuiado('origen_b');
+        } else {
+          // city
+          preguntarGuiado('vehiculo');
+        }
+        return;
+
+      case 'destino':
+        guidedTextoRef.current.push(`Mi destino es: ${etiqueta}.`);
+        if (guidedContextRef.current.tipoUsuario === 'corporativo') {
+          preguntarGuiado('responsable_pago');
+        } else {
+          preguntarGuiado('vehiculo');
+        }
+        return;
+
+      case 'origen_b':
+        guidedTextoRef.current.push(`El punto de recojo es: ${etiqueta}.`);
+        if (guidedContextRef.current.tipoUsuario === 'corporativo') {
+          preguntarGuiado('responsable_pago');
+        } else {
+          preguntarGuiado('vehiculo');
+        }
+        return;
+
+      case 'responsable_pago':
+        guidedTextoRef.current.push(
+          valor === 'empresa' ? 'El servicio lo cubre mi empresa.' : 'Este viaje lo pago yo.',
+        );
+        preguntarGuiado('vehiculo');
+        return;
+
+      case 'vehiculo':
+        if (valor === 'sedan') guidedTextoRef.current.push('Prefiero un sedán.');
+        else if (valor === 'camioneta') guidedTextoRef.current.push('Prefiero una camioneta con espacio para el equipaje.');
+        else if (valor === 'van') guidedTextoRef.current.push('Necesitamos una van para el grupo.');
+        // 'cualquiera' → no agrega texto (default)
+        setGuidedStep(null);
+        void extractGuided();
+        return;
+
+      case 'code_lookup':
+        void lookupReservaEnChat(valor);
+        return;
+
+      default:
+        return;
+    }
+  }
+
+  // Cuando el usuario selecciona una opción interactiva
+  function respondInteractivo(messageId: string, valor: string, etiqueta: string) {
+    setMensajesContestados((prev) => new Map(prev).set(messageId, etiqueta));
+    setMessages((prev) => [
+      ...prev,
+      { id: `resp-${Date.now()}`, autor: 'cliente', hora: horaAhora(), texto: etiqueta },
+    ]);
+    procesarSeleccionInteractiva(valor, etiqueta);
+  }
+
+  // Consulta de reserva para el flujo de "consultar/queja"
+  async function lookupReservaEnChat(codigo: string) {
+    setGuidedStep(null);
+    setLoading(true);
+    try {
+      const resultado = await buscarReservaPorCodigo(codigo);
+      if (!resultado.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `lookup-err-${Date.now()}`,
+            autor: 'taxigreen',
+            hora: horaAhora(),
+            texto: `No encontré una reserva con el código ${codigo}. Verifica el código e inténtalo de nuevo, o escríbenos directamente.`,
+          },
+        ]);
+        return;
+      }
+      const nombre = resultado.nombre ? ` para ${resultado.nombre}` : '';
+      const isQueja = guidedContextRef.current.intent === 'queja';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `lookup-ok-${Date.now()}`,
+          autor: 'taxigreen',
+          hora: horaAhora(),
+          texto: isQueja
+            ? `Encontré tu reserva ${resultado.codigo}${nombre}. Estamos registrando tu incidencia. Puedes ver el estado completo de tu viaje aquí:`
+            : `Encontré tu reserva ${resultado.codigo}${nombre}. Aquí puedes seguir el estado de tu viaje en tiempo real:`,
+          enlace: resultado.link,
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ─── Pedir datos al cliente (modo panel derecho) ───────────────────────────
+
+  // Envía la PRIMERA pregunta faltante como componente interactivo
+  function pedirDatosInteractivos() {
+    if (!extraccion) return;
+    const reserva = extraccion.reserva;
+
+    // Sincronizar guidedContextRef desde la extracción existente para que
+    // procesarSeleccionInteractiva tome la rama correcta (A/B/city) al avanzar.
+    if (reserva.tipo_viaje === 'recojo_aeropuerto') {
+      guidedContextRef.current.flujo = 'A';
+    } else if (reserva.tipo_viaje === 'traslado_aeropuerto') {
+      guidedContextRef.current.flujo = 'B';
+    } else if (reserva.tipo_viaje) {
+      guidedContextRef.current.flujo = undefined;
+    }
+    if (reserva.perfil_pasajero === 'corporativo') {
+      guidedContextRef.current.tipoUsuario = 'corporativo';
+    } else if (reserva.perfil_pasajero) {
+      guidedContextRef.current.tipoUsuario = 'independiente';
+    }
+
+    const addMsg = (texto: string, interactivo: ComponenteInteractivo) => {
+      setMessages((prev) => [
+        ...prev,
+        { id: `ask-${Date.now()}`, autor: 'taxigreen', hora: horaAhora(), texto, interactivo },
+      ]);
+      setDatosPedidos(true);
     };
 
-    if (guidedStep === 'servicio') {
-      const opcion = opcionElegida(text, 3);
-      if (opcion === 1) agregar('Necesito que me recojan en el aeropuerto Jorge Chávez.');
-      else if (opcion === 2) agregar('Necesito que me lleven al aeropuerto.');
-      else if (opcion === 3) agregar('Necesito un traslado en la ciudad.');
-      else agregar(text);
-      preguntarGuiado('perfil');
-      return true;
+    if (!reserva.tipo_viaje) {
+      setGuidedStep('flujo');
+      addMsg('¿Qué servicio necesitas?', {
+        tipo: 'radio-group',
+        campo: 'tipo_viaje',
+        etiqueta: '¿Qué servicio?',
+        opciones: [
+          { valor: 'recojo_aeropuerto', etiqueta: 'Me recogen en el aeropuerto', emoji: '✈️' },
+          { valor: 'traslado_aeropuerto', etiqueta: 'Me llevan al aeropuerto', emoji: '🧳' },
+          { valor: 'city', etiqueta: 'Traslado en la ciudad', emoji: '🏙️' },
+        ],
+      });
+      return;
     }
 
-    if (guidedStep === 'perfil') {
-      const opcion = opcionElegida(text, 2);
-      if (opcion === 1) {
-        agregar('Viajo como particular.');
-        preguntarGuiado('personas');
-      } else if (opcion === 2) {
-        preguntarGuiado('responsable');
-      } else {
-        agregar(text);
-        preguntarGuiado('personas');
-      }
-      return true;
+    if (!reserva.fecha_hora_servicio) {
+      setGuidedStep('fecha');
+      addMsg('¿Para cuándo necesitas el servicio?', { tipo: 'date-time-picker' });
+      return;
     }
 
-    if (guidedStep === 'responsable') {
-      const opcion = opcionElegida(text, 2);
-      if (opcion === 1) agregar('El servicio lo cubre la empresa.');
-      else if (opcion === 2) agregar('Soy corporativo pero este viaje lo pago yo.');
-      else agregar(text);
-      preguntarGuiado('personas');
-      return true;
+    if (!reserva.destino_texto && reserva.tipo_viaje !== 'traslado_aeropuerto') {
+      setGuidedStep('destino');
+      addMsg('¿A dónde te dirigimos?', { tipo: 'location-options', modo: 'destino' });
+      return;
     }
 
-    if (guidedStep === 'personas') {
-      const cantidad = /^\s*(\d{1,2})\s*$/.exec(text)?.[1];
-      // Frases calcadas al diccionario del extractor ("solo voy yo" / "N personas").
-      if (cantidad === '1') agregar('Solo voy yo, 1 persona.');
-      else if (cantidad) agregar(`Somos ${cantidad} personas.`);
-      else agregar(text);
-      preguntarGuiado('equipaje');
-      return true;
+    if (!reserva.origen_texto && reserva.tipo_viaje === 'traslado_aeropuerto') {
+      setGuidedStep('origen_b');
+      addMsg('¿Desde dónde te recogemos?', { tipo: 'location-options', modo: 'origen' });
+      return;
     }
 
-    if (guidedStep === 'equipaje') {
-      const opcion = opcionElegida(text, 3);
-      if (opcion === 1) agregar('Llevo poco equipaje.');
-      else if (opcion === 2) agregar('Llevamos maletas normales.');
-      else if (opcion === 3) agregar('Llevamos varias maletas grandes.');
-      else agregar(text);
-      preguntarGuiado('vehiculo');
-      return true;
+    // Fallback: texto libre con todas las preguntas restantes
+    if (extraccion.preguntas_aclaracion.length > 0) {
+      const cuerpo = extraccion.preguntas_aclaracion.map((q) => `• ${q}`).join('\n');
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `ask-txt-${Date.now()}`,
+          autor: 'taxigreen',
+          hora: horaAhora(),
+          texto: `¡Con gusto coordinamos tu Taxi Green! Para dejarlo listo me confirmas:\n${cuerpo}`,
+        },
+      ]);
+      setDatosPedidos(true);
     }
-
-    if (guidedStep === 'vehiculo') {
-      const opcion = opcionElegida(text, 4);
-      if (opcion === 2) agregar('Prefiero un sedán.');
-      else if (opcion === 3) agregar('Prefiero una camioneta con espacio para el equipaje.');
-      else if (opcion === 4) agregar('Necesitamos una van para el grupo.');
-      else if (opcion !== 1) agregar(text);
-      preguntarGuiado('datos');
-      return true;
-    }
-
-    // Paso 'datos': el texto libre del cliente cierra el guiado y se extrae todo.
-    setGuidedStep(null);
-    return false;
   }
+
+  // ─── Enviar mensaje ────────────────────────────────────────────────────────
 
   function sendMessage() {
     const text = composer.trim();
     if (!text) return;
-    const nextMessages = [
-      ...messages,
-      {
-        id: `custom-${Date.now()}`,
-        autor: 'cliente',
-        hora: new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
-        texto: text,
-      } satisfies Mensaje,
-    ];
+
+    const userMsg: ChatMensaje = {
+      id: `custom-${Date.now()}`,
+      autor: 'cliente',
+      hora: horaAhora(),
+      texto: text,
+    };
+    const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
     setComposer('');
 
-    // Modo copiloto: si estábamos esperando el "Sí" del cliente y este mensaje lo es,
-    // la reserva se crea SOLA (sin clic del operador). El resto de mensajes
-    // siguen el flujo normal de lectura.
+    // Copiloto auto: "Sí" del cliente confirma la reserva
     if (copilotoAuto && esperandoConfirmacionCliente && extraccion && CONFIRMACION_CLIENTE.test(text)) {
       autoConfirmingRef.current = true;
       setEsperandoConfirmacionCliente(false);
@@ -555,39 +1110,50 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       return;
     }
 
-    // F8: intención pura ("Necesito reservar un taxi") abre el flujo guiado.
-    if (!guidedStep && !extraccion && !confirmada && esIntencionDeReserva(text)) {
-      guidedTextoRef.current = [];
-      preguntarGuiado('servicio');
+    // Paso de texto "nombre_pasajero" en el flujo guiado
+    if (guidedStep === 'nombre_pasajero') {
+      guidedTextoRef.current.push(`El pasajero se llama ${text}.`);
+      preguntarGuiado('fecha');
       return;
     }
 
-    // F8: en flujo guiado, cada respuesta avanza un paso; el cliente puede romper
-    // el guion con texto libre y el extractor lo absorbe igual.
-    if (guidedStep && procesarPasoGuiado(text)) return;
+    // Paso de texto "datos" (fallback libre)
+    if (guidedStep === 'datos') {
+      setGuidedStep(null);
+      void extractFromMessages(nextMessages);
+      return;
+    }
+
+    // Si hay un paso interactivo activo y el usuario escribe texto libre,
+    // lo acumulamos como contexto y extraemos igualmente
+    if (guidedStep) {
+      guidedTextoRef.current.push(text);
+      void extractFromMessages(nextMessages);
+      setGuidedStep(null);
+      return;
+    }
+
+    // Saludo puro → intent selector
+    if (!guidedStep && !extraccion && !confirmada && esSaludo(text)) {
+      guidedTextoRef.current = [];
+      guidedContextRef.current = {};
+      preguntarGuiado('intent');
+      return;
+    }
+
+    // Intención simple de reserva ("necesito un taxi")
+    if (!guidedStep && !extraccion && !confirmada && esIntencionDeReserva(text)) {
+      guidedTextoRef.current = [];
+      guidedContextRef.current = {};
+      preguntarGuiado('tipo_usuario');
+      return;
+    }
 
     void extractFromMessages(nextMessages);
   }
 
-  // El copiloto pide al cliente —EN EL CHAT y sin tecnicismos— los datos que faltan.
-  function pedirDatosAlCliente() {
-    if (!extraccion || extraccion.preguntas_aclaracion.length === 0) return;
-    const cuerpo = extraccion.preguntas_aclaracion.map((pregunta) => `• ${pregunta}`).join('\n');
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `ask-${Date.now()}`,
-        autor: 'taxigreen',
-        hora: horaAhora(),
-        texto: `¡Con gusto coordinamos tu Taxi Green! Para dejarlo listo me confirmas:\n${cuerpo}`,
-      },
-    ]);
-    setDatosPedidos(true);
-  }
+  // ─── Crear reserva y avisar al cliente ────────────────────────────────────
 
-  // Crea la reserva y responde EN EL CHAT. A recibe pase y espera mostrador; B
-  // recibe el enlace directo porque no hay validación de mostrador al inicio.
-  // En modo copiloto: A asigna después de mostrador; B puede asignar inmediatamente.
   function crearYAvisar(extr: ExtraccionReservaResultado, opciones: { auto: boolean }) {
     if (extr.confianza < 0.7) return;
     setActionMessage(null);
@@ -636,13 +1202,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
               ? `¡Listo, ${confirmacion.pasajero}! Tu Taxi Green quedó reservado. Te esperamos en ${confirmacion.punto}.`
               : `¡Listo, ${confirmacion.pasajero}! Tu Taxi Green quedó reservado. El recojo será en ${confirmacion.punto}.`,
           },
-          {
-            id: `card-${Date.now() + 1}`,
-            autor: 'taxigreen',
-            hora: horaAhora(),
-            texto: '',
-            confirmacion,
-          },
+          { id: `card-${Date.now() + 1}`, autor: 'taxigreen', hora: horaAhora(), texto: '', confirmacion },
         ]);
         setConfirmada(confirmacion);
         setPagoPreview(result.pago);
@@ -651,9 +1211,6 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
         if (!result.requiereMostrador) {
           enlaceEnviadoRef.current = true;
           setEnlaceEnviado(true);
-        }
-        if (opciones.auto && result.requiereMostrador) {
-          setConductorAsignado(null);
         }
         if (opciones.auto && !result.requiereMostrador) {
           const asignacion = await asignarConductorAutomatico(result.id);
@@ -677,7 +1234,9 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     });
   }
 
-  // Trazabilidad del pase: A consulta el mostrador y revela el enlace tras luz verde.
+  // ─── Efectos ──────────────────────────────────────────────────────────────
+
+  // Polling de voucher validado (trazabilidad A → enlace en vivo)
   useEffect(() => {
     if (!reservaId || !confirmada || enlaceEnviado || !confirmada.requiereMostrador) return;
     const timer = setInterval(() => {
@@ -696,9 +1255,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
               setActionMessage(asignacion.message);
             }
           }
-          if (conductor) {
-            setConductorAsignado(`${conductor.nombre}${conductor.placa ? ` · ${conductor.placa}` : ''}`);
-          }
+          if (conductor) setConductorAsignado(`${conductor.nombre}${conductor.placa ? ` · ${conductor.placa}` : ''}`);
           setMessages((prev) => [
             ...prev,
             {
@@ -712,31 +1269,24 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             },
           ]);
         } catch {
-          // El polling seguirá intentando; no ensuciamos el chat con errores transitorios.
+          // polling best-effort
         }
       })();
     }, 4000);
     return () => clearInterval(timer);
   }, [reservaId, confirmada, enlaceEnviado, copilotoAuto]);
 
-  // F7: vigila la unidad tras confirmar. Si el conductor cancela, el chat se
-  // disculpa con el cliente; en modo copiloto además reasigna solo (misma ruta
-  // auditada del despacho). El enlace del pasajero nunca cambia (mismo token).
+  // F7: vigilancia de la unidad tras confirmar
   useEffect(() => {
     if (!reservaId || !confirmada) return;
-
     const pushTaxigreen = (texto: string) => {
       setMessages((prev) => [
         ...prev,
         { id: `unidad-${Date.now()}`, autor: 'taxigreen', hora: horaAhora(), texto },
       ]);
     };
-
     const disculpa = (nombre: string, placa: string | null) =>
-      `Disculpa, tuvimos que cambiar tu unidad para cuidar tu tiempo. Tu nuevo conductor es ${nombre}, unidad ${placa ?? 'por confirmar'}.${
-        enlaceEnviadoRef.current ? ' Tu enlace de seguimiento sigue siendo el mismo.' : ''
-      }`;
-
+      `Disculpa, tuvimos que cambiar tu unidad para cuidar tu tiempo. Tu nuevo conductor es ${nombre}, unidad ${placa ?? 'por confirmar'}.${enlaceEnviadoRef.current ? ' Tu enlace de seguimiento sigue siendo el mismo.' : ''}`;
     const timer = setInterval(() => {
       void (async () => {
         try {
@@ -745,9 +1295,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             ? `${seguimiento.conductor.nombre} · ${seguimiento.conductor.placa ?? 'por confirmar'}`
             : null;
           const previa = unidadVistaRef.current;
-
           if (actual && !previa) {
-            // Primera unidad vista (o reasignación manual tras quedar sin unidad).
             unidadVistaRef.current = actual;
             if (avisoSinUnidadRef.current && seguimiento.conductor) {
               avisoSinUnidadRef.current = false;
@@ -756,21 +1304,14 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             }
             return;
           }
-
           if (actual && previa && actual !== previa) {
-            // Cambio directo de unidad (reasignación sin pasar por "sin conductor").
             unidadVistaRef.current = actual;
             avisoSinUnidadRef.current = false;
             setConductorAsignado(actual);
-            if (seguimiento.conductor) {
-              pushTaxigreen(disculpa(seguimiento.conductor.nombre, seguimiento.conductor.placa));
-            }
+            if (seguimiento.conductor) pushTaxigreen(disculpa(seguimiento.conductor.nombre, seguimiento.conductor.placa));
             return;
           }
-
           if (!actual && previa) {
-            // La unidad canceló: en copiloto el sistema repone solo; sin copiloto
-            // avisamos y el despacho reasigna desde su bandeja.
             unidadVistaRef.current = null;
             if (copilotoAuto && !reasignandoRef.current) {
               reasignandoRef.current = true;
@@ -791,20 +1332,18 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             if (!avisoSinUnidadRef.current) {
               avisoSinUnidadRef.current = true;
               setConductorAsignado(null);
-              pushTaxigreen(
-                'Tu unidad tuvo un inconveniente. Ya estamos asignando otra para cuidar tu tiempo; te confirmamos aquí en un momento.',
-              );
+              pushTaxigreen('Tu unidad tuvo un inconveniente. Ya estamos asignando otra para cuidar tu tiempo; te confirmamos aquí en un momento.');
             }
           }
         } catch {
-          // Vigilancia best-effort: un fallo de red no debe romper el chat.
+          // best-effort
         }
       })();
     }, 5000);
-
     return () => clearInterval(timer);
   }, [reservaId, confirmada, copilotoAuto]);
 
+  // Cotización en tiempo real
   useEffect(() => {
     if (!extraccion) {
       setPagoPreview(null);
@@ -813,7 +1352,6 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       cotizacionKeyRef.current = null;
       return;
     }
-
     let cancelled = false;
     const reserva = extraccion.reserva;
     const cotizacionKey = [
@@ -831,23 +1369,15 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
         setPagoPreview(result.ok ? result.pago : null);
         if (result.ok && cotizacionKeyRef.current !== cotizacionKey) {
           cotizacionKeyRef.current = cotizacionKey;
-          setCotizacionVersion((value) => value + 1);
+          setCotizacionVersion((v) => v + 1);
         }
       })
-      .catch(() => {
-        if (!cancelled) setPagoPreview(null);
-      })
-      .finally(() => {
-        if (!cancelled) setPagoPreviewLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => { if (!cancelled) setPagoPreview(null); })
+      .finally(() => { if (!cancelled) setPagoPreviewLoading(false); });
+    return () => { cancelled = true; };
   }, [extraccion]);
 
-  // Modo copiloto: ante cada lectura nueva, decide solo — pide los datos que faltan
-  // o envía el resumen y espera la confirmación DEL CLIENTE (nunca crea sin ella).
+  // Copiloto auto
   useEffect(() => {
     if (!copilotoAuto || !extraccion || confirmada || loading || esperandoConfirmacionCliente || autoConfirmingRef.current) return;
     if (extraccion.confianza >= 0.7 && pagoPreviewLoading) return;
@@ -856,7 +1386,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     autoHandledRef.current = key;
 
     if (extraccion.preguntas_aclaracion.length > 0) {
-      const cuerpo = extraccion.preguntas_aclaracion.map((pregunta) => `• ${pregunta}`).join('\n');
+      const cuerpo = extraccion.preguntas_aclaracion.map((q) => `• ${q}`).join('\n');
       setMessages((prev) => [
         ...prev,
         {
@@ -897,23 +1427,19 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       setEsperandoConfirmacionCliente(true);
     }
   }, [
-    copilotoAuto,
-    extraccion,
-    confirmada,
-    loading,
-    selectedId,
-    inboundText.length,
-    pagoPreview,
-    pagoPreviewLoading,
-    cotizacionVersion,
-    esperandoConfirmacionCliente,
+    copilotoAuto, extraccion, confirmada, loading, selectedId,
+    pagoPreview, pagoPreviewLoading, cotizacionVersion, esperandoConfirmacionCliente,
   ]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   const estado = estadoReserva(extraccion, Boolean(confirmada));
 
   return (
     <main className="min-h-screen bg-[#e7f0ee] text-[#111B21] xl:h-screen xl:overflow-hidden">
       <div className="grid min-h-screen grid-cols-1 xl:h-screen xl:grid-cols-[320px_minmax(420px,1fr)_420px]">
+
+        {/* ── Lista de chats ──────────────────────────────────────────── */}
         <aside className="flex flex-col border-r border-[#c9d7d3] bg-[#f7fbfa] xl:h-screen xl:min-h-0">
           <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[#d8e3e0] bg-[#075E54] px-5 text-white">
             <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15">
@@ -932,7 +1458,6 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
               <Plus aria-hidden="true" className="h-5 w-5" />
             </button>
           </div>
-
           <nav className="min-h-0 flex-1 overflow-y-auto p-3">
             {todasConversaciones.map((conversation) => (
               <button
@@ -958,6 +1483,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
           </nav>
         </aside>
 
+        {/* ── Chat ────────────────────────────────────────────────────── */}
         <section className="flex min-h-screen flex-col bg-[#efe7dd] xl:h-screen xl:min-h-0">
           <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#d4cbc0] bg-[#f0f2f5] px-5">
             <div className="flex min-w-0 items-center gap-3">
@@ -982,32 +1508,42 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-10">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-              {messages.map((message) => (
-                <div
-                  className={cn(
-                    'flex',
-                    message.autor === 'cliente' ? 'justify-start' : 'justify-end',
-                  )}
-                  key={message.id}
-                >
+              {messages.map((message) => {
+                const isContestado = Boolean(mensajesContestados.get(message.id));
+                const seleccionado = mensajesContestados.get(message.id);
+                return (
                   <div
-                    className={cn(
-                      'max-w-[86%] rounded-md px-4 py-3 text-sm leading-relaxed shadow-sm',
-                      message.autor === 'cliente' ? 'bg-white' : 'bg-[#DCF8C6]',
-                    )}
+                    className={cn('flex', message.autor === 'cliente' ? 'justify-start' : 'justify-end')}
+                    key={message.id}
                   >
-                    {message.confirmacion ? (
-                      <ConfirmacionMensaje data={message.confirmacion} />
-                    ) : (
-                      <>
-                        <p className="whitespace-pre-line">{message.texto}</p>
-                        {message.enlace ? <EnlaceMensaje link={message.enlace} /> : null}
-                      </>
-                    )}
-                    <p className="mt-2 text-right text-[11px] text-[#667781]">{message.hora}</p>
+                    <div
+                      className={cn(
+                        'max-w-[86%] rounded-md px-4 py-3 text-sm leading-relaxed shadow-sm',
+                        message.autor === 'cliente' ? 'bg-white' : 'bg-[#DCF8C6]',
+                      )}
+                    >
+                      {message.confirmacion ? (
+                        <ConfirmacionMensaje data={message.confirmacion} />
+                      ) : (
+                        <>
+                          {message.texto && <p className="whitespace-pre-line">{message.texto}</p>}
+                          {message.enlace ? <EnlaceMensaje link={message.enlace} /> : null}
+                          {message.interactivo ? (
+                            <ComponenteInteractivoChat
+                              contestado={isContestado}
+                              interactivo={message.interactivo}
+                              onSeleccionar={(valor, etiqueta) => respondInteractivo(message.id, valor, etiqueta)}
+                              seleccionado={seleccionado}
+                            />
+                          ) : null}
+                        </>
+                      )}
+                      <p className="mt-2 text-right text-[11px] text-[#667781]">{message.hora}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
+              <div ref={messagesEndRef} className="h-px" />
             </div>
           </div>
 
@@ -1015,10 +1551,10 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             <div className="mx-auto flex max-w-3xl items-end gap-2">
               <textarea
                 className="min-h-12 flex-1 resize-none rounded-md border border-[#d5ddd9] bg-white px-4 py-3 text-sm outline-none focus:border-[#128C7E] focus:ring-2 focus:ring-[#128C7E]/20"
-                onChange={(event) => setComposer(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
+                onChange={(e) => setComposer(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
                     sendMessage();
                   }
                 }}
@@ -1038,6 +1574,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
           </footer>
         </section>
 
+        {/* ── Panel derecho: reserva sugerida ─────────────────────────── */}
         <aside className="border-l border-[#c9d7d3] bg-[#f7fbfa] xl:h-screen xl:overflow-y-auto">
           <div className="flex h-16 items-center justify-between border-b border-[#d8e3e0] px-5">
             <div>
@@ -1050,8 +1587,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
           </div>
 
           <div className="space-y-4 p-5">
-            {/* Switch del MODO COPILOTO: encendido, el copiloto pregunta, resume y —con
-                la confirmación del cliente— crea la reserva y asigna conductor solo. */}
+            {/* Modo copiloto */}
             <div
               className={cn(
                 'flex items-center justify-between gap-3 rounded-md border p-4 transition',
@@ -1072,19 +1608,13 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
               <button
                 aria-checked={copilotoAuto}
                 aria-label="Activar modo copiloto"
-                className={cn(
-                  'relative h-7 w-12 shrink-0 rounded-full transition-colors',
-                  copilotoAuto ? 'bg-[#075E54]' : 'bg-[#c9d7d3]',
-                )}
-                onClick={() => setCopilotoAuto((value) => !value)}
+                className={cn('relative h-7 w-12 shrink-0 rounded-full transition-colors', copilotoAuto ? 'bg-[#075E54]' : 'bg-[#c9d7d3]')}
+                onClick={() => setCopilotoAuto((v) => !v)}
                 role="switch"
                 type="button"
               >
                 <span
-                  className={cn(
-                    'absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all',
-                    copilotoAuto ? 'left-6' : 'left-1',
-                  )}
+                  className={cn('absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all', copilotoAuto ? 'left-6' : 'left-1')}
                 />
               </button>
             </div>
@@ -1123,7 +1653,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                   {autorizacionPago}
                 </div>
                 <p className="mt-1 text-xs leading-4 text-emerald-800">
-                  Estamos dejando la tarifa estimada protegida lista antes de confirmar la reserva.
+                  Dejando la tarifa estimada protegida lista antes de confirmar.
                 </p>
               </section>
             ) : null}
@@ -1137,12 +1667,10 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                       Tarifa estimada protegida
                     </h3>
                     <p className="mt-1 text-xs leading-4 text-[#667781]">
-                      Versión v{cotizacionVersion || 1}. Cambia solo si el cliente corrige destino, vehículo o condiciones.
+                      Versión v{cotizacionVersion || 1}. Cambia solo si el cliente corrige destino o condiciones.
                     </p>
                   </div>
-                  {pagoPreviewLoading ? (
-                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-[#075E54]" />
-                  ) : null}
+                  {pagoPreviewLoading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-[#075E54]" /> : null}
                 </div>
                 {pagoPreview ? (
                   <div className="mt-3 rounded-md bg-[#f0faf6] p-3">
@@ -1199,14 +1727,14 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                       Falta confirmar
                     </h3>
                     <ul className="space-y-1">
-                      {extraccion.preguntas_aclaracion.map((pregunta) => (
-                        <li key={pregunta}>{pregunta}</li>
+                      {extraccion.preguntas_aclaracion.map((q) => (
+                        <li key={q}>{q}</li>
                       ))}
                     </ul>
                     <Button
                       className="mt-3 w-full bg-[#128C7E] hover:bg-[#075E54]"
                       disabled={datosPedidos || Boolean(confirmada)}
-                      onClick={pedirDatosAlCliente}
+                      onClick={pedirDatosInteractivos}
                       type="button"
                     >
                       <MessagesSquare aria-hidden="true" className="h-4 w-4" />

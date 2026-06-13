@@ -272,11 +272,8 @@ export function VoucherValidator() {
   const [message, setMessage] = useState<string | null>(null);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraMessage, setCameraMessage] = useState<string | null>(null);
-  // Letrero visible para datos del reserva ya validada (pasos 2 y 3)
-  const [letreroVisible, setLetreroVisible] = useState(false);
-  const [letreroLoading, setLetreroLoading] = useState(false);
   // Letrero externo: datos del pase obtenidos SIN avanzar el estado de validación.
-  // Se usa en el paso 1 (antes de escanear) para llamar al pasajero en la sala.
+  // Se activa desde "Pasajeros en sala" para llamar al pasajero antes de escanear.
   const [letreroExterno, setLetreroExterno] = useState<LetreroData | null>(null);
   // Lista de pasajeros pendientes de validación
   const [listaVisible, setListaVisible] = useState(false);
@@ -291,8 +288,6 @@ export function VoucherValidator() {
     setStatus('idle');
     setMessage(null);
     setCameraMessage(null);
-    setLetreroVisible(false);
-    setLetreroLoading(false);
     setLetreroExterno(null);
   };
 
@@ -322,36 +317,6 @@ export function VoucherValidator() {
     } catch {
       setStatus('error');
       setMessage('No encontramos ese código. Revísalo e inténtalo de nuevo.');
-    }
-  };
-
-  // Obtiene datos del pase para el letrero de llamado SIN avanzar el estado de
-  // validación. El letrero es solo para localizar al pasajero en la sala de
-  // llegadas; la validación ocurre después, cuando presenta el QR físicamente.
-  const fetchLetreroData = async (code = input) => {
-    if (code.trim().length < 4 || letreroLoading) return;
-    setLetreroLoading(true);
-    try {
-      const resolvedToken = await resolveToken(code);
-      const voucherId = voucherIdFromTokenOrCode(resolvedToken);
-      const response = await fetch(`/api/voucher/${encodeURIComponent(voucherId)}/verify`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: resolvedToken }),
-      });
-      const data = (await response.json().catch(() => null)) as VerifyPayload | null;
-      if (data?.ok && data.reserva) {
-        setLetreroExterno({
-          nombre: data.reserva.pasajero_nombre ?? 'Pasajero',
-          vuelo: data.reserva.vuelo_codigo ?? null,
-          punto: data.reserva.punto_encuentro ?? data.reserva.origen_texto ?? null,
-          codigo: data.reserva.voucher_codigo,
-        });
-      }
-    } catch {
-      // silently fail — el letrero es un extra, no bloquea el flujo
-    } finally {
-      setLetreroLoading(false);
     }
   };
 
@@ -496,19 +461,10 @@ export function VoucherValidator() {
   const reserva = payload?.reserva;
   const showConfirm = Boolean(reserva) && (status === 'ready' || status === 'consuming');
 
-  // Datos del letrero activo: externo (sin validar) tiene prioridad;
-  // si hay reserva validada y letreroVisible, se usa la del pase.
+  // Letrero activo: solo desde la lista "Pasajeros en sala" (pre-validación).
   const letreroActivo: (LetreroData & { onClose: () => void }) | null = letreroExterno
     ? { ...letreroExterno, onClose: () => setLetreroExterno(null) }
-    : letreroVisible && reserva
-      ? {
-          nombre: reserva.pasajero_nombre ?? 'Pasajero Taxi Green',
-          vuelo: reserva.vuelo_codigo ?? null,
-          punto: reserva.punto_encuentro ?? reserva.origen_texto ?? null,
-          codigo: reserva.voucher_codigo,
-          onClose: () => setLetreroVisible(false),
-        }
-      : null;
+    : null;
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
@@ -755,16 +711,6 @@ export function VoucherValidator() {
                 </button>
               </div>
 
-              {/* Mostrar letrero busca al pasajero SIN consumir el pase */}
-              <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border-2 border-product/40 bg-surface px-4 text-sm font-semibold text-product transition hover:border-product hover:bg-product-muted disabled:opacity-40"
-                disabled={input.trim().length < 4 || letreroLoading}
-                type="button"
-                onClick={() => void fetchLetreroData()}
-              >
-                {letreroLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
-                Mostrar letrero
-              </button>
             </div>
 
             {cameraMessage ? <p className="text-sm text-foreground-muted">{cameraMessage}</p> : null}

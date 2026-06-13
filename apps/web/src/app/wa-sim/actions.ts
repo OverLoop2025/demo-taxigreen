@@ -417,6 +417,36 @@ export async function obtenerSeguimientoReserva(reservaId: string): Promise<Segu
   };
 }
 
+export type BusquedaReservaResult =
+  | { ok: true; codigo: string; nombre: string | null; link: string; estado: string }
+  | { ok: false; error: 'no_encontrada' | 'acceso_denegado' };
+
+export async function buscarReservaPorCodigo(codigo: string): Promise<BusquedaReservaResult> {
+  await requireRole(['admin_tenant', 'despachador']);
+  const codigoNormalizado = codigo.trim().toUpperCase();
+  const reserva = await prisma.reservas.findFirst({
+    where: {
+      voucher_codigo: codigoNormalizado,
+      deleted_at: null,
+    },
+    select: {
+      id: true,
+      voucher_codigo: true,
+      pasajero_nombre: true,
+      token_pasajero: true,
+      estado: true,
+    },
+  });
+  if (!reserva) return { ok: false, error: 'no_encontrada' };
+  return {
+    ok: true,
+    codigo: reserva.voucher_codigo,
+    nombre: reserva.pasajero_nombre,
+    link: `/p/${reserva.token_pasajero}`,
+    estado: reserva.estado,
+  };
+}
+
 export type AsignacionAutomaticaResult =
   | { ok: true; conductorNombre: string; placa: string }
   | { ok: false; message: string };
