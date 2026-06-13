@@ -141,7 +141,7 @@ export function SugerenciaCard({ sugerencia }: { sugerencia: SugerenciaAsignacio
         </div>
         <p className="mt-2 leading-5">
           Prioriza el turno del conductor, la distancia al punto y que la unidad tenga espacio suficiente para el
-          viaje. Prioridad interna: {sugerencia.score}/100.
+          viaje. Nivel de coincidencia: {sugerencia.score}%.
         </p>
       </details>
 
