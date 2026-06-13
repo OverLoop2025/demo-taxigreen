@@ -1,6 +1,22 @@
 'use client';
 
-import { ArrowRight, Camera, CheckCircle2, CreditCard, Loader2, MapPin, Megaphone, Plane, QrCode, RotateCcw, Search, UserRound, XCircle } from 'lucide-react';
+import {
+  ArrowRight,
+  Camera,
+  CheckCircle2,
+  ChevronDown,
+  CreditCard,
+  Loader2,
+  MapPin,
+  Megaphone,
+  Plane,
+  QrCode,
+  RotateCcw,
+  Search,
+  Users,
+  UserRound,
+  XCircle,
+} from 'lucide-react';
 import jsQR from 'jsqr';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -57,6 +73,14 @@ declare global {
   }
 }
 
+// Datos mínimos para mostrar el letrero de llamado en sala.
+type LetreroData = {
+  nombre: string;
+  vuelo: string | null;
+  punto: string | null;
+  codigo: string;
+};
+
 function voucherIdFromTokenOrCode(value: string) {
   const trimmed = value.trim();
   if (/^TG-\d{4}-\d{4}$/i.test(trimmed)) return trimmed.toUpperCase();
@@ -96,7 +120,6 @@ function errorLabel(error: string | undefined) {
 
 type Status = 'idle' | 'validating' | 'ready' | 'consuming' | 'consumed' | 'error';
 
-/** Paso actual de la barra de progreso a partir del estado. */
 function stepFromStatus(status: Status): 0 | 1 | 2 {
   if (status === 'consumed') return 2;
   if (status === 'ready' || status === 'consuming') return 1;
@@ -104,36 +127,32 @@ function stepFromStatus(status: Status): 0 | 1 | 2 {
 }
 
 function Stepper({ current }: { current: 0 | 1 | 2 }) {
-  // Etiquetas cortas para que las 3 quepan sin cortarse en móvil (la acción completa
-  // "Confirmar acceso" vive en el botón). min-w-0 + truncate evitan overflow.
   const steps = ['Validar', 'Confirmar', 'Listo'];
+  const stepItems = steps.map((label, index) => {
+    const active = index === current;
+    const done = index < current;
+    return (
+      <div key={label} className="flex min-w-0 flex-col items-center justify-center gap-1 text-center sm:flex-row sm:gap-2">
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+            done ? 'bg-success text-white' : active ? 'bg-product text-white' : 'bg-surface-muted text-foreground-muted'
+          }`}
+        >
+          {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+        </span>
+        <span className={`text-xs font-semibold sm:text-sm ${active || done ? 'text-foreground' : 'text-foreground-muted'}`}>
+          {label}
+        </span>
+      </div>
+    );
+  });
   return (
-    <div className="flex items-center gap-1.5">
-      {steps.map((label, index) => {
-        const active = index === current;
-        const done = index < current;
-        return (
-          <div key={label} className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                done
-                  ? 'bg-success text-white'
-                  : active
-                    ? 'bg-product text-white'
-                    : 'bg-surface-muted text-foreground-muted'
-              }`}
-            >
-              {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
-            </span>
-            <span
-              className={`truncate text-xs font-semibold sm:text-sm ${active || done ? 'text-foreground' : 'text-foreground-muted'}`}
-            >
-              {label}
-            </span>
-            {index < steps.length - 1 ? <span className="ml-auto hidden h-px flex-1 bg-border sm:block" /> : null}
-          </div>
-        );
-      })}
+    <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(2rem,0.65fr)_minmax(0,1fr)_minmax(2rem,0.65fr)_minmax(0,1fr)] items-center gap-2">
+      {stepItems[0]}
+      <span className={`h-px w-full ${current > 0 ? 'bg-product' : 'bg-border'}`} />
+      {stepItems[1]}
+      <span className={`h-px w-full ${current > 1 ? 'bg-product' : 'bg-border'}`} />
+      {stepItems[2]}
     </div>
   );
 }
@@ -150,10 +169,16 @@ function DataRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
-// Letrero de llamado: la tablet se levanta con el nombre del pasajero en grande
+// Letrero de llamado en sala: la tablet se levanta con el nombre del pasajero en grande
 // (patrón "conductor con cartel" del aeropuerto, versión digital). Pantalla
 // completa, horizontal si el dispositivo lo permite, y se cierra con un toque.
-function LetreroPasajero({ nombre, vuelo, onClose }: { nombre: string; vuelo: string | null; onClose: () => void }) {
+function LetreroPasajero({
+  nombre,
+  vuelo,
+  punto,
+  codigo,
+  onClose,
+}: LetreroData & { onClose: () => void }) {
   useEffect(() => {
     const root = document.documentElement;
     void root
@@ -183,20 +208,58 @@ function LetreroPasajero({ nombre, vuelo, onClose }: { nombre: string; vuelo: st
 
   return (
     <button
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#04130f] px-8 text-center"
+      className="fixed inset-0 z-50 overflow-hidden bg-[#020806] p-4 text-center text-white sm:p-8"
       type="button"
       onClick={onClose}
     >
-      <p className="text-[clamp(1rem,2.5vw,1.8rem)] font-bold uppercase tracking-[0.3em] text-emerald-400">
-        Taxi Green
-      </p>
-      <p className="mt-6 max-w-full break-words text-[clamp(2.8rem,11vw,9rem)] font-black leading-[1.05] text-white">
-        {nombre}
-      </p>
-      {vuelo ? (
-        <p className="mt-6 text-[clamp(1.4rem,4vw,3rem)] font-bold text-emerald-300">Vuelo {vuelo}</p>
-      ) : null}
-      <p className="mt-12 text-sm font-medium text-white/35">Toca la pantalla para volver</p>
+      <style>{`
+        @keyframes tg-sign-sweep {
+          0% { transform: translateX(-120%); opacity: 0.35; }
+          45% { opacity: 1; }
+          100% { transform: translateX(120%); opacity: 0.35; }
+        }
+        @keyframes tg-border-glow {
+          0%, 100% { box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.28), 0 0 34px rgba(16, 185, 129, 0.28); }
+          50% { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.72), 0 0 72px rgba(52, 211, 153, 0.52); }
+        }
+      `}</style>
+      <span
+        aria-hidden="true"
+        className="absolute inset-x-[-30%] top-0 h-3 bg-gradient-to-r from-transparent via-emerald-300 to-transparent"
+        style={{ animation: 'tg-sign-sweep 2.4s ease-in-out infinite' }}
+      />
+      <span
+        aria-hidden="true"
+        className="absolute inset-x-[-30%] bottom-0 h-3 bg-gradient-to-r from-transparent via-emerald-300 to-transparent"
+        style={{ animation: 'tg-sign-sweep 2.4s ease-in-out infinite reverse' }}
+      />
+      <div
+        className="relative flex h-full w-full flex-col items-center justify-center rounded-lg border-4 border-emerald-400 bg-[linear-gradient(135deg,#020806_0%,#063225_52%,#020806_100%)] px-5 py-8"
+        style={{ animation: 'tg-border-glow 1.8s ease-in-out infinite' }}
+      >
+        <p className="text-3xl font-black uppercase text-emerald-300 sm:text-5xl">Taxi Green</p>
+        <p className="mt-5 rounded-lg bg-white px-5 py-2 text-xl font-black uppercase text-[#05251c] sm:text-3xl">
+          Buscamos a
+        </p>
+        <p className="mt-6 max-w-full break-words text-6xl font-black uppercase leading-none text-white sm:text-8xl md:text-9xl lg:text-[10rem]">
+          {nombre}
+        </p>
+        <div className="mt-8 grid w-full max-w-5xl gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-emerald-300/60 bg-black/35 px-4 py-4">
+            <p className="text-sm font-bold uppercase text-emerald-200">Punto</p>
+            <p className="mt-1 text-2xl font-black text-white sm:text-3xl">{punto ?? 'Mostrador Taxi Green'}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-300/60 bg-black/35 px-4 py-4">
+            <p className="text-sm font-bold uppercase text-emerald-200">Vuelo</p>
+            <p className="mt-1 text-2xl font-black text-white sm:text-3xl">{vuelo ?? 'Por confirmar'}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-300/60 bg-black/35 px-4 py-4">
+            <p className="text-sm font-bold uppercase text-emerald-200">Reserva</p>
+            <p className="mt-1 text-2xl font-black text-white sm:text-3xl">{codigo}</p>
+          </div>
+        </div>
+        <p className="mt-8 text-lg font-bold text-white/60">Toca la pantalla para volver</p>
+      </div>
     </button>
   );
 }
@@ -209,7 +272,16 @@ export function VoucherValidator() {
   const [message, setMessage] = useState<string | null>(null);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraMessage, setCameraMessage] = useState<string | null>(null);
+  // Letrero visible para datos del reserva ya validada (pasos 2 y 3)
   const [letreroVisible, setLetreroVisible] = useState(false);
+  const [letreroLoading, setLetreroLoading] = useState(false);
+  // Letrero externo: datos del pase obtenidos SIN avanzar el estado de validación.
+  // Se usa en el paso 1 (antes de escanear) para llamar al pasajero en la sala.
+  const [letreroExterno, setLetreroExterno] = useState<LetreroData | null>(null);
+  // Lista de pasajeros pendientes de validación
+  const [listaVisible, setListaVisible] = useState(false);
+  const [pasajerosPendientes, setPasajerosPendientes] = useState<LetreroData[]>([]);
+  const [listaLoading, setListaLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -219,6 +291,9 @@ export function VoucherValidator() {
     setStatus('idle');
     setMessage(null);
     setCameraMessage(null);
+    setLetreroVisible(false);
+    setLetreroLoading(false);
+    setLetreroExterno(null);
   };
 
   const validate = async (value = input) => {
@@ -247,6 +322,68 @@ export function VoucherValidator() {
     } catch {
       setStatus('error');
       setMessage('No encontramos ese código. Revísalo e inténtalo de nuevo.');
+    }
+  };
+
+  // Obtiene datos del pase para el letrero de llamado SIN avanzar el estado de
+  // validación. El letrero es solo para localizar al pasajero en la sala de
+  // llegadas; la validación ocurre después, cuando presenta el QR físicamente.
+  const fetchLetreroData = async (code = input) => {
+    if (code.trim().length < 4 || letreroLoading) return;
+    setLetreroLoading(true);
+    try {
+      const resolvedToken = await resolveToken(code);
+      const voucherId = voucherIdFromTokenOrCode(resolvedToken);
+      const response = await fetch(`/api/voucher/${encodeURIComponent(voucherId)}/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: resolvedToken }),
+      });
+      const data = (await response.json().catch(() => null)) as VerifyPayload | null;
+      if (data?.ok && data.reserva) {
+        setLetreroExterno({
+          nombre: data.reserva.pasajero_nombre ?? 'Pasajero',
+          vuelo: data.reserva.vuelo_codigo ?? null,
+          punto: data.reserva.punto_encuentro ?? data.reserva.origen_texto ?? null,
+          codigo: data.reserva.voucher_codigo,
+        });
+      }
+    } catch {
+      // silently fail — el letrero es un extra, no bloquea el flujo
+    } finally {
+      setLetreroLoading(false);
+    }
+  };
+
+  // Carga la lista de pasajeros con pase pendiente de validación.
+  const loadLista = async () => {
+    setListaLoading(true);
+    try {
+      const response = await fetch('/api/counter/pasajeros', { cache: 'no-store' });
+      if (response.ok) {
+        const data = (await response.json()) as {
+          pasajeros: Array<{
+            id: string;
+            voucher_codigo: string;
+            pasajero_nombre: string | null;
+            vuelo_codigo: string | null;
+            punto_encuentro: string | null;
+            origen_texto: string;
+          }>;
+        };
+        setPasajerosPendientes(
+          data.pasajeros.map((p) => ({
+            nombre: p.pasajero_nombre ?? 'Pasajero',
+            vuelo: p.vuelo_codigo,
+            punto: p.punto_encuentro ?? p.origen_texto ?? null,
+            codigo: p.voucher_codigo,
+          })),
+        );
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setListaLoading(false);
     }
   };
 
@@ -354,10 +491,24 @@ export function VoucherValidator() {
       stream?.getTracks().forEach((track) => track.stop());
       if (videoRef.current) videoRef.current.srcObject = null;
     };
-  }, [cameraEnabled]);
+  }, [cameraEnabled]); // validate es estable dentro del scope del efecto
 
   const reserva = payload?.reserva;
   const showConfirm = Boolean(reserva) && (status === 'ready' || status === 'consuming');
+
+  // Datos del letrero activo: externo (sin validar) tiene prioridad;
+  // si hay reserva validada y letreroVisible, se usa la del pase.
+  const letreroActivo: (LetreroData & { onClose: () => void }) | null = letreroExterno
+    ? { ...letreroExterno, onClose: () => setLetreroExterno(null) }
+    : letreroVisible && reserva
+      ? {
+          nombre: reserva.pasajero_nombre ?? 'Pasajero Taxi Green',
+          vuelo: reserva.vuelo_codigo ?? null,
+          punto: reserva.punto_encuentro ?? reserva.origen_texto ?? null,
+          codigo: reserva.voucher_codigo,
+          onClose: () => setLetreroVisible(false),
+        }
+      : null;
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
@@ -365,7 +516,7 @@ export function VoucherValidator() {
 
       <div className="mt-6">
         {status === 'consumed' && reserva ? (
-          /* Paso 3 — acceso confirmado */
+          /* ── Paso 3 — acceso confirmado ──────────────────────────────────── */
           <div className="text-center">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/15">
               <CheckCircle2 className="h-9 w-9 text-success" />
@@ -400,18 +551,11 @@ export function VoucherValidator() {
                 <RotateCcw className="h-4 w-4" />
                 Siguiente pasajero
               </button>
-              <button
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
-                type="button"
-                onClick={() => setLetreroVisible(true)}
-              >
-                <Megaphone className="h-4 w-4" />
-                Mostrar letrero
-              </button>
             </div>
           </div>
         ) : showConfirm && reserva ? (
-          /* Paso 2 — revisar pasajero y confirmar acceso */
+          /* ── Paso 2 — revisar pasajero y confirmar acceso ────────────────── */
+          /* El pasajero ya está frente al mostrador con su QR — sin letrero aquí */
           <div className="grid gap-4">
             <div className="rounded-2xl bg-product-deep p-5 text-white">
               <p className="text-xs uppercase tracking-wide text-white/70">Pase</p>
@@ -462,14 +606,6 @@ export function VoucherValidator() {
               {status === 'consuming' ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
               {reserva.conductor ? 'Confirmar acceso y dar luz verde' : 'Confirmar acceso'}
             </button>
-            <button
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-2 border-product bg-surface px-4 text-sm font-bold text-product"
-              type="button"
-              onClick={() => setLetreroVisible(true)}
-            >
-              <Megaphone className="h-4 w-4" />
-              Mostrar letrero al pasajero
-            </button>
             <div className="flex gap-2">
               <button
                 className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
@@ -496,11 +632,75 @@ export function VoucherValidator() {
             </div>
           </div>
         ) : (
-          /* Paso 1 — escanear o escribir el código */
+          /* ── Paso 1 — lista de vuelo + escanear o escribir el código ─────── */
           <div className="grid gap-5">
-            <div className="flex items-center gap-2 text-foreground">
-              <UserRound className="h-5 w-5 text-product" />
-              <p className="text-base font-semibold">¿Quién aborda?</p>
+
+            {/* Lista de pasajeros pendientes en sala */}
+            <div className="overflow-hidden rounded-xl border border-border bg-surface-muted">
+              <button
+                className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-surface"
+                type="button"
+                onClick={() => {
+                  if (!listaVisible) void loadLista();
+                  setListaVisible(!listaVisible);
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-product" />
+                  <span className="text-sm font-semibold text-foreground">Pasajeros en sala</span>
+                  {pasajerosPendientes.length > 0 && !listaVisible ? (
+                    <span className="rounded-full bg-product px-2 py-0.5 text-xs font-bold text-white">
+                      {pasajerosPendientes.length}
+                    </span>
+                  ) : null}
+                </div>
+                <ChevronDown
+                  className={`h-4 w-4 text-foreground-muted transition-transform duration-200 ${listaVisible ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {listaVisible && (
+                <div className="border-t border-border">
+                  {listaLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="h-5 w-5 animate-spin text-product" />
+                    </div>
+                  ) : pasajerosPendientes.length === 0 ? (
+                    <p className="px-4 py-4 text-center text-sm text-foreground-muted">
+                      No hay pasajeros esperando en este momento.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {pasajerosPendientes.map((p) => (
+                        <div key={p.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-foreground">{p.nombre}</p>
+                            <p className="text-xs text-foreground-muted">
+                              {[p.vuelo, p.punto].filter(Boolean).join(' · ')}
+                            </p>
+                            <p className="text-xs text-foreground-muted">{p.codigo}</p>
+                          </div>
+                          <button
+                            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-product px-3 text-xs font-bold text-white transition hover:bg-product/90"
+                            type="button"
+                            onClick={() => {
+                              setLetreroExterno(p);
+                              setInput(p.codigo);
+                            }}
+                          >
+                            <Megaphone className="h-3.5 w-3.5" />
+                            Letrero
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 text-xs font-semibold uppercase text-foreground-muted">
+              <span className="h-px flex-1 bg-border" />validar pase<span className="h-px flex-1 bg-border" />
             </div>
 
             {cameraEnabled ? (
@@ -529,28 +729,41 @@ export function VoucherValidator() {
               </button>
             )}
 
-            <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+            <div className="flex items-center gap-3 text-xs font-semibold uppercase text-foreground-muted">
               <span className="h-px flex-1 bg-border" />o escribe el código<span className="h-px flex-1 bg-border" />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <input
-                className="h-12 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-foreground placeholder:text-foreground-muted"
-                value={input}
-                placeholder="Código de reserva (TG-2026-0001)"
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void validate();
-                }}
-              />
+            <div className="grid gap-2">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <input
+                  className="h-12 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-foreground placeholder:text-foreground-muted"
+                  value={input}
+                  placeholder="Código de reserva (TG-2026-0001)"
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void validate();
+                  }}
+                />
+                <button
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-product px-5 text-sm font-semibold text-white disabled:opacity-50"
+                  disabled={status === 'validating' || input.trim().length < 4}
+                  type="button"
+                  onClick={() => void validate()}
+                >
+                  {status === 'validating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  Validar
+                </button>
+              </div>
+
+              {/* Mostrar letrero busca al pasajero SIN consumir el pase */}
               <button
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-product px-5 text-sm font-semibold text-white disabled:opacity-50"
-                disabled={status === 'validating' || input.trim().length < 4}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border-2 border-product/40 bg-surface px-4 text-sm font-semibold text-product transition hover:border-product hover:bg-product-muted disabled:opacity-40"
+                disabled={input.trim().length < 4 || letreroLoading}
                 type="button"
-                onClick={() => validate()}
+                onClick={() => void fetchLetreroData()}
               >
-                {status === 'validating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Validar
+                {letreroLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
+                Mostrar letrero
               </button>
             </div>
 
@@ -581,13 +794,9 @@ export function VoucherValidator() {
         )}
       </div>
 
-      {letreroVisible && reserva ? (
-        <LetreroPasajero
-          nombre={reserva.pasajero_nombre ?? 'Pasajero Taxi Green'}
-          vuelo={reserva.vuelo_codigo ?? null}
-          onClose={() => setLetreroVisible(false)}
-        />
-      ) : null}
+      {/* Letrero de llamado: externo (paso 1, sin consumir) tiene prioridad sobre el
+          de pase validado (pasos 2-3). Nunca cambia el estado de validación. */}
+      {letreroActivo ? <LetreroPasajero {...letreroActivo} /> : null}
     </div>
   );
 }
