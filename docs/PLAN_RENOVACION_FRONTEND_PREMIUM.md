@@ -1,6 +1,6 @@
 # Plan de Renovación Frontend Premium — Taxi Green
 
-> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · **F10 conductor mapa→navegación ✅ (2026-06-09)** · **F11 conductor 1ª persona + historial + coherencia unidad ✅ (2026-06-09)** · **F5 WhatsApp copiloto (chat con QR/enlace + modo copiloto) ✅ (2026-06-10)** · **F12 conductor pulido + landing premium ✅ (2026-06-10)** · F7 siguiente · rama `feat/renovacion-frontend-premium`
+> **Estado:** F0 ✅ · F1 ✅ · F2 ✅ · F3 ✅ · F4 ✅ · **FQA (ojos reales) ✅** · **F3.5 driver premium ✅** · **F6 despacho simplificado ✅** · **F8 tema coherente + sin JSON ✅ (2026-06-07)** · **F10 conductor mapa→navegación ✅ (2026-06-09)** · **F11 conductor 1ª persona + historial + coherencia unidad ✅ (2026-06-09)** · **F5 WhatsApp copiloto (chat con QR/enlace + modo copiloto) ✅ (2026-06-10)** · **F12 conductor pulido + landing premium ✅ (2026-06-10)** · **F7 soporte/calificación/comprobante progresivos ✅ (2026-06-13)** · **Counter letrero correcto (lista sala + sin avanzar estado) ✅ (2026-06-13)** · 🎉 **PLAN CERRADO** · rama `feat/renovacion-frontend-premium`
 > **Origen:** `docs/PROMPT_MAESTRO_RENOVACION_FRONTEND_PREMIUM_TAXIGREEN.md` (propuesta ChatGPT) + ajustes propios.
 > **Regla rectora:** si una pantalla necesita explicación, está mal. Una info = un bloque. El mapa manda.
 
@@ -43,10 +43,12 @@ El prompt maestro es buena guía. Se adopta con **6 ajustes**:
 | **F2** | Pasajero `/p/[token]` map-first + bottom sheet + fullscreen | ✅ |
 | **F3** | Conductor `asignacion/[id]` modo navegación full-screen (mapa fill + banner + panel) | ✅ |
 | **F4** | Counter premium + QR progresivo (flujo guiado por estado, sin jerga, dark) | ✅ |
-| F5 | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | 🔜 |
-| **F6** | Despacho `/admin` simplificado | ✅ 1er pase |
-| F7 | Soporte / calificación / comprobante progresivos | ⏳ |
-| F8 | Pruebas, smoke comercial, cierre y docs | ⏳ |
+| **F5** | WhatsApp copiloto premium (modo auto + política de confianza) — toca `packages/ingesta` | ✅ |
+| **F6** | Despacho `/admin` simplificado | ✅ |
+| **F7** | Soporte / calificación / comprobante progresivos | ✅ |
+| **F8** | Pruebas, smoke comercial, cierre y docs | ✅ |
+
+**Cierre F7 + counter coherente (2026-06-13):** Auditoría final del plan contra el código real. (1) **F7 — Soporte/calificación/comprobante:** confirmado implementado: calificación visible solo en `estado=finalizado`, motivo solo cuando eje ≤ 3 (`needsReason`), comprobante bloqueado por `comprobante.disponible` (guard F6 comercial), bienestar sin jargon. Único hallazgo: "Prioridad interna: score/100" en `sugerencia-card.tsx` →  corregido a "Nivel de coincidencia: X%". (2) **Counter — letrero coherente:** el flujo tenía un bug crítico: al clicar "Mostrar letrero" en el paso idle se llamaba a `validate()`, lo que avanzaba el estado a "Confirmar" sin escanear el QR. Corregido con `fetchLetreroData()` que obtiene los datos del pasajero (vía verify sin consume) **sin cambiar el estado de validación**. Nueva API `GET /api/counter/pasajeros` devuelve lista de pasajeros con `pendiente_validacion` para el panel **"Pasajeros en sala"** (expandible) que aparece antes del escáner — el operador busca a cada uno en la sala con un clic en "Letrero". Se eliminó "Mostrar letrero" del paso 2 (Confirmar): el pasajero ya está frente al mostrador con su QR físico. Verificado: `turbo typecheck lint test build` 60/60 ✓, e2e 12/12 ✓, GPS driver `Accuracy.High` confirmado sin cambios.
 
 **Cierre F4 (2026-06-06):** `/counter` pasó a un flujo guiado por estado (barra **Validar → Confirmar acceso
 → Siguiente pasajero**): cámara como acción principal ("Escanear QR"), código manual como alternativa; el
