@@ -524,20 +524,15 @@ export default function AssignmentScreen() {
         </Pressable>
       </View>
 
-      {/* Velocímetro circular (solo modo conductor): velocidad real del GPS. */}
       {driverModeUi ? (
-        <View className="absolute bottom-32 left-4">
-          <SpeedBadge speedMs={tracking.lastLocation?.speed ?? null} />
-        </View>
-      ) : null}
-
-      {driverModeUi ? (
-        /* Modo conductor: panel mínimo (patrón Waze) — solo destino, llegada y la
-           acción del viaje. El cobro y los detalles viven en la vista de resumen. */
+        /* Modo conductor: panel mínimo (patrón Waze) — velocímetro a la izquierda,
+           destino + ETA en el centro. El cobro y detalles viven en la vista de resumen. */
         <View className="absolute inset-x-3 bottom-5 rounded-3xl border border-white/10 bg-ink-900/95 px-4 pb-3 pt-3 shadow-2xl">
           <View className="flex-row items-center gap-3">
-            <View className="h-10 w-10 items-center justify-center rounded-xl bg-brand">
-              <Ionicons name="flag" size={20} color="#0A0A0B" />
+            {/* Velocímetro: siempre visible en modo conductor, nunca superpuesto */}
+            <SpeedBadge speedMs={tracking.lastLocation?.speed ?? null} />
+            <View className="h-9 w-9 items-center justify-center rounded-xl bg-brand">
+              <Ionicons name="flag" size={18} color="#0A0A0B" />
             </View>
             <View className="flex-1">
               <Text className="text-lg font-black leading-6 text-white" numberOfLines={1}>
@@ -593,13 +588,29 @@ export default function AssignmentScreen() {
           dragUpLimit={-72}
           dragDownLimit={56}
         >
-          <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{focalLabel}</Text>
-          <Text className="mt-1 text-2xl font-bold leading-8 text-foreground" numberOfLines={2}>
-            {focalValue}
-          </Text>
-          <Text className="mt-1 text-base text-foreground-muted" numberOfLines={1}>
-            {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
-          </Text>
+          {mapMode === 'drive' ? (
+            /* En modo conductor con sheet overview: velocímetro integrado en la cabecera */
+            <View className="mb-1 flex-row items-center gap-3">
+              <SpeedBadge speedMs={tracking.lastLocation?.speed ?? null} />
+              <View className="flex-1">
+                <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{focalLabel}</Text>
+                <Text className="text-xl font-bold leading-7 text-foreground" numberOfLines={1}>{focalValue}</Text>
+                <Text className="mt-0.5 text-sm text-foreground-muted" numberOfLines={1}>
+                  {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{focalLabel}</Text>
+              <Text className="mt-1 text-2xl font-bold leading-8 text-foreground" numberOfLines={2}>
+                {focalValue}
+              </Text>
+              <Text className="mt-1 text-base text-foreground-muted" numberOfLines={1}>
+                {assignment.pasajero.nombre} · {assignment.vuelo.codigo ?? 'Vuelo por confirmar'}
+              </Text>
+            </>
+          )}
 
           {cobro ? (
             <View className="mt-3 flex-row items-center justify-between rounded-2xl border border-brand/40 bg-surface-muted px-4 py-3">

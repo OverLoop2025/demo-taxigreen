@@ -73,6 +73,7 @@ type ComponenteInteractivo =
   | { tipo: 'radio-group'; campo: string; etiqueta: string; opciones: OpcionInteractiva[] }
   | { tipo: 'date-time-picker' }
   | { tipo: 'location-options'; modo: 'destino' | 'origen' }
+  | { tipo: 'text-input'; campo: string; placeholder: string; skipLabel: string; skipValor: string }
   | { tipo: 'code-lookup' };
 
 type GuidedStep =
@@ -80,11 +81,13 @@ type GuidedStep =
   | 'tipo_usuario'
   | 'flujo'
   | 'zona_llegada'
+  | 'vuelo'
   | 'nombre_pasajero'
   | 'fecha'
   | 'destino'
   | 'origen_b'
   | 'responsable_pago'
+  | 'ruc_empresa'
   | 'vehiculo'
   | 'datos'
   | 'code_lookup';
@@ -98,25 +101,6 @@ type ChatMensaje = Mensaje & {
 // ─── Detección de saludo / intención ─────────────────────────────────────────
 
 const CONFIRMACION_CLIENTE = /^\s*(s[ií]\b|s[ií][,.!]|confirmo|claro|ok\b|dale|de acuerdo|correcto)/iu;
-
-function esSaludo(texto: string): boolean {
-  if (texto.length > 90) return false;
-  // No es saludo si menciona datos de reserva
-  if (/\d|aeropuerto|hotel|taxi|vuelo|reserva|av\.|avenida|calle|jir[oó]n/i.test(texto)) return false;
-  // Saludo simple (mensaje entero es saludo)
-  if (/^\s*(hola|buenas?\s*(tardes?|noches?|d[ií]as?)?|buenos?\s*(d[ií]as?|tardes?|noches?)|hi\b|hey\b|buen\s*d[ií]a|saludos|ola|good\s*(morning|evening|afternoon|day))\s*[!.,]?\s*$/iu.test(texto)) return true;
-  // Saludo compuesto: "Hola buenas tardes", "Hola, buenos días", "Hola cómo están"
-  if (/^\s*hola[,.]?\s+(buenas?\s*(tardes?|noches?|d[ií]as?)|buenos?\s*(d[ií]as?|tardes?|noches?)|buen\s*d[ií]a|c[oó]mo\s+est[aá])/iu.test(texto)) return true;
-  // Solo "buenas" seguido de nada o una despedida
-  if (/^\s*(buenas?\s*(tardes?|noches?|d[ií]as?)?|buenos?\s*(d[ií]as?|tardes?|noches?))\s*[!.,]?\s*$/iu.test(texto)) return true;
-  return false;
-}
-
-function esIntencionDeReserva(texto: string) {
-  if (texto.length > 80 || /\d/.test(texto)) return false;
-  if (/aeropuerto|hotel|av\.|avenida|calle|jir[oó]n|recojo|recoger|llevar|vuelo/i.test(texto)) return false;
-  return /\b(reservar?|necesito|quiero|solicitar)\b[\s\S]*\bun?\s*taxi\b/i.test(texto);
-}
 
 // ─── Helpers de formato ───────────────────────────────────────────────────────
 
@@ -310,6 +294,171 @@ function EnlaceMensaje({ link }: { link: string }) {
   );
 }
 
+// ─── Carga dinámica de Mapbox GL (para el selector de mapa inline) ────────────
+
+type MapboxLngLat = { lng: number; lat: number };
+type MapboxMarkerInst = {
+  setLngLat: (c: [number, number]) => MapboxMarkerInst;
+  getLngLat: () => MapboxLngLat;
+  addTo: (m: unknown) => MapboxMarkerInst;
+  on: (e: string, h: () => void) => MapboxMarkerInst;
+};
+type MapboxMapInst = {
+  on: (e: string, h: (p: { lngLat: MapboxLngLat }) => void) => void;
+  remove: () => void;
+};
+type MapboxGLLib = {
+  accessToken: string;
+  Map: new (o: Record<string, unknown>) => MapboxMapInst;
+  Marker: new (o?: Record<string, unknown>) => MapboxMarkerInst;
+};
+function getMapboxGL(): MapboxGLLib | null {
+  return (globalThis as unknown as { mapboxgl?: MapboxGLLib }).mapboxgl ?? null;
+}
+let mbPromise: Promise<MapboxGLLib | null> | null = null;
+function loadMapboxGLOnce() {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  const ex = getMapboxGL();
+  if (ex) return Promise.resolve(ex);
+  if (mbPromise) return mbPromise;
+  mbPromise = new Promise<MapboxGLLib | null>((resolve) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.css';
+    document.head.appendChild(css);
+    const s = document.createElement('script');
+    s.src = 'https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.js';
+    s.onload = () => resolve(getMapboxGL());
+    s.onerror = () => resolve(null);
+    document.head.appendChild(s);
+  });
+  return mbPromise;
+}
+async function reverseGeocodeWaSim(coord: MapboxLngLat, token: string): Promise<string | null> {
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${coord.lng},${coord.lat}.json?access_token=${token}&language=es&limit=1&country=pe`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = (await r.json()) as { features?: Array<{ place_name?: string }> };
+    return d.features?.[0]?.place_name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Selector de mapa inline dentro del widget location-options
+function InlineMapPicker({
+  onConfirmar,
+  onCancelar,
+}: {
+  onConfirmar: (valor: string, etiqueta: string) => void;
+  onCancelar: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MapboxMapInst | null>(null);
+  const [coord, setCoord] = useState<MapboxLngLat>({ lat: -12.0464, lng: -77.0428 });
+  const [direccion, setDireccion] = useState<string | null>(null);
+  const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>('cargando');
+  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? null;
+
+  useEffect(() => {
+    if (!token || !containerRef.current || mapRef.current) return;
+    let cancelled = false;
+    void loadMapboxGLOnce().then((mb) => {
+      if (cancelled || !mb || !containerRef.current) {
+        setEstado(mb ? 'listo' : 'error');
+        return;
+      }
+      mb.accessToken = token;
+      const map = new mb.Map({
+        container: containerRef.current,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [-77.0428, -12.0464],
+        zoom: 12,
+        attributionControl: false,
+      });
+      mapRef.current = map;
+      const marker = new mb.Marker({ draggable: true, color: '#10B981' })
+        .setLngLat([-77.0428, -12.0464])
+        .addTo(map);
+      const actualizar = async () => {
+        const c = marker.getLngLat();
+        setCoord(c);
+        setDireccion('Buscando dirección…');
+        const nombre = await reverseGeocodeWaSim(c, token);
+        setDireccion(nombre ?? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`);
+      };
+      marker.on('dragend', () => void actualizar());
+      map.on('click', (ev) => {
+        marker.setLngLat([ev.lngLat.lng, ev.lngLat.lat]);
+        void actualizar();
+      });
+      setEstado('listo');
+    });
+    return () => {
+      cancelled = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, [token]);
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <div className="relative h-52 w-full overflow-hidden rounded-xl border border-[#c5dfd9]">
+        <div className="absolute inset-0" ref={containerRef} />
+        {estado === 'cargando' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+            <Loader2 className="h-6 w-6 animate-spin text-[#128C7E]" />
+          </div>
+        )}
+        {estado === 'error' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/90 p-4 text-center">
+            <p className="text-sm text-[#667781]">No se pudo cargar el mapa. Escribe la dirección.</p>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-[#667781]">
+        {direccion ?? 'Toca el mapa o arrastra el pin para marcar el punto exacto'}
+      </p>
+      <div className="flex gap-2">
+        <button
+          className="flex-1 rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm font-medium text-[#667781] transition hover:bg-gray-50"
+          onClick={onCancelar}
+          type="button"
+        >
+          Cancelar
+        </button>
+        <button
+          className="flex-1 rounded-lg bg-[#128C7E] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
+          disabled={estado !== 'listo' || !direccion || direccion.startsWith('Buscando')}
+          onClick={() => {
+            const etiqueta = direccion ?? `${coord.lat.toFixed(4)}, ${coord.lng.toFixed(4)}`;
+            onConfirmar(etiqueta, etiqueta);
+          }}
+          type="button"
+        >
+          Confirmar ubicación
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Botón reutilizable "← Atrás" ─────────────────────────────────────────────
+
+function BtnAtras({ onRetroceder }: { onRetroceder: (() => void) | undefined }) {
+  if (!onRetroceder) return null;
+  return (
+    <button
+      className="mt-2 text-xs font-medium text-[#667781] underline-offset-2 hover:underline"
+      onClick={onRetroceder}
+      type="button"
+    >
+      ← Atrás
+    </button>
+  );
+}
+
 // ─── Componente interactivo del chat ─────────────────────────────────────────
 
 function ComponenteInteractivoChat({
@@ -317,18 +466,21 @@ function ComponenteInteractivoChat({
   contestado,
   seleccionado,
   onSeleccionar,
+  onRetroceder,
 }: {
   interactivo: ComponenteInteractivo;
   contestado: boolean;
   seleccionado: string | undefined;
   onSeleccionar: (valor: string, etiqueta: string) => void;
+  onRetroceder?: () => void;
 }) {
   const [fechaVal, setFechaVal] = useState('');
   const [horaVal, setHoraVal] = useState('');
   const [locTexto, setLocTexto] = useState('');
-  const [locMode, setLocMode] = useState<null | 'texto'>(null);
+  const [locMode, setLocMode] = useState<null | 'texto' | 'mapa'>(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const [codigoVal, setCodigoVal] = useState('');
+  const [textInputVal, setTextInputVal] = useState('');
 
   if (contestado) {
     return (
@@ -356,23 +508,27 @@ function ComponenteInteractivoChat({
               </div>
             </button>
           ))}
+          <BtnAtras onRetroceder={onRetroceder} />
         </div>
       );
 
     case 'radio-group':
       return (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {interactivo.opciones.map((op) => (
-            <button
-              className="flex items-center gap-1.5 rounded-full border-2 border-[#128C7E] bg-white px-4 py-2 text-sm font-semibold text-[#075E54] transition hover:bg-[#e7fde2] active:scale-95"
-              key={op.valor}
-              onClick={() => onSeleccionar(op.valor, op.etiqueta)}
-              type="button"
-            >
-              {op.emoji && <span>{op.emoji}</span>}
-              {op.etiqueta}
-            </button>
-          ))}
+        <div className="mt-3 flex flex-col gap-1">
+          <div className="flex flex-wrap gap-2">
+            {interactivo.opciones.map((op) => (
+              <button
+                className="flex items-center gap-1.5 rounded-full border-2 border-[#128C7E] bg-white px-4 py-2 text-sm font-semibold text-[#075E54] transition hover:bg-[#e7fde2] active:scale-95"
+                key={op.valor}
+                onClick={() => onSeleccionar(op.valor, op.etiqueta)}
+                type="button"
+              >
+                {op.emoji && <span>{op.emoji}</span>}
+                {op.etiqueta}
+              </button>
+            ))}
+          </div>
+          <BtnAtras onRetroceder={onRetroceder} />
         </div>
       );
 
@@ -414,12 +570,22 @@ function ComponenteInteractivoChat({
           >
             Confirmar fecha y hora
           </button>
+          <BtnAtras onRetroceder={onRetroceder} />
         </div>
       );
     }
 
     case 'location-options': {
       const isDestino = interactivo.modo === 'destino';
+
+      if (locMode === 'mapa') {
+        return (
+          <InlineMapPicker
+            onCancelar={() => setLocMode(null)}
+            onConfirmar={(v, e) => onSeleccionar(v, e)}
+          />
+        );
+      }
 
       if (locMode === 'texto') {
         return (
@@ -433,7 +599,7 @@ function ComponenteInteractivoChat({
                   onSeleccionar(locTexto.trim(), locTexto.trim());
                 }
               }}
-              placeholder={isDestino ? 'Av. Pardo 123, Miraflores  ó  https://maps.app.goo.gl/…' : 'Hotel Costa Verde, Av. Malecón 200, Miraflores'}
+              placeholder={isDestino ? 'Av. Pardo 123, Miraflores  ó  https://maps.app.goo.gl/…' : 'Hotel Costa Verde, Av. Malecón 200'}
               value={locTexto}
             />
             <div className="flex gap-2">
@@ -464,10 +630,7 @@ function ComponenteInteractivoChat({
               className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2] disabled:opacity-60"
               disabled={geoLoading}
               onClick={() => {
-                if (!navigator.geolocation) {
-                  setLocMode('texto');
-                  return;
-                }
+                if (!navigator.geolocation) { setLocMode('texto'); return; }
                 setGeoLoading(true);
                 navigator.geolocation.getCurrentPosition(
                   (pos) => {
@@ -475,10 +638,7 @@ function ComponenteInteractivoChat({
                     setGeoLoading(false);
                     onSeleccionar(txt, txt);
                   },
-                  () => {
-                    setGeoLoading(false);
-                    setLocMode('texto');
-                  },
+                  () => { setGeoLoading(false); setLocMode('texto'); },
                   { enableHighAccuracy: true, timeout: 8000 },
                 );
               }}
@@ -495,6 +655,20 @@ function ComponenteInteractivoChat({
               </div>
             </button>
           )}
+          {/* Marcar en mapa interactivo */}
+          <button
+            className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2]"
+            onClick={() => setLocMode('mapa')}
+            type="button"
+          >
+            <span className="mt-0.5 text-xl leading-none">🗺️</span>
+            <div>
+              <p className="text-sm font-semibold text-[#0a332f]">Marcar en el mapa</p>
+              <p className="mt-0.5 text-xs leading-4 text-[#667781]">
+                {isDestino ? 'Arrastra el pin a tu destino' : 'Arrastra el pin a tu punto de recojo'}
+              </p>
+            </div>
+          </button>
           <button
             className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2]"
             onClick={() => setLocMode('texto')}
@@ -503,26 +677,49 @@ function ComponenteInteractivoChat({
             <span className="mt-0.5 text-xl leading-none">📍</span>
             <div>
               <p className="text-sm font-semibold text-[#0a332f]">
-                {isDestino ? 'Escribir o pegar enlace de destino' : 'Escribir dirección de recojo'}
+                {isDestino ? 'Escribir o pegar dirección' : 'Escribir dirección de recojo'}
               </p>
               <p className="mt-0.5 text-xs leading-4 text-[#667781]">
                 {isDestino ? 'Dirección completa o enlace de Google Maps' : 'Dirección o nombre del lugar'}
               </p>
             </div>
           </button>
-          {isDestino && (
-            <button
-              className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2]"
-              onClick={() => setLocMode('texto')}
-              type="button"
-            >
-              <span className="mt-0.5 text-xl leading-none">🗺️</span>
-              <div>
-                <p className="text-sm font-semibold text-[#0a332f]">Pegar enlace de Google Maps</p>
-                <p className="mt-0.5 text-xs leading-4 text-[#667781]">https://maps.app.goo.gl/…</p>
-              </div>
-            </button>
-          )}
+          <BtnAtras onRetroceder={onRetroceder} />
+        </div>
+      );
+    }
+
+    case 'text-input': {
+      return (
+        <div className="mt-3 flex flex-col gap-2">
+          <input
+            autoFocus
+            className="rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
+            onChange={(e) => setTextInputVal(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && textInputVal.trim().length >= 1) {
+                onSeleccionar(textInputVal.trim(), textInputVal.trim());
+              }
+            }}
+            placeholder={interactivo.placeholder}
+            value={textInputVal}
+          />
+          <button
+            className="rounded-lg bg-[#128C7E] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
+            disabled={textInputVal.trim().length < 1}
+            onClick={() => onSeleccionar(textInputVal.trim(), textInputVal.trim())}
+            type="button"
+          >
+            Confirmar
+          </button>
+          <button
+            className="text-xs font-medium text-[#667781] underline-offset-2 hover:underline"
+            onClick={() => onSeleccionar(interactivo.skipValor, interactivo.skipLabel)}
+            type="button"
+          >
+            {interactivo.skipLabel}
+          </button>
+          <BtnAtras onRetroceder={onRetroceder} />
         </div>
       );
     }
@@ -550,6 +747,7 @@ function ComponenteInteractivoChat({
           >
             Buscar reserva
           </button>
+          <BtnAtras onRetroceder={onRetroceder} />
         </div>
       );
   }
@@ -589,6 +787,8 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   const [enlaceEnviado, setEnlaceEnviado] = useState(false);
   const [conductorAsignado, setConductorAsignado] = useState<string | null>(null);
   const [guidedStep, setGuidedStep] = useState<GuidedStep | null>(null);
+  // Pila de pasos anteriores para poder retroceder en el flujo guiado
+  const [guidedHistory, setGuidedHistory] = useState<GuidedStep[]>([]);
 
   // Mapa de mensajes interactivos ya contestados: id → etiqueta seleccionada
   const [mensajesContestados, setMensajesContestados] = useState<Map<string, string>>(new Map());
@@ -608,6 +808,14 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
+
+  // Auto-extrae cuando el usuario activa el copiloto y ya hay mensajes de cliente cargados
+  useEffect(() => {
+    if (!copilotoAuto) return;
+    const hasClient = messages.some((m) => m.autor === 'cliente');
+    if (!hasClient || extraccion || confirmada || guidedStep) return;
+    void extractFromMessages(messages);
+  }, [copilotoAuto]); // Solo cuando cambia copilotoAuto — refs intencionales
 
   // Contexto del flujo guiado: accesible síncronamente (ref, no state)
   const guidedTextoRef = useRef<string[]>([]);
@@ -638,6 +846,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     setDatosPedidos(false);
     setEsperandoConfirmacionCliente(false);
     setGuidedStep(null);
+    setGuidedHistory([]);
     setEnlaceEnviado(false);
     setConductorAsignado(null);
     setMensajesContestados(new Map());
@@ -663,6 +872,51 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     };
     setChatsManuales((current) => [nuevo, ...current]);
     selectConversation(nuevo);
+    // Arrancar flujo guiado inmediatamente: el cliente verá el intent selector sin escribir nada
+    preguntarGuiado('intent');
+  }
+
+  // Retrocede un paso en el flujo guiado: deshace la última pregunta + respuesta
+  function retrocederPaso() {
+    if (guidedHistory.length === 0) return;
+    const prevHistory = guidedHistory.slice(0, -1);
+    const prevStep = guidedHistory[guidedHistory.length - 1]!;
+
+    setGuidedHistory(prevHistory);
+    setGuidedStep(prevStep);
+
+    setMessages((msgs) => {
+      const arr = [...msgs];
+
+      // Eliminar la pregunta actual de taxigreen (última con widget interactivo)
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (arr[i]!.autor === 'taxigreen' && arr[i]!.interactivo) {
+          arr.splice(i, 1);
+          break;
+        }
+      }
+
+      // Eliminar la última respuesta del cliente y des-marcar la pregunta anterior
+      let prevQId = '';
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (arr[i]!.autor === 'cliente') {
+          arr.splice(i, 1);
+          for (let j = i - 1; j >= 0; j--) {
+            if (arr[j]?.autor === 'taxigreen' && arr[j]?.interactivo) {
+              prevQId = arr[j]!.id;
+              break;
+            }
+          }
+          break;
+        }
+      }
+
+      if (prevQId) {
+        setMensajesContestados((m) => { const n = new Map(m); n.delete(prevQId); return n; });
+      }
+
+      return arr;
+    });
   }
 
   // ─── Extracción ───────────────────────────────────────────────────────────
@@ -737,6 +991,8 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   // ─── Flujo guiado interactivo ─────────────────────────────────────────────
 
   function preguntarGuiado(step: GuidedStep) {
+    // Guardar el paso actual en la pila de historial antes de avanzar
+    setGuidedHistory((prev) => (guidedStep !== null ? [...prev, guidedStep] : prev));
     setGuidedStep(step);
 
     let texto = '';
@@ -792,6 +1048,29 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             { valor: 'nacional', etiqueta: 'Nacional (dentro del Perú)', emoji: '🇵🇪' },
             { valor: 'internacional', etiqueta: 'Internacional', emoji: '🌎' },
           ],
+        };
+        break;
+
+      case 'vuelo':
+        // El número de vuelo es opcional: sirve para que el counter ubique al pasajero en el letrero
+        texto = '¿Cuál es el número de tu vuelo? (opcional, ayuda al counter a identificarte)';
+        interactivo = {
+          tipo: 'text-input',
+          campo: 'vuelo_codigo',
+          placeholder: 'Ej: LA2456, IB123, AM456…',
+          skipLabel: 'No tengo / No recuerdo el código',
+          skipValor: 'sin_vuelo',
+        };
+        break;
+
+      case 'ruc_empresa':
+        texto = 'Para cargar el servicio a tu empresa, ingresa el RUC:';
+        interactivo = {
+          tipo: 'text-input',
+          campo: 'empresa_ruc',
+          placeholder: 'RUC de la empresa (11 dígitos)',
+          skipLabel: 'No tengo el RUC — lo pagaré yo',
+          skipValor: 'sin_ruc',
         };
         break;
 
@@ -909,7 +1188,13 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
 
       case 'zona_llegada':
         guidedTextoRef.current.push(valor === 'nacional' ? 'Mi vuelo es nacional.' : 'Mi vuelo es internacional.');
-        // Flujo A: siempre pedir nombre (el counter lo necesita para el letrero)
+        preguntarGuiado('vuelo');
+        return;
+
+      case 'vuelo':
+        if (valor !== 'sin_vuelo') {
+          guidedTextoRef.current.push(`Mi vuelo es ${valor}.`);
+        }
         preguntarGuiado('nombre_pasajero');
         return;
 
@@ -947,6 +1232,19 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
         guidedTextoRef.current.push(
           valor === 'empresa' ? 'El servicio lo cubre mi empresa.' : 'Este viaje lo pago yo.',
         );
+        if (valor === 'empresa') {
+          preguntarGuiado('ruc_empresa');
+        } else {
+          preguntarGuiado('vehiculo');
+        }
+        return;
+
+      case 'ruc_empresa':
+        if (valor === 'sin_ruc') {
+          guidedTextoRef.current.push('No tengo el RUC disponible, el gasto lo asumiré individualmente.');
+        } else {
+          guidedTextoRef.current.push(`El RUC de la empresa es ${valor}.`);
+        }
         preguntarGuiado('vehiculo');
         return;
 
@@ -1078,20 +1376,58 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       return;
     }
 
-    // Fallback: texto libre con todas las preguntas restantes
-    if (extraccion.preguntas_aclaracion.length > 0) {
-      const cuerpo = extraccion.preguntas_aclaracion.map((q) => `• ${q}`).join('\n');
+    // Nombre del pasajero (para el letrero del counter)
+    if (!reserva.pasajero_nombre) {
+      setGuidedStep('nombre_pasajero');
       setMessages((prev) => [
         ...prev,
         {
-          id: `ask-txt-${Date.now()}`,
+          id: `ask-nombre-${Date.now()}`,
           autor: 'taxigreen',
           hora: horaAhora(),
-          texto: `¡Con gusto coordinamos tu Taxi Green! Para dejarlo listo me confirmas:\n${cuerpo}`,
+          texto: '¿Cuál es el nombre completo del pasajero? El operador del mostrador lo buscará por su nombre.',
         },
       ]);
       setDatosPedidos(true);
+      return;
     }
+
+    // Pago corporativo: pedir RUC si no lo tenemos
+    if (
+      reserva.perfil_pasajero === 'corporativo' &&
+      reserva.responsable_pago === 'empresa' &&
+      !reserva.pasajero_ruc
+    ) {
+      setGuidedStep('ruc_empresa');
+      addMsg('Para cargar el servicio a tu empresa, ingresa el RUC:', {
+        tipo: 'text-input',
+        campo: 'pasajero_ruc',
+        placeholder: 'RUC de la empresa (11 dígitos)',
+        skipLabel: 'No tengo el RUC — lo pagaré yo',
+        skipValor: 'sin_ruc',
+      });
+      return;
+    }
+
+    // Vehículo (si no se eligió)
+    if (!reserva.vehiculo_preferencia) {
+      setGuidedStep('vehiculo');
+      addMsg('¿Cuánto equipaje llevas? (Elige o salta para continuar con el mejor disponible)', {
+        tipo: 'radio-group',
+        campo: 'vehiculo',
+        etiqueta: '¿Necesitas vehículo especial?',
+        opciones: [
+          { valor: 'cualquiera', etiqueta: 'El mejor disponible', emoji: '🚗' },
+          { valor: 'sedan', etiqueta: 'Sedán', emoji: '🚘' },
+          { valor: 'camioneta', etiqueta: 'Camioneta (más espacio)', emoji: '🚙' },
+          { valor: 'van', etiqueta: 'Van (grupo grande)', emoji: '🚐' },
+        ],
+      });
+      return;
+    }
+
+    // Si todo está cubierto, extraer para refrescar la extracción
+    void extractGuided();
   }
 
   // ─── Enviar mensaje ────────────────────────────────────────────────────────
@@ -1141,19 +1477,13 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       return;
     }
 
-    // Saludo puro → intent selector
-    if (!guidedStep && !extraccion && !confirmada && esSaludo(text)) {
-      guidedTextoRef.current = [];
+    // Cualquier mensaje cuando el chat aún no tiene respuestas de taxigreen ni extracción:
+    // arrancar siempre con el intent selector (no asumir intención del texto).
+    const hayTaxigreen = messages.some((m) => m.autor === 'taxigreen');
+    if (!guidedStep && !extraccion && !confirmada && !hayTaxigreen) {
+      guidedTextoRef.current = [text]; // preservar lo que escribió por si elige "Reservar"
       guidedContextRef.current = {};
       preguntarGuiado('intent');
-      return;
-    }
-
-    // Intención simple de reserva ("necesito un taxi")
-    if (!guidedStep && !extraccion && !confirmada && esIntencionDeReserva(text)) {
-      guidedTextoRef.current = [];
-      guidedContextRef.current = {};
-      preguntarGuiado('tipo_usuario');
       return;
     }
 
@@ -1542,6 +1872,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                               contestado={isContestado}
                               interactivo={message.interactivo}
                               onSeleccionar={(valor, etiqueta) => respondInteractivo(message.id, valor, etiqueta)}
+                              onRetroceder={!isContestado && guidedHistory.length > 0 ? retrocederPaso : undefined}
                               seleccionado={seleccionado}
                             />
                           ) : null}
