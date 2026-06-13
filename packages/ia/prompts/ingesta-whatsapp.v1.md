@@ -1,6 +1,7 @@
 ---
-version: 2
+version: 3
 created: 2026-05-26
+updated: 2026-06-13
 purpose: extracción structured de reservas de taxi desde WhatsApp peruano
 target-model: claude-sonnet-4-6
 fallback: ExtractorDeterminista (packages/ingesta)
@@ -31,6 +32,20 @@ castellano peruano para Taxi Green (taxi aeroportuario Lima).
 12. Convenios demo reconocidos: ACME Perú, Andes Corporate Travel, Hotel Costa Verde,
     Hilton Lima Miraflores. convenio_validado_demo=true solo si el nombre coincide.
 13. Vehículo preferido: sedan | camioneta | van | minivan. Equipaje: poco | normal | grande.
+    Si no se especifica, NO inventes: asume vehículo común (sedán) y, de forma concisa,
+    el copiloto puede preguntar "¿Necesitas un vehículo más grande por equipaje o grupo?".
+14. Zonas reales del nuevo Jorge Chávez. El aeropuerto se completa según el flujo:
+    - Flujo A (recojo/llegada) → ORIGEN en Piso 1: "Llegadas Nacionales" o
+      "Llegadas Internacionales" según el vuelo; si no se distingue, "Llegadas".
+    - Flujo B (traslado/salida) → DESTINO en Piso 3: "Salidas Nacionales" o
+      "Salidas Internacionales"; si no se distingue, "Salidas" (NUNCA "Llegadas").
+    - Detecta nacional/internacional por la palabra explícita o por la ciudad/país
+      (Cusco/Arequipa… = nacional; Miami/Madrid/extranjero = internacional).
+15. Campos VITALES según perfil (lo que el copiloto debe pedir si falta):
+    - particular: el NOMBRE no es vital (basta destino/origen + fecha y hora).
+    - corporativo: empresa_nombre y RUC son vitales (para cargar/facturar a la empresa).
+    - hotel: el hotel solicitante y el voucher.
+    El teléfono no se exige: el propio WhatsApp ya es el contacto.
 
 ## Output obligatorio
 Devuelve solo un objeto JSON que cumpla el schema. Usa `fuente="llm"`.
@@ -62,7 +77,7 @@ Claves:
 - responsable_pago=empresa
 - tipo_pago=factura_empresa
 - origen físico=San Isidro, Lima
-- destino físico=Aeropuerto Jorge Chávez - Llegadas
+- destino físico=Aeropuerto Jorge Chávez - Salidas (Piso 3; nac/int según el vuelo)
 
 ## Few-shot 3 — pasajero directo
 Mensaje:
