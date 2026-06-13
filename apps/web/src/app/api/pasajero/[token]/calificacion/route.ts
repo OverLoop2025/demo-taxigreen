@@ -6,24 +6,15 @@ import { z } from 'zod';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const schema = z
-  .object({
-    servicio: z.number().int().min(1).max(5),
-    conductor: z.number().int().min(1).max(5),
-    unidad: z.number().int().min(1).max(5),
-    motivo: z.string().trim().max(240).optional().nullable(),
-    comentario: z.string().trim().max(700).optional().nullable(),
-  })
-  .superRefine((value, ctx) => {
-    const lowScore = value.servicio <= 3 || value.conductor <= 3 || value.unidad <= 3;
-    if (lowScore && !value.motivo?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['motivo'],
-        message: 'motivo_requerido',
-      });
-    }
-  });
+// El comentario es SIEMPRE opcional (decisión de producto): si un eje queda en 3 o
+// menos, la UI invita a comentar pero no obliga. No se rechaza por falta de motivo.
+const schema = z.object({
+  servicio: z.number().int().min(1).max(5),
+  conductor: z.number().int().min(1).max(5),
+  unidad: z.number().int().min(1).max(5),
+  motivo: z.string().trim().max(240).optional().nullable(),
+  comentario: z.string().trim().max(700).optional().nullable(),
+});
 
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const parsed = schema.safeParse(await request.json().catch(() => null));

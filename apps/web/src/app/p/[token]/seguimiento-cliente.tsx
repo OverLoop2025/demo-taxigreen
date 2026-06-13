@@ -638,7 +638,7 @@ function InfoRow({ icon, label, value }: { icon: ReactNode; label: string; value
   );
 }
 
-function RatingButtons({
+function StarRatingInput({
   label,
   value,
   onChange,
@@ -647,22 +647,27 @@ function RatingButtons({
   value: number;
   onChange: (value: number) => void;
 }) {
+  const [hover, setHover] = useState(0);
+  const activo = hover || value;
   return (
     <div>
       <p className="text-sm font-semibold text-foreground">{label}</p>
-      <div className="mt-2 grid grid-cols-5 gap-2">
+      <div className="mt-1.5 flex gap-1.5" onMouseLeave={() => setHover(0)}>
         {[1, 2, 3, 4, 5].map((nivel) => (
           <button
-            className={`flex h-10 items-center justify-center rounded-lg border text-sm font-semibold ${
-              value === nivel
-                ? 'border-product bg-product text-white'
-                : 'border-border bg-surface text-foreground hover:bg-surface-muted'
-            }`}
+            aria-label={`${nivel} ${nivel === 1 ? 'estrella' : 'estrellas'}`}
+            aria-pressed={value === nivel}
+            className="rounded-md p-1 transition-transform hover:scale-110"
             key={nivel}
             type="button"
             onClick={() => onChange(nivel)}
+            onMouseEnter={() => setHover(nivel)}
           >
-            {nivel}
+            <Star
+              className={`h-9 w-9 ${
+                activo >= nivel ? 'fill-product text-product' : 'fill-transparent text-foreground-muted/40'
+              }`}
+            />
           </button>
         ))}
       </div>
@@ -824,11 +829,20 @@ function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: 
   const [documentStatus, setDocumentStatus] = useState<string | null>(null);
   // El cierre del viaje ya prepara el comprobante. El pasajero ve descargar como acción principal.
   const [comprobanteListo, setComprobanteListo] = useState(Boolean(data.comprobante.tipo));
+  const yaCalificado = Boolean(data.calificacion);
   const [rating, setRating] = useState<PassengerRating>(
-    data.calificacion ?? { servicio: 5, conductor: 5, unidad: 5, motivo: '', comentario: '' },
+    data.calificacion ?? { servicio: 0, conductor: 0, unidad: 0, motivo: '', comentario: '' },
   );
   const [ratingStatus, setRatingStatus] = useState<string | null>(null);
-  const needsReason = rating.servicio <= 3 || rating.conductor <= 3 || rating.unidad <= 3;
+  // Revelado progresivo: cada eje aparece cuando el anterior tiene estrellas.
+  const mostrarConductor = yaCalificado || rating.servicio > 0;
+  const mostrarUnidad = yaCalificado || rating.conductor > 0;
+  const calificacionCompleta = rating.servicio > 0 && rating.conductor > 0 && rating.unidad > 0;
+  // Comentario opcional solo si algún eje YA elegido quedó en 3 o menos.
+  const needsReason =
+    (rating.servicio > 0 && rating.servicio <= 3) ||
+    (rating.conductor > 0 && rating.conductor <= 3) ||
+    (rating.unidad > 0 && rating.unidad <= 3);
   const hasComprobante = Boolean(data.comprobante.tipo) || comprobanteListo;
 
   useEffect(() => {
@@ -974,42 +988,41 @@ function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: 
             <p className="text-sm font-semibold text-foreground">¿Cómo estuvo tu viaje?</p>
           </div>
           <div className="mt-4 grid gap-4">
-            <RatingButtons
+            <StarRatingInput
               label="Servicio"
               value={rating.servicio}
               onChange={(value) => setRating((current) => ({ ...current, servicio: value }))}
             />
-            <RatingButtons
-              label="Conductor"
-              value={rating.conductor}
-              onChange={(value) => setRating((current) => ({ ...current, conductor: value }))}
-            />
-            <RatingButtons
-              label="Vehículo"
-              value={rating.unidad}
-              onChange={(value) => setRating((current) => ({ ...current, unidad: value }))}
-            />
+            {mostrarConductor ? (
+              <StarRatingInput
+                label="Conductor"
+                value={rating.conductor}
+                onChange={(value) => setRating((current) => ({ ...current, conductor: value }))}
+              />
+            ) : null}
+            {mostrarUnidad ? (
+              <StarRatingInput
+                label="Vehículo"
+                value={rating.unidad}
+                onChange={(value) => setRating((current) => ({ ...current, unidad: value }))}
+              />
+            ) : null}
             {needsReason ? (
-              <input
-                className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
-                placeholder="Cuéntanos qué pasó"
+              <textarea
+                className="min-h-20 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
+                placeholder="¿Qué podríamos mejorar? (opcional)"
                 value={rating.motivo ?? ''}
                 onChange={(event) => setRating((current) => ({ ...current, motivo: event.target.value }))}
               />
             ) : null}
-            <textarea
-              className="min-h-20 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
-              placeholder="Comentario (opcional)"
-              value={rating.comentario ?? ''}
-              onChange={(event) => setRating((current) => ({ ...current, comentario: event.target.value }))}
-            />
             <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={!calificacionCompleta}
               type="button"
               onClick={saveRating}
             >
               <Send className="h-4 w-4" />
-              Enviar calificación
+              {calificacionCompleta ? 'Enviar calificación' : 'Marca las 3 estrellas'}
             </button>
             {ratingStatus ? <p className="text-sm text-foreground-muted">{ratingStatus}</p> : null}
           </div>
@@ -1019,11 +1032,38 @@ function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: 
   );
 }
 
+// Objetos olvidados más frecuentes (palabras que el clasificador determinista
+// reconoce como objeto_olvidado). "Otros" abre un campo libre para el resto.
+const OBJETOS_FRECUENTES = [
+  'Billetera o cartera',
+  'Celular',
+  'Llaves',
+  'Documentos o pasaporte',
+  'Mochila o maleta',
+  'Lentes',
+  'Casaca o abrigo',
+  'Audífonos',
+  'Cargador',
+] as const;
+
 function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
-  const [descripcion, setDescripcion] = useState('');
+  const [seleccion, setSeleccion] = useState<string[]>([]);
+  const [otrosActivo, setOtrosActivo] = useState(false);
+  const [otrosTexto, setOtrosTexto] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const lastIncident = data.incidencias.find((item) => item.tipologia === 'objeto_olvidado');
+
+  const items = [...seleccion];
+  if (otrosActivo && otrosTexto.trim()) items.push(otrosTexto.trim());
+  // El prefijo garantiza que el clasificador lo reconozca como objeto olvidado.
+  const descripcion = items.length ? `Olvidé en el vehículo: ${items.join(', ')}.` : '';
+
+  const toggle = (label: string) => {
+    setSeleccion((current) =>
+      current.includes(label) ? current.filter((value) => value !== label) : [...current, label],
+    );
+  };
 
   const submitIncident = async () => {
     setStatus('Registrando tu caso…');
@@ -1041,7 +1081,9 @@ function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: ()
       );
       return;
     }
-    setDescripcion('');
+    setSeleccion([]);
+    setOtrosActivo(false);
+    setOtrosTexto('');
     setStatus('Caso creado. Taxi Green ya lo está revisando.');
     await refresh();
   };
@@ -1056,20 +1098,54 @@ function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: ()
         <PackageSearch className="h-5 w-5 text-care" />
         <span className="flex-1">
           <span className="block text-sm font-semibold text-foreground">¿Olvidaste algo?</span>
-          <span className="block text-xs text-foreground-muted">Cuéntanos y lo buscamos</span>
+          <span className="block text-xs text-foreground-muted">Toca lo que dejaste y lo buscamos</span>
         </span>
       </button>
       {open ? (
         <div className="mt-3">
-          <textarea
-            className="min-h-24 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
-            placeholder="Ej.: Olvidé una cartera en el asiento de atrás."
-            value={descripcion}
-            onChange={(event) => setDescripcion(event.target.value)}
-          />
+          <div className="flex flex-wrap gap-2">
+            {OBJETOS_FRECUENTES.map((label) => {
+              const activo = seleccion.includes(label);
+              return (
+                <button
+                  aria-pressed={activo}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                    activo
+                      ? 'border-care bg-care text-white'
+                      : 'border-border bg-surface text-foreground hover:bg-surface-muted'
+                  }`}
+                  key={label}
+                  type="button"
+                  onClick={() => toggle(label)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            <button
+              aria-pressed={otrosActivo}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                otrosActivo
+                  ? 'border-care bg-care text-white'
+                  : 'border-border bg-surface text-foreground hover:bg-surface-muted'
+              }`}
+              type="button"
+              onClick={() => setOtrosActivo((value) => !value)}
+            >
+              Otros
+            </button>
+          </div>
+          {otrosActivo ? (
+            <input
+              className="mt-3 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
+              placeholder="¿Qué otra cosa olvidaste?"
+              value={otrosTexto}
+              onChange={(event) => setOtrosTexto(event.target.value)}
+            />
+          ) : null}
           <button
             className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-care px-4 text-sm font-semibold text-white disabled:opacity-50"
-            disabled={descripcion.trim().length < 8}
+            disabled={items.length === 0}
             type="button"
             onClick={submitIncident}
           >
