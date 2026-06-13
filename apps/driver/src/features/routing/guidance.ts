@@ -59,6 +59,78 @@ function cumulativeDistances(coordinates: number[][]) {
 // distancia (o ya la dejó atrás sobre la línea): el banner salta a la siguiente.
 const MANIOBRA_EJECUTADA_M = 25;
 
+// Lado del giro derivado SOLO del modifier (la misma fuente que alimenta el icono),
+// para que el texto del banner y la flecha NUNCA se contradigan. El string libre de
+// Mapbox a veces queda desfasado del giro visible; aquí el lado es canónico.
+function lado(modifier: string): 'izquierda' | 'derecha' | null {
+  if (modifier.includes('left')) return 'izquierda';
+  if (modifier.includes('right')) return 'derecha';
+  return null;
+}
+
+/**
+ * Texto de maniobra en español derivado de `tipo`+`modifier`+`nombre`.
+ *
+ * Es la fuente ÚNICA del banner: el icono (`maniobraIcon`) y este texto se calculan
+ * ambos desde `modifier`, así que un giro a la derecha siempre dice "derecha" y
+ * muestra la flecha a la derecha. El nombre de la vía (si Mapbox lo entrega) se
+ * añade como "hacia {vía}".
+ */
+export function instruccionDesdeManiobra(
+  tipo: string | undefined,
+  modifier: string | null | undefined,
+  nombre: string | null | undefined,
+): string {
+  const t = (tipo ?? 'continue').toLowerCase();
+  const m = (modifier ?? '').toLowerCase();
+  const via = nombre && nombre.trim().length > 0 ? ` hacia ${nombre.trim()}` : '';
+  const sufijoVia = (base: string) => `${base}${via}`;
+
+  if (t === 'arrive') {
+    const costado = lado(m);
+    return costado ? `Llegas a tu destino, a tu ${costado}` : 'Llegas a tu destino';
+  }
+  if (t === 'depart') return sufijoVia('Inicia la ruta');
+  if (t === 'roundabout' || t === 'rotary' || t === 'roundabout turn') {
+    return sufijoVia('Entra a la rotonda y toma tu salida');
+  }
+  if (t === 'merge') {
+    const costado = lado(m);
+    return sufijoVia(costado ? `Incorpórate por la ${costado}` : 'Incorpórate');
+  }
+  if (t === 'on ramp' || t === 'fork') {
+    const costado = lado(m);
+    return sufijoVia(costado ? `Mantente a la ${costado}` : 'Sigue por la vía');
+  }
+  if (t === 'off ramp') {
+    const costado = lado(m);
+    return sufijoVia(costado ? `Toma la salida a la ${costado}` : 'Toma la salida');
+  }
+  if (t === 'end of road') {
+    const costado = lado(m);
+    return sufijoVia(costado ? `Al final de la vía, gira a la ${costado}` : 'Al final de la vía, continúa');
+  }
+
+  // Giros y continuaciones (tipo turn/continue/new name/notification).
+  if (m.includes('uturn')) return sufijoVia('Haz un giro en U');
+  if (m.includes('sharp')) {
+    const costado = lado(m);
+    return sufijoVia(costado ? `Giro cerrado a la ${costado}` : 'Continúa');
+  }
+  if (m.includes('slight')) {
+    const costado = lado(m);
+    return sufijoVia(costado ? `Gira ligeramente a la ${costado}` : 'Continúa de frente');
+  }
+  const costado = lado(m);
+  if (costado) return sufijoVia(`Gira a la ${costado}`);
+  return sufijoVia('Continúa de frente');
+}
+
+// Reemplaza el texto del paso por el derivado del modifier (coherente con el icono).
+function normalizarPaso(paso: DriverRoutePaso): DriverRoutePaso {
+  return { ...paso, instruccion: instruccionDesdeManiobra(paso.tipo, paso.modifier, paso.nombre) };
+}
+
 /**
  * Próximo giro según el avance REAL del conductor sobre la ruta.
  *
@@ -66,7 +138,8 @@ const MANIOBRA_EJECUTADA_M = 25;
  * conductor sigue avanzando. Mostrar siempre `pasos[1]` desfasa el banner (puede
  * anunciar un giro ya ejecutado, incluso con el lado contrario al que se ve en
  * pantalla). Aquí proyectamos el GPS sobre la polilínea y elegimos la primera
- * maniobra que sigue estando POR DELANTE, con su distancia restante real.
+ * maniobra que sigue estando POR DELANTE, con su distancia restante real. El texto
+ * del paso devuelto se normaliza desde el modifier para que coincida con el icono.
  *
  * Fallback sin GPS/geometría/locations: primera maniobra de giro (comportamiento
  * previo), para no dejar el banner vacío.
@@ -80,10 +153,12 @@ export function proximaManiobra(args: {
   if (pasos.length === 0) return null;
 
   const fallback = (): ProximaManiobra => {
+    // Preferimos el primer giro real (con lado) por delante; si no hay, el paso[1].
+    const primerGiro = pasos.find((paso) => lado((paso.modifier ?? '').toLowerCase()) !== null);
     const idx = pasos.length > 1 ? 1 : 0;
-    const paso = pasos[idx] ?? pasos[0]!;
+    const paso = primerGiro ?? pasos[idx] ?? pasos[0]!;
     return {
-      paso,
+      paso: normalizarPaso(paso),
       distanciaMetros: pasos.length > 1 ? pasos[0]?.distanciaMetros ?? null : paso.distanciaMetros,
     };
   };
@@ -101,11 +176,11 @@ export function proximaManiobra(args: {
     const idxPaso = nearestVertexIndex(coordinates, { lat, lng });
     const restante = (cum[idxPaso] ?? 0) - avance;
     if (restante > MANIOBRA_EJECUTADA_M) {
-      return { paso, distanciaMetros: Math.round(restante) };
+      return { paso: normalizarPaso(paso), distanciaMetros: Math.round(restante) };
     }
   }
 
   // Todas las maniobras quedaron atrás: estamos llegando (mostrar la última).
   const ultima = conLocation[conLocation.length - 1]!;
-  return { paso: ultima, distanciaMetros: null };
+  return { paso: normalizarPaso(ultima), distanciaMetros: null };
 }

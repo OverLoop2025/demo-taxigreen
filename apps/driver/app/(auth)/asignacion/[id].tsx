@@ -5,6 +5,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
+import { DraggableSheet } from '@/components/DraggableSheet';
+import { SpeedBadge } from '@/components/SpeedBadge';
 import { TouchButton } from '@/components/TouchButton';
 import { AssignmentMap } from '@/components/map/AssignmentMap';
 import { ApiError } from '@/features/api/client';
@@ -522,6 +524,13 @@ export default function AssignmentScreen() {
         </Pressable>
       </View>
 
+      {/* Velocímetro circular (solo modo conductor): velocidad real del GPS. */}
+      {driverModeUi ? (
+        <View className="absolute bottom-32 left-4">
+          <SpeedBadge speedMs={tracking.lastLocation?.speed ?? null} />
+        </View>
+      ) : null}
+
       {driverModeUi ? (
         /* Modo conductor: panel mínimo (patrón Waze) — solo destino, llegada y la
            acción del viaje. El cobro y los detalles viven en la vista de resumen. */
@@ -575,16 +584,15 @@ export default function AssignmentScreen() {
           ) : null}
         </View>
       ) : (
-        <View className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-surface px-5 pb-8 pt-3 shadow-2xl">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={expanded ? 'Ver menos' : 'Ver más detalles'}
-            onPress={() => setExpanded((value) => !value)}
-            className="items-center pb-3"
-          >
-            <View className="h-1.5 w-12 rounded-full bg-border" />
-          </Pressable>
-
+        <DraggableSheet
+          containerStyle={styles.overviewSheetAnchor}
+          cardClassName="rounded-t-3xl border-t border-border bg-surface px-5 pb-8 pt-3 shadow-2xl"
+          onSwipeUp={() => setExpanded(true)}
+          onSwipeDown={() => setExpanded(false)}
+          onTap={() => setExpanded((value) => !value)}
+          dragUpLimit={-72}
+          dragDownLimit={56}
+        >
           <Text className="text-xs font-bold uppercase tracking-wide text-foreground-muted">{focalLabel}</Text>
           <Text className="mt-1 text-2xl font-bold leading-8 text-foreground" numberOfLines={2}>
             {focalValue}
@@ -692,7 +700,7 @@ export default function AssignmentScreen() {
               </Text>
             </Pressable>
           ) : null}
-        </View>
+        </DraggableSheet>
       )}
 
       {/* F7: hoja de cancelación con motivo. El despacho reasigna otra unidad y el
@@ -700,7 +708,12 @@ export default function AssignmentScreen() {
       {cancelOpen ? (
         <View className="absolute inset-0 justify-end bg-black/60">
           <Pressable className="flex-1" onPress={() => setCancelOpen(false)} />
-          <View className="rounded-t-3xl bg-surface px-5 pb-8 pt-5">
+          <DraggableSheet
+            cardClassName="rounded-t-3xl bg-surface px-5 pb-8 pt-5"
+            onSwipeDown={() => setCancelOpen(false)}
+            dragUpLimit={0}
+            dragDownLimit={240}
+          >
             <Text className="text-xl font-bold text-foreground">¿Por qué no puedes continuar?</Text>
             <Text className="mt-1 text-sm leading-5 text-foreground-muted">
               El despacho asignará otra unidad para cuidar el tiempo del pasajero.
@@ -748,7 +761,7 @@ export default function AssignmentScreen() {
               />
               <TouchButton label="Volver" tone="secondary" onPress={() => setCancelOpen(false)} />
             </View>
-          </View>
+          </DraggableSheet>
         </View>
       ) : null}
     </View>
@@ -758,5 +771,11 @@ export default function AssignmentScreen() {
 const styles = StyleSheet.create({
   mapLayer: {
     ...StyleSheet.absoluteFillObject,
+  },
+  overviewSheetAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 });

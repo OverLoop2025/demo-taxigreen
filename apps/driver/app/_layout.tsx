@@ -2,6 +2,7 @@ import '../global.css';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from '@/features/auth/use-auth';
 import { useNotificationObserver } from '@/features/push/use-notification-observer';
 import { RealtimeProvider } from '@/features/realtime';
@@ -26,12 +27,16 @@ function AppShell() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <RealtimeProvider>
-          <AppShell />
-        </RealtimeProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    // Requisito de react-native-gesture-handler: la raíz debe envolverse para que
+    // los gestos (sheets deslizables) funcionen en toda la app.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <AuthProvider>
+          <RealtimeProvider>
+            <AppShell />
+          </RealtimeProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
