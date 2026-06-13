@@ -11,6 +11,7 @@ import {
   MapPin,
   MessageCircle,
   MessagesSquare,
+  Plus,
   QrCode,
   Send,
   ShieldCheck,
@@ -300,6 +301,12 @@ function opcionElegida(texto: string, max: number): number | null {
 
 export function WhatsappSimulator({ conversaciones }: { conversaciones: ConversacionSeed[] }) {
   const router = useRouter();
+  // Chats creados a mano para probar la ingesta desde cero (se anteponen al seed).
+  const [chatsManuales, setChatsManuales] = useState<ConversacionSeed[]>([]);
+  const todasConversaciones = useMemo(
+    () => [...chatsManuales, ...conversaciones],
+    [chatsManuales, conversaciones],
+  );
   const initial = conversaciones[0]!;
   const [selectedId, setSelectedId] = useState(initial.id);
   const [messages, setMessages] = useState<ChatMensaje[]>(initial.mensajes);
@@ -338,7 +345,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   const guidedTextoRef = useRef<string[]>([]);
   const [isPending, startTransition] = useTransition();
 
-  const selected = conversaciones.find((conversation) => conversation.id === selectedId) ?? initial;
+  const selected = todasConversaciones.find((conversation) => conversation.id === selectedId) ?? initial;
   const inboundText = useMemo(
     () =>
       messages
@@ -374,6 +381,18 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     setGuidedStep(null);
     setEnlaceEnviado(false);
     setConductorAsignado(null);
+  }
+
+  function nuevoChatManual() {
+    const nuevo: ConversacionSeed = {
+      id: `manual-${Date.now()}`,
+      nombre: `Chat manual ${chatsManuales.length + 1}`,
+      subtitulo: 'Escribe como pasajero para probar',
+      fuente: 'WhatsApp · prueba manual',
+      mensajes: [],
+    };
+    setChatsManuales((current) => [nuevo, ...current]);
+    selectConversation(nuevo);
   }
 
   function extractionPayloadFrom(sourceMessages: ChatMensaje[]) {
@@ -893,21 +912,29 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   const estado = estadoReserva(extraccion, Boolean(confirmada));
 
   return (
-    <main className="min-h-screen bg-[#e7f0ee] text-[#111B21]">
-      <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[320px_minmax(420px,1fr)_420px]">
-        <aside className="border-r border-[#c9d7d3] bg-[#f7fbfa]">
-          <div className="flex h-16 items-center gap-3 border-b border-[#d8e3e0] bg-[#075E54] px-5 text-white">
+    <main className="min-h-screen bg-[#e7f0ee] text-[#111B21] xl:h-screen xl:overflow-hidden">
+      <div className="grid min-h-screen grid-cols-1 xl:h-screen xl:grid-cols-[320px_minmax(420px,1fr)_420px]">
+        <aside className="flex flex-col border-r border-[#c9d7d3] bg-[#f7fbfa] xl:h-screen xl:min-h-0">
+          <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[#d8e3e0] bg-[#075E54] px-5 text-white">
             <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15">
               <MessageCircle aria-hidden="true" className="h-5 w-5" />
             </span>
-            <div>
+            <div className="flex-1">
               <h1 className="text-base font-semibold">WhatsApp</h1>
               <p className="text-xs text-white/75">Taxi Green · Reservas</p>
             </div>
+            <button
+              aria-label="Nuevo chat manual"
+              className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15 transition hover:bg-white/25"
+              onClick={nuevoChatManual}
+              type="button"
+            >
+              <Plus aria-hidden="true" className="h-5 w-5" />
+            </button>
           </div>
 
-          <nav className="p-3">
-            {conversaciones.map((conversation) => (
+          <nav className="min-h-0 flex-1 overflow-y-auto p-3">
+            {todasConversaciones.map((conversation) => (
               <button
                 className={cn(
                   'mb-2 grid w-full grid-cols-[42px_1fr] gap-3 rounded-md px-3 py-3 text-left transition',
@@ -931,8 +958,8 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
           </nav>
         </aside>
 
-        <section className="flex min-h-screen flex-col bg-[#efe7dd]">
-          <header className="flex h-16 items-center justify-between border-b border-[#d4cbc0] bg-[#f0f2f5] px-5">
+        <section className="flex min-h-screen flex-col bg-[#efe7dd] xl:h-screen xl:min-h-0">
+          <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#d4cbc0] bg-[#f0f2f5] px-5">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[#075E54] text-white">
                 <ShieldCheck aria-hidden="true" className="h-5 w-5" />
@@ -953,7 +980,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             </Button>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-4 py-6 md:px-10">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-10">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
               {messages.map((message) => (
                 <div
@@ -984,7 +1011,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
             </div>
           </div>
 
-          <footer className="border-t border-[#d4cbc0] bg-[#f0f2f5] p-3">
+          <footer className="shrink-0 border-t border-[#d4cbc0] bg-[#f0f2f5] p-3">
             <div className="mx-auto flex max-w-3xl items-end gap-2">
               <textarea
                 className="min-h-12 flex-1 resize-none rounded-md border border-[#d5ddd9] bg-white px-4 py-3 text-sm outline-none focus:border-[#128C7E] focus:ring-2 focus:ring-[#128C7E]/20"
@@ -1011,7 +1038,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
           </footer>
         </section>
 
-        <aside className="border-l border-[#c9d7d3] bg-[#f7fbfa]">
+        <aside className="border-l border-[#c9d7d3] bg-[#f7fbfa] xl:h-screen xl:overflow-y-auto">
           <div className="flex h-16 items-center justify-between border-b border-[#d8e3e0] px-5">
             <div>
               <p className="text-xs font-semibold uppercase text-[#128C7E]">Reserva sugerida</p>
