@@ -45,7 +45,17 @@ test('pase one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async 
   await page.getByRole('button', { name: /Ingresar/i }).click();
   await page.waitForURL('**/counter');
 
-  // 3) Verificación sin consumir → 200 consumed=false (no quema el voucher).
+  // 3) El letrero debe estar disponible desde el primer paso: sirve para llamar
+  // al pasajero antes de quemar el pase en mostrador.
+  await page.getByPlaceholder(/Código de reserva/i).fill(codigo);
+  await expect(page.getByRole('button', { name: /^Mostrar letrero$/i })).toBeVisible();
+  await page.getByRole('button', { name: /^Mostrar letrero$/i }).click();
+  await expect(page.getByText(/Buscamos a/i)).toBeVisible();
+  const letrero = page.getByRole('button', { name: /Buscamos a/i });
+  await expect(letrero.getByText(codigo)).toBeVisible();
+  await letrero.click();
+
+  // 4) Verificación sin consumir → 200 consumed=false (no quema el voucher).
   const previo = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: false },
   });
@@ -57,7 +67,7 @@ test('pase one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async 
     moneda: 'PEN',
   });
 
-  // 4) Primer consumo (supervisor) → 200 consumed=true con marca de tiempo.
+  // 5) Primer consumo (supervisor) → 200 consumed=true con marca de tiempo.
   const consumo = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: true },
   });
@@ -70,7 +80,7 @@ test('pase one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async 
     moneda: 'PEN',
   });
 
-  // 5) Reuso → 409 voucher_ya_validado (advisory lock + auditoría idempotente).
+  // 6) Reuso → 409 voucher_ya_validado (advisory lock + auditoría idempotente).
   const reuso = await page.request.post(`/api/voucher/${codigo}/verify`, {
     data: { token, consume: true },
   });
