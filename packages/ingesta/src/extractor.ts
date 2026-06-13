@@ -1,5 +1,5 @@
 import { preguntasParaCampos } from './aclarador';
-import { AEROPUERTOS } from './diccionarios/aeropuertos';
+import { AEROPUERTOS, detectarAmbitoVuelo, resolverZonaAeropuerto } from './diccionarios/aeropuertos';
 import { detectarConvenioDemo } from './diccionarios/convenios-demo';
 import { HOTELES, HOTEL_KEYWORDS } from './diccionarios/hoteles';
 import {
@@ -31,21 +31,9 @@ import {
   type TipoViaje,
 } from './types';
 
-const CAMPOS_BASE: string[] = [
-  'tipo_viaje',
-  'solicitante_tipo',
-  'perfil_pasajero',
-  'responsable_pago',
-  'pasajero_nombre',
-  'pasajero_telefono',
-  'origen_texto',
-  'destino_texto',
-  'fecha_hora_servicio',
-  'tipo_pago',
-] as const;
-
-const CAMPOS_RECOJO_AEROPUERTO = ['vuelo_codigo', 'punto_encuentro'];
-const CAMPOS_TRASLADO_AEROPUERTO = ['vuelo_codigo'];
+// Vitales SIEMPRE, sin importar el perfil. El contacto ya es el propio WhatsApp,
+// así que el teléfono no se exige; el NOMBRE no es vital para un particular.
+const CAMPOS_BASE: string[] = ['tipo_viaje', 'fecha_hora_servicio'] as const;
 
 function baseReserva(mensaje: string): ReservaExtraida {
   return {
@@ -244,8 +232,11 @@ function detectarIdentidadComercial(texto: string, tipoPagoDetectado: TipoPago |
   }
 
   let responsablePago: ResponsablePago | null = null;
+  // "Lo pago yo" manda aunque se mencione la empresa (caso ACME viaje personal).
   if (pagoPersonal) responsablePago = 'pasajero';
   else if (cubreHotel || tipoPagoDetectado === 'voucher_hotel') responsablePago = 'hotel';
+  // Cobro a empresa solo si hay convenio (en la demo no se factura a una empresa
+  // desconocida): el RUC identifica/valida a la empresa; sin convenio paga la persona.
   else if (cubreEmpresa || tipoPagoDetectado === 'factura_empresa' || (pideFactura && convenioEmpresa)) {
     responsablePago = convenioEmpresa ? 'empresa' : 'pasajero';
   }
@@ -275,17 +266,72 @@ function detectarIdentidadComercial(texto: string, tipoPagoDetectado: TipoPago |
   };
 }
 
+// Palabras que NO son nombres propios aunque vengan capitalizadas (lugares,
+// keywords). Evita confundir "San Isidro" o "Miraflores" con un nombre.
+const NO_ES_NOMBRE = new Set([
+  'san isidro',
+  'miraflores',
+  'barranco',
+  'surco',
+  'san borja',
+  'la molina',
+  'lima',
+  'aeropuerto',
+  'jorge chavez',
+  'hotel',
+  'taxi',
+  'vuelo',
+  'manana',
+  'hoy',
+  'avenida',
+  'calle',
+  'jiron',
+  'salidas',
+  'llegadas',
+]);
+
+const NOMBRE_PROPIO = `[A-ZÁÉÍÓÚÑ][\\p{L}'’-]+(?:\\s+[A-ZÁÉÍÓÚÑ][\\p{L}'’-]+){0,3}`;
+
+function esNombrePropio(candidato: string): boolean {
+  const limpio = limpiarNombre(candidato);
+  if (limpio.length < 3 || /\d/.test(limpio)) return false;
+  const normal = normalizarTexto(limpio);
+  if (NO_ES_NOMBRE.has(normal)) return false;
+  // Ninguna palabra del candidato es una keyword de lugar.
+  return !normal.split(' ').some((palabra) => NO_ES_NOMBRE.has(palabra));
+}
+
 function extraerNombrePasajero(texto: string): string | null {
   const patterns = [
-    /(?:hu[eé]sped|pasajer[oa]|cliente)\s+(?:es\s+|se llama\s+|para\s+)?([A-ZÁÉÍÓÚÑ][\p{L}'’-]+(?:\s+[A-ZÁÉÍÓÚÑ][\p{L}'’-]+){0,4})/u,
-    /(?:a nombre de|nombre pasajer[oa]:?)\s*([A-ZÁÉÍÓÚÑ][\p{L}'’-]+(?:\s+[A-ZÁÉÍÓÚÑ][\p{L}'’-]+){0,4})/u,
+    new RegExp(`(?:hu[eé]sped|pasajer[oa]|cliente)\\s+(?:es\\s+|se llama\\s+|para\\s+)?(${NOMBRE_PROPIO})`, 'u'),
+    new RegExp(`(?:a nombre de|nombre pasajer[oa]:?)\\s*(${NOMBRE_PROPIO})`, 'u'),
+    // "...para Carlos Ruiz mañana": el lado se valida contra la lista de lugares.
+    new RegExp(`\\bpara\\s+(?:el|la|l[oa]s)?\\s*(?:pasajer[oa]\\s+|hu[eé]sped\\s+)?(${NOMBRE_PROPIO})`, 'u'),
   ];
 
   for (const pattern of patterns) {
     const match = pattern.exec(texto);
-    if (match?.[1]) return limpiarNombre(match[1]);
+    if (match?.[1] && esNombrePropio(match[1])) return limpiarNombre(match[1]);
   }
 
+  // Mensaje que es SOLO un nombre propio (respuesta suelta "Carlos Ruiz" a la
+  // pregunta del copiloto). Requiere ≥2 palabras para no tragarse direcciones.
+  const soloNombre = new RegExp(`^\\s*(${NOMBRE_PROPIO})\\s*$`, 'u').exec(texto.trim());
+  if (soloNombre?.[1]) {
+    const limpio = limpiarNombre(soloNombre[1]);
+    if (limpio.includes(' ') && esNombrePropio(limpio)) return limpio;
+  }
+
+  return null;
+}
+
+// Nombre dado en primera persona ("soy Carlos", "me llamo Ana", "mi nombre es...").
+// Solo se usa para pasajeros directos: en hotel/empresa, "soy X" suele ser el
+// solicitante (concierge/analista), no quien viaja.
+function extraerNombreDirecto(texto: string): string | null {
+  const pattern = new RegExp(`(?:soy|me llamo|mi nombre es)\\s+(${NOMBRE_PROPIO})`, 'iu');
+  const match = pattern.exec(texto);
+  if (match?.[1] && esNombrePropio(match[1])) return limpiarNombre(match[1]);
   return null;
 }
 
@@ -309,13 +355,28 @@ function extraerTelefonos(texto: string, solicitanteTipo: SolicitanteTipo) {
 
 function camposEsperados(reserva: ReservaExtraida): string[] {
   const campos = [...CAMPOS_BASE];
+
+  // El punto que el cliente debe dar (el aeropuerto se completa solo según el flujo).
   if (reserva.tipo_viaje === 'recojo_aeropuerto') {
-    campos.push(...CAMPOS_RECOJO_AEROPUERTO);
+    // Flujo A: destino + vuelo (el vuelo da la hora real de llegada para el recojo).
+    campos.push('destino_texto', 'vuelo_codigo');
+  } else if (reserva.tipo_viaje === 'traslado_aeropuerto') {
+    // Flujo B: punto de recojo + vuelo (para calcular la antelación a la salida).
+    campos.push('origen_texto', 'vuelo_codigo');
+  } else {
+    campos.push('origen_texto', 'destino_texto');
   }
-  if (reserva.tipo_viaje === 'traslado_aeropuerto') {
-    campos.push(...CAMPOS_TRASLADO_AEROPUERTO);
+
+  // Vitales por perfil: el corporativo necesita empresa + RUC para cargar/facturar;
+  // el de hotel, el hotel; el particular NO necesita dar su nombre.
+  if (reserva.perfil_pasajero === 'corporativo') {
+    campos.push('empresa_nombre', 'pasajero_ruc');
+  } else if (reserva.perfil_pasajero === 'hotel') {
+    campos.push('hotel_nombre');
   }
-  return campos;
+
+  campos.push('responsable_pago');
+  return [...new Set(campos)];
 }
 
 function camposExtraidos(reserva: ReservaExtraida): string[] {
@@ -431,6 +492,11 @@ export class ExtractorDeterminista {
     reserva.pasajeros_cantidad = reserva.pasajeros;
     reserva.equipaje_nivel = detectarEquipajeNivel(texto, reserva.maletas);
     reserva.pasajero_nombre = extraerNombrePasajero(texto);
+    // Particular sin nombre aún: aceptar "soy X / me llamo X" (en hotel/empresa
+    // ese "soy" es el solicitante, no el pasajero, por eso se restringe aquí).
+    if (!reserva.pasajero_nombre && !reserva.hotel_nombre && !reserva.empresa_nombre) {
+      reserva.pasajero_nombre = extraerNombreDirecto(texto);
+    }
     reserva.pasajero_dni = extraerDni(texto);
     reserva.pasajero_ruc = extraerRuc(texto);
     reserva.hotel_nombre = comercial.hotelNombre ?? reserva.hotel_nombre;
@@ -442,17 +508,25 @@ export class ExtractorDeterminista {
 
     const aeropuerto = detectarAeropuerto(texto) ?? (reserva.tipo_viaje === 'traslado_aeropuerto' ? AEROPUERTOS[0] : null);
     const direccion = normalizarDireccion(texto);
+    const ambito = detectarAmbitoVuelo(texto);
     if (reserva.tipo_viaje === 'recojo_aeropuerto' && aeropuerto) {
-      reserva.origen_texto = aeropuerto.llegadaNombre;
-      reserva.origen_lat = aeropuerto.lat;
-      reserva.origen_lng = aeropuerto.lng;
+      // Flujo A: el aeropuerto es el ORIGEN (llegadas, Piso 1). La zona depende de
+      // nac/int; sin esa señal cae al nombre genérico (compat con el protagonista).
+      const zona = resolverZonaAeropuerto(aeropuerto, 'recojo_aeropuerto', ambito);
+      reserva.origen_texto = zona.texto;
+      reserva.origen_lat = zona.lat;
+      reserva.origen_lng = zona.lng;
+      reserva.punto_encuentro = reserva.punto_encuentro ?? zona.puntoEncuentro;
       reserva.destino_texto = direccion?.texto ?? null;
       reserva.destino_lat = direccion?.lat ?? null;
       reserva.destino_lng = direccion?.lng ?? null;
     } else if (reserva.tipo_viaje === 'traslado_aeropuerto' && aeropuerto) {
-      reserva.destino_texto = aeropuerto.llegadaNombre;
-      reserva.destino_lat = aeropuerto.lat;
-      reserva.destino_lng = aeropuerto.lng;
+      // Flujo B: el aeropuerto es el DESTINO (salidas, Piso 3), no llegadas.
+      const zona = resolverZonaAeropuerto(aeropuerto, 'traslado_aeropuerto', ambito);
+      reserva.destino_texto = zona.texto;
+      reserva.destino_lat = zona.lat;
+      reserva.destino_lng = zona.lng;
+      reserva.punto_encuentro = reserva.punto_encuentro ?? zona.puntoEncuentro;
       reserva.origen_texto = direccion?.texto ?? null;
       reserva.origen_lat = direccion?.lat ?? null;
       reserva.origen_lng = direccion?.lng ?? null;

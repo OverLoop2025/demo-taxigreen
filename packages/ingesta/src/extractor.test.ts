@@ -38,7 +38,9 @@ describe('ExtractorDeterminista', () => {
       mensaje: 'Necesito un taxi bonito mañana.',
     });
 
-    expect(result.confianza).toBeLessThan(0.6);
+    // Con el set de campos vitales más liviano (sin exigir nombre/teléfono), un
+    // mensaje sin origen ni destino aún cae en confianza moderada-baja y pide datos.
+    expect(result.confianza).toBeLessThanOrEqual(0.6);
     expect(result.reserva.destino_texto).toBeNull();
     expect(result.reserva.tipo_pago).toBeNull();
     expect(result.preguntas_aclaracion.length).toBeGreaterThan(0);
@@ -65,7 +67,7 @@ describe('ExtractorDeterminista', () => {
 
     expect(result.reserva.tipo_viaje).toBe('traslado_aeropuerto');
     expect(result.reserva.origen_texto).toBe('Hotel Costa Verde, Av. Malecón 200, Miraflores');
-    expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Llegadas');
+    expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Salidas');
     expect(result.reserva.punto_encuentro).toBeNull();
     expect(result.campos_esperados).toContain('vuelo_codigo');
     expect(result.campos_esperados).not.toContain('punto_encuentro');
@@ -80,7 +82,7 @@ describe('ExtractorDeterminista', () => {
 
     expect(result.reserva.tipo_viaje).toBe('traslado_aeropuerto');
     expect(result.reserva.origen_texto).toBe('San Isidro, Lima');
-    expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Llegadas');
+    expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Salidas');
   });
 
   it('expresa los 6 casos de identidad comercial del master F5', () => {
@@ -204,7 +206,7 @@ describe('ExtractorDeterminista', () => {
 
     expect(result.reserva.tipo_viaje).toBe('traslado_aeropuerto');
     expect(result.reserva.origen_texto).toContain('San Isidro');
-    expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Llegadas');
+    expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Salidas');
   });
 
   it('no convierte a corporativo a un particular que pide factura', () => {
@@ -248,5 +250,70 @@ describe('ExtractorDeterminista', () => {
   it('valida RUC peruano antes de aceptarlo', () => {
     expect(validarRuc('20100070970')).toBe(true);
     expect(validarRuc('20123456789')).toBe(false);
+  });
+
+  it('extrae el nombre del pasajero desde "para X"', () => {
+    const result = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje:
+        'Necesito recojo aeropuerto para Carlos Ruiz mañana 08:10 vuelo LA2456, destino Miraflores, pago app, tel 955111222.',
+    });
+    expect(result.reserva.pasajero_nombre).toBe('Carlos Ruiz');
+  });
+
+  it('acepta un nombre suelto como respuesta a la pregunta del copiloto', () => {
+    const result = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      contextoConversacion: 'recojo aeropuerto mañana 09:00 vuelo LA2456 destino Miraflores, pago app',
+      mensaje: 'Carlos Ruiz',
+    });
+    expect(result.reserva.pasajero_nombre).toBe('Carlos Ruiz');
+  });
+
+  it('toma el nombre del particular desde "soy X", sin confundir al solicitante del hotel', () => {
+    const particular = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje: 'Soy Lucía Torres, necesito taxi city a Miraflores hoy 18:30, pago efectivo, mi celular 955111222.',
+    });
+    expect(particular.reserva.pasajero_nombre).toBe('Lucía Torres');
+
+    const protagonista = WHATSAPP_CASOS_S4[0]!;
+    const hotel = extraerReservaDeterminista(protagonista.input);
+    // "Soy Mariana del Hilton" es el SOLICITANTE; el pasajero es la huésped.
+    expect(hotel.reserva.pasajero_nombre).toBe('Valeria Mendoza');
+  });
+
+  it('resuelve la zona del aeropuerto por flujo y ámbito (A internacional, B nacional)', () => {
+    const llegadaInternacional = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje:
+        'Recojo aeropuerto para pasajero Juan Pérez, vuelo internacional LA8000 desde Madrid, mañana 14:00, destino San Isidro, pago app, tel 955111222.',
+    });
+    expect(llegadaInternacional.reserva.tipo_viaje).toBe('recojo_aeropuerto');
+    expect(llegadaInternacional.reserva.origen_texto).toContain('Llegadas Internacionales');
+
+    const salidaNacional = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje:
+        'Traslado al aeropuerto desde San Isidro, vuelo nacional a Cusco LP500 mañana 06:00, pago efectivo, tel 955111222.',
+    });
+    expect(salidaNacional.reserva.tipo_viaje).toBe('traslado_aeropuerto');
+    expect(salidaNacional.reserva.destino_texto).toContain('Salidas Nacionales');
+  });
+
+  it('ajusta los campos vitales según el perfil (particular sin nombre; corporativo con empresa+RUC)', () => {
+    const particular = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje: 'Soy particular, recojo aeropuerto mañana 10:00 vuelo LA2456 destino Miraflores, pago efectivo.',
+    });
+    expect(particular.campos_esperados).not.toContain('pasajero_nombre');
+
+    const corporativo = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje:
+        'Trabajo en ACME Perú, traslado al aeropuerto desde San Isidro mañana 21:00 vuelo CM132, lo cubre la empresa, tel pasajero 987654321.',
+    });
+    expect(corporativo.campos_esperados).toContain('empresa_nombre');
+    expect(corporativo.campos_esperados).toContain('pasajero_ruc');
   });
 });
