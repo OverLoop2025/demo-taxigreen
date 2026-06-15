@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/minimal-card';
 
 const whatsappHref =
-  'https://wa.me/51900100100?text=Hola%20Taxi%20Green%2C%20necesito%20un%20recojo%20en%20el%20Aeropuerto%20Jorge%20Ch%C3%A1vez.';
+  'https://wa.me/51959799190?text=Hola%20Taxi%20Green%2C%20necesito%20un%20recojo%20en%20el%20Aeropuerto%20Jorge%20Ch%C3%A1vez.';
 
 const steps = [
   {
@@ -198,6 +198,11 @@ export default function HomePage() {
                 </a>
               </div>
 
+              <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-white/85">
+                <MessageCircle aria-hidden="true" className="h-4 w-4 text-product-400" />
+                Escríbenos: <a className="underline-offset-2 hover:underline" href={whatsappHref}>959 799 190</a>
+              </p>
+
               <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-medium text-white/70">
                 <span className="flex items-center gap-2">
                   <Smartphone aria-hidden="true" className="h-4 w-4 text-product-400" />
@@ -311,7 +316,7 @@ export default function HomePage() {
       <footer className="px-5 pb-10">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 text-sm text-foreground-muted">
           <span>Taxi Green · Movilidad aeroportuaria</span>
-          <div className="flex gap-4">
+          <div className="flex items-center gap-4">
             <a className="font-semibold text-product transition hover:text-product-500" href="/counter">
               Mostrador
             </a>
@@ -320,6 +325,9 @@ export default function HomePage() {
             </a>
           </div>
         </div>
+        <p className="mx-auto mt-4 max-w-7xl text-xs text-foreground-muted/70">
+          Hecho por José Álvarez
+        </p>
       </footer>
     </main>
   );

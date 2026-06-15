@@ -523,7 +523,7 @@ function PassengerMap({
         if (framePoints.length >= 2) {
           const bounds = new mapboxgl.LngLatBounds(framePoints[0]!, framePoints[0]!);
           framePoints.forEach((coordinates) => bounds.extend(coordinates));
-          map.fitBounds(bounds, { padding: { top: 90, left: 40, right: 40, bottom: 320 }, duration: 0 });
+          map.fitBounds(bounds, { padding: { top: 80, left: 28, right: 28, bottom: 300 }, maxZoom: 15.5, duration: 0 });
         }
         setReady(true);
       });
@@ -583,7 +583,7 @@ function PassengerMap({
     if (framePoints.length >= 2) {
       const bounds = new mapboxgl.LngLatBounds(framePoints[0]!, framePoints[0]!);
       framePoints.forEach((coordinates) => bounds.extend(coordinates));
-      map.fitBounds(bounds, { padding: { top: 90, left: 40, right: 40, bottom: 280 }, duration: 500 });
+      map.fitBounds(bounds, { padding: { top: 80, left: 28, right: 28, bottom: 280 }, maxZoom: 15.5, duration: 500 });
     }
   }, [recenterKey]);
 
@@ -1051,6 +1051,8 @@ function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: ()
   const [otrosActivo, setOtrosActivo] = useState(false);
   const [otrosTexto, setOtrosTexto] = useState('');
   const [status, setStatus] = useState<string | null>(null);
+  // Enlace de seguimiento del caso, para "enviárselo por WhatsApp" al pasajero.
+  const [casoEnviado, setCasoEnviado] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const lastIncident = data.incidencias.find((item) => item.tipologia === 'objeto_olvidado');
 
@@ -1085,8 +1087,18 @@ function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: ()
     setOtrosActivo(false);
     setOtrosTexto('');
     setStatus('Caso creado. Taxi Green ya lo está revisando.');
+    // El enlace de seguimiento del caso se "envía por WhatsApp" al pasajero.
+    if (payload?.caso_url) {
+      const abs = typeof window !== 'undefined' ? `${window.location.origin}${payload.caso_url}` : payload.caso_url;
+      setCasoEnviado(abs);
+    }
     await refresh();
   };
+
+  // Link de WhatsApp que reenvía el seguimiento del caso (en la demo simula el aviso).
+  const whatsappCasoHref = casoEnviado
+    ? `https://wa.me/?text=${encodeURIComponent(`Taxi Green · Seguimiento de tu objeto olvidado: ${casoEnviado}`)}`
+    : null;
 
   return (
     <section className="rounded-2xl border border-care/20 bg-surface p-4">
@@ -1153,6 +1165,26 @@ function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: ()
             Reportar objeto olvidado
           </button>
           {status ? <p className="mt-2 text-sm text-foreground-muted">{status}</p> : null}
+          {whatsappCasoHref ? (
+            <div className="mt-3 rounded-xl border border-success/30 bg-success/10 p-3">
+              <p className="flex items-center gap-2 text-sm font-semibold text-success">
+                <MessageCircle className="h-4 w-4" />
+                Te enviamos el enlace de seguimiento por WhatsApp
+              </p>
+              <p className="mt-1 text-xs text-foreground-muted">
+                Sigue tu caso cuando quieras desde tu chat. También puedes abrirlo aquí:
+              </p>
+              <a
+                className="mt-2 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-sm font-semibold text-white"
+                href={whatsappCasoHref}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Abrir en WhatsApp
+              </a>
+            </div>
+          ) : null}
           {lastIncident ? (
             <a className="mt-3 inline-flex text-sm font-semibold text-care" href={lastIncident.casoUrl}>
               Ver mi caso
@@ -1517,7 +1549,8 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
                 {liveStatus === 'en_vivo' ? 'En vivo' : 'Actualizando'}
               </span>
             </div>
-            <ThemeToggle className="bg-surface/95 shadow-md backdrop-blur" />
+            {/* Modo oscuro discreto: presente pero sin competir con la información del viaje. */}
+            <ThemeToggle className="opacity-60 backdrop-blur transition-opacity hover:opacity-100" />
           </div>
 
           <BottomSheet level={sheetLevel} onLevelChange={setSheetLevel}>
@@ -1589,7 +1622,7 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
                     <p className="mt-1 text-sm text-foreground-muted">
                       {data.pago.metodoLabel} · {data.pago.estadoLabel}
                     </p>
-                    <p className="mt-2 rounded-xl bg-surface px-3 py-2 text-sm font-semibold text-product-deep">
+                    <p className="mt-2 rounded-xl bg-surface px-3 py-2 text-sm font-semibold text-product-deep dark:text-product-200">
                       {data.comercial.pagoPasajero}
                     </p>
                     <PaymentActions data={data} refresh={refresh} />

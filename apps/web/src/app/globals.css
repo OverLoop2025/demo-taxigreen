@@ -74,3 +74,12 @@ body {
     animation: none;
   }
 }
+
+/* Mapas web: ocultar el logo y la atribución de Mapbox para una vista limpia
+   en la demo (el chrome del producto manda; los mapas son lienzo, no marca). */
+.mapboxgl-ctrl-logo,
+.mapboxgl-ctrl-attrib,
+.mapboxgl-ctrl-bottom-left,
+.mapboxgl-ctrl-bottom-right {
+  display: none !important;
+}
