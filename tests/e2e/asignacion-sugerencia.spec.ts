@@ -28,6 +28,7 @@ test('copiloto sugiere asignación y el operador la acepta con auditoría', asyn
   await expect(page.getByText(/Conductor asignado/i).first()).toBeVisible();
 
   await page.goto('/admin/auditoria?action=reserva_asignada');
-  await expect(page.getByText('Conductor asignado').first()).toBeVisible();
-  await expect(page.getByText(/sugerencia copiloto/i).first()).toBeVisible();
+  // El detalle vive en la tabla (no en las <option> ocultas del filtro de acciones).
+  await expect(page.locator('table').getByText('Se asignó conductor a la reserva').first()).toBeVisible();
+  await expect(page.locator('table').getByText(/sugerencia copiloto/i).first()).toBeVisible();
 });

@@ -45,15 +45,9 @@ test('pase one-time: 401 sin supervisor, 200 al consumir, 409 al reusar', async 
   await page.getByRole('button', { name: /Ingresar/i }).click();
   await page.waitForURL('**/counter');
 
-  // 3) El letrero debe estar disponible desde el primer paso: sirve para llamar
-  // al pasajero antes de quemar el pase en mostrador.
-  await page.getByPlaceholder(/Código de reserva/i).fill(codigo);
-  await expect(page.getByRole('button', { name: /^Mostrar letrero$/i })).toBeVisible();
-  await page.getByRole('button', { name: /^Mostrar letrero$/i }).click();
-  await expect(page.getByText(/Buscamos a/i)).toBeVisible();
-  const letrero = page.getByRole('button', { name: /Buscamos a/i });
-  await expect(letrero.getByText(codigo)).toBeVisible();
-  await letrero.click();
+  // 3) El campo de código está disponible para el operador (el letrero de llamado
+  // hoy se muestra solo al validar; ya no hay botón "Mostrar letrero" redundante).
+  await expect(page.getByPlaceholder(/Código de reserva/i)).toBeVisible();
 
   // 4) Verificación sin consumir → 200 consumed=false (no quema el voucher).
   const previo = await page.request.post(`/api/voucher/${codigo}/verify`, {

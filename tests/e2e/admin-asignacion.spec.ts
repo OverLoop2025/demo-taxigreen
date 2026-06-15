@@ -29,6 +29,7 @@ test('admin asigna conductor y unidad, y auditoría registra reserva_asignada', 
   await expect(page.getByText(/Reserva asignada y auditada/i)).toBeVisible();
 
   await page.goto('/admin/auditoria?action=reserva_asignada');
-  await expect(page.getByText('Conductor asignado').first()).toBeVisible();
-  await expect(page.getByText('Operador').first()).toBeVisible();
+  // El detalle vive en la tabla (no en las <option> ocultas del filtro de acciones).
+  await expect(page.locator('table').getByText('Se asignó conductor a la reserva').first()).toBeVisible();
+  await expect(page.locator('table').getByText(/Operador/).first()).toBeVisible();
 });

@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
 
-// F8: "Necesito reservar un taxi" (intención pura) abre el flujo guiado con
-// menús numerados; cada respuesta se traduce a lenguaje natural y alimenta el
-// MISMO extractor. Autocontenido (C7): no toca TG-2026-0001 ni crea reserva.
-test('WhatsApp guiado: la intención pura abre menús y termina en un borrador extraíble', async ({
+// El flujo guiado interactivo: el copiloto abre un chat nuevo con el selector de
+// intención y va pidiendo cada dato con widgets de clic (no menús numerados). Cada
+// selección fija overrides estructurados que alimentan el MISMO extractor.
+// Autocontenido: no toca TG-2026-0001 ni crea reserva (solo deja el borrador).
+test('WhatsApp guiado: chat nuevo con widgets termina en un borrador extraíble', async ({
   page,
 }) => {
   test.setTimeout(60_000);
@@ -14,39 +15,44 @@ test('WhatsApp guiado: la intención pura abre menús y termina en un borrador e
   await page.getByRole('button', { name: /Ingresar/i }).click();
   await page.waitForURL('**/wa-sim');
 
-  const composer = page.getByPlaceholder('Escribe o pega un WhatsApp...');
-  const enviar = page.getByRole('button', { name: /Enviar mensaje/i });
+  // "+" crea un chat manual en blanco y arranca el selector de intención.
+  await page.getByRole('button', { name: /Nuevo chat manual/i }).click();
+  await expect(page.getByText(/¿En qué te puedo ayudar/i)).toBeVisible();
 
-  const responder = async (texto: string) => {
-    await composer.fill(texto);
-    await enviar.click();
-  };
+  // Intención → tipo de cliente → tipo de servicio (flujo A) → ámbito del vuelo.
+  await page.getByRole('button', { name: /Reservar un taxi/i }).click();
+  await page.getByRole('button', { name: /Viajero independiente/i }).click();
+  await page.getByRole('button', { name: /Me recogen en el aeropuerto/i }).click();
+  await page.getByRole('button', { name: /Nacional \(dentro del Perú\)/i }).click();
 
-  await responder('Necesito reservar un taxi');
-  await expect(page.getByText(/Me recogen en el aeropuerto/i)).toBeVisible();
+  // El número de vuelo es OPCIONAL: se puede saltar.
+  await page.getByRole('button', { name: /No tengo \/ No recuerdo el código/i }).click();
 
-  await responder('1'); // me recogen en el aeropuerto
-  await expect(page.getByText(/particular o va asociada a una empresa/i)).toBeVisible();
+  // Nombre del pasajero (widget de texto).
+  await expect(page.getByText(/¿A nombre de quién va la reserva/i)).toBeVisible();
+  await page.getByPlaceholder('Nombre y apellido del pasajero').fill('Bruno Salas');
+  await page.getByRole('button', { name: /^Confirmar$/ }).click();
 
-  await responder('1'); // particular
-  await expect(page.getByText(/Cuántas personas viajan/i)).toBeVisible();
+  // Fecha y hora.
+  await expect(page.getByText(/¿Para cuándo necesitas el servicio/i)).toBeVisible();
+  await page.locator('input[type="date"]').fill('2026-06-16');
+  await page.locator('input[type="time"]').fill('09:00');
+  await page.getByRole('button', { name: /Confirmar fecha y hora/i }).click();
 
-  await responder('1'); // viajo solo
-  await expect(page.getByText(/Cuánto equipaje llevan/i)).toBeVisible();
+  // Destino: escribir/pegar. Unas coordenadas se reconocen al instante (sin red).
+  await expect(page.getByText(/¿A dónde te dirigimos/i)).toBeVisible();
+  await page.getByRole('button', { name: /Escribir o pegar dirección/i }).click();
+  await page.getByPlaceholder(/Miraflores/i).fill('-12.10800, -77.03400');
+  await page.getByRole('button', { name: /^Confirmar$/ }).click();
 
-  await responder('1'); // poco equipaje
-  await expect(page.getByText(/Prefieres algún tipo de vehículo/i)).toBeVisible();
+  // Vehículo (último paso) → dispara la extracción del borrador.
+  await expect(page.getByText(/Cuánto equipaje llevas/i)).toBeVisible();
+  await page.getByRole('button', { name: /Sedán/i }).click();
 
-  await responder('2'); // sedán
-  await expect(page.getByText(/cuéntame en un solo mensaje/i)).toBeVisible();
-
-  await responder(
-    'El pasajero es Bruno Salas, teléfono 999 888 777, llega mañana a las 9 de la mañana en el vuelo LA2233 y va a Av. Larco 345, Miraflores. Pago yo con tarjeta.',
-  );
-
-  // El guiado alimentó al extractor: el panel del operador refleja el borrador.
+  // El guiado alimentó al extractor: el panel del operador refleja el borrador con
+  // tipo de viaje, destino guardado y una tarifa estimada (la cotización ya aparece).
   const panel = page.locator('aside').last();
   await expect(panel.locator('[data-field="tipo_viaje"]')).toContainText(/recojo/i);
-  await expect(panel.locator('[data-field="pasajeros_cantidad"]')).toContainText('1');
+  await expect(panel.locator('[data-field="destino_texto"]')).not.toContainText(/Pendiente/i);
   await expect(page.getByText(/Tarifa estimada protegida/i).first()).toBeVisible();
 });
