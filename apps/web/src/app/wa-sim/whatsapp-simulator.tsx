@@ -73,8 +73,11 @@ type ComponenteInteractivo =
   | { tipo: 'radio-group'; campo: string; etiqueta: string; opciones: OpcionInteractiva[] }
   | { tipo: 'date-time-picker' }
   | { tipo: 'location-options'; modo: 'destino' | 'origen' }
-  | { tipo: 'text-input'; campo: string; placeholder: string; skipLabel: string; skipValor: string }
+  | { tipo: 'text-input'; campo: string; placeholder: string; skipLabel?: string; skipValor?: string }
   | { tipo: 'code-lookup' };
+
+// Coordenadas opcionales que un widget de ubicación puede adjuntar a su selección.
+type CoordsSeleccion = { lat: number; lng: number } | undefined;
 
 type GuidedStep =
   | 'intent'
@@ -346,27 +349,85 @@ async function reverseGeocodeWaSim(coord: MapboxLngLat, token: string): Promise<
   }
 }
 
-// Selector de mapa inline dentro del widget location-options
-function InlineMapPicker({
+// Geocodificación directa: convierte una dirección escrita en coordenadas reales
+// para que el conductor pueda trazar la ruta (no solo texto).
+async function forwardGeocodeWaSim(
+  texto: string,
+  token: string,
+): Promise<{ lat: number; lng: number; etiqueta: string } | null> {
+  try {
+    const q = encodeURIComponent(texto);
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${q}.json?access_token=${token}&language=es&limit=1&country=pe&proximity=-77.0428,-12.0464`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = (await r.json()) as {
+      features?: Array<{ place_name?: string; center?: [number, number] }>;
+    };
+    const f = d.features?.[0];
+    if (!f?.center) return null;
+    return { lng: f.center[0], lat: f.center[1], etiqueta: f.place_name ?? texto };
+  } catch {
+    return null;
+  }
+}
+
+// Extrae coordenadas de un enlace de Google Maps o de un texto con lat,lng.
+// Cubre @lat,lng · q=lat,lng · !3dlat!4dlng · "lat, lng" suelto.
+function parseLatLngFromText(text: string): { lat: number; lng: number } | null {
+  const patterns = [
+    /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/u,
+    /[?&]q=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/u,
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/u,
+    /(?:^|\s)(-?\d{1,2}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})(?:\s|$)/u,
+  ];
+  for (const p of patterns) {
+    const m = p.exec(text);
+    if (m?.[1] && m[2]) {
+      const lat = Number(m[1]);
+      const lng = Number(m[2]);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        return { lat, lng };
+      }
+    }
+  }
+  return null;
+}
+
+// Selector de mapa a PANTALLA COMPLETA (modal). Resuelve el bug del mapa en blanco
+// (contenedor de tamaño 0 dentro de la burbuja): aquí el contenedor tiene dimensiones
+// estables y se fuerza resize() tras cargar. Incluye "usar mi ubicación" (GPS).
+function MapPickerModal({
+  modo,
   onConfirmar,
   onCancelar,
 }: {
-  onConfirmar: (valor: string, etiqueta: string) => void;
+  modo: 'destino' | 'origen';
+  onConfirmar: (etiqueta: string, coords: { lat: number; lng: number }) => void;
   onCancelar: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapboxMapInst | null>(null);
+  const markerRef = useRef<MapboxMarkerInst | null>(null);
   const [coord, setCoord] = useState<MapboxLngLat>({ lat: -12.0464, lng: -77.0428 });
   const [direccion, setDireccion] = useState<string | null>(null);
   const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>('cargando');
+  const [localizando, setLocalizando] = useState(false);
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? null;
+  const titulo = modo === 'destino' ? '¿A dónde vas?' : '¿Desde dónde te recogemos?';
+
+  const actualizarDesdeMarker = async (lng: number, lat: number) => {
+    setCoord({ lat, lng });
+    setDireccion('Buscando dirección…');
+    const nombre = token ? await reverseGeocodeWaSim({ lat, lng }, token) : null;
+    setDireccion(nombre ?? `Punto marcado (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+  };
 
   useEffect(() => {
     if (!token || !containerRef.current || mapRef.current) return;
     let cancelled = false;
     void loadMapboxGLOnce().then((mb) => {
       if (cancelled || !mb || !containerRef.current) {
-        setEstado(mb ? 'listo' : 'error');
+        setEstado('error');
         return;
       }
       mb.accessToken = token;
@@ -381,64 +442,116 @@ function InlineMapPicker({
       const marker = new mb.Marker({ draggable: true, color: '#10B981' })
         .setLngLat([-77.0428, -12.0464])
         .addTo(map);
-      const actualizar = async () => {
+      markerRef.current = marker;
+      marker.on('dragend', () => {
         const c = marker.getLngLat();
-        setCoord(c);
-        setDireccion('Buscando dirección…');
-        const nombre = await reverseGeocodeWaSim(c, token);
-        setDireccion(nombre ?? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`);
-      };
-      marker.on('dragend', () => void actualizar());
+        void actualizarDesdeMarker(c.lng, c.lat);
+      });
       map.on('click', (ev) => {
         marker.setLngLat([ev.lngLat.lng, ev.lngLat.lat]);
-        void actualizar();
+        void actualizarDesdeMarker(ev.lngLat.lng, ev.lngLat.lat);
       });
+      // El mapa nace dentro de un modal recién montado: forzar resize evita el
+      // render en blanco por contenedor con tamaño 0 en el primer frame.
+      const fixSize = () => (map as unknown as { resize?: () => void }).resize?.();
+      setTimeout(fixSize, 60);
+      setTimeout(fixSize, 250);
       setEstado('listo');
     });
     return () => {
       cancelled = true;
       mapRef.current?.remove();
       mapRef.current = null;
+      markerRef.current = null;
     };
   }, [token]);
 
+  const usarMiUbicacion = () => {
+    if (!navigator.geolocation) return;
+    setLocalizando(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocalizando(false);
+        const { latitude: lat, longitude: lng } = pos.coords;
+        markerRef.current?.setLngLat([lng, lat]);
+        (mapRef.current as unknown as { flyTo?: (o: unknown) => void })?.flyTo?.({
+          center: [lng, lat],
+          zoom: 15,
+        });
+        void actualizarDesdeMarker(lng, lat);
+      },
+      () => setLocalizando(false),
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+
+  const confirmable = estado === 'listo' && Boolean(direccion) && !direccion?.startsWith('Buscando');
+
   return (
-    <div className="mt-3 flex flex-col gap-2">
-      <div className="relative h-52 w-full overflow-hidden rounded-xl border border-[#c5dfd9]">
-        <div className="absolute inset-0" ref={containerRef} />
-        {estado === 'cargando' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80">
-            <Loader2 className="h-6 w-6 animate-spin text-[#128C7E]" />
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/40">
+      <div className="mt-auto flex h-[88vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:mx-auto sm:my-auto sm:h-[80vh] sm:w-[560px] sm:rounded-3xl">
+        <div className="flex items-center justify-between border-b border-[#e3ece9] px-5 py-4">
+          <div>
+            <h3 className="text-base font-bold text-[#0a332f]">{titulo}</h3>
+            <p className="text-xs text-[#667781]">Toca el mapa o arrastra el pin al punto exacto.</p>
           </div>
-        )}
-        {estado === 'error' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/90 p-4 text-center">
-            <p className="text-sm text-[#667781]">No se pudo cargar el mapa. Escribe la dirección.</p>
+          <button
+            aria-label="Cerrar"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f0f2f5] text-[#667781] hover:bg-[#e3ece9]"
+            onClick={onCancelar}
+            type="button"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="relative flex-1">
+          <div className="absolute inset-0" ref={containerRef} />
+          {estado === 'cargando' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+              <Loader2 className="h-7 w-7 animate-spin text-[#128C7E]" />
+            </div>
+          )}
+          {estado === 'error' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/95 p-6 text-center">
+              <p className="text-sm text-[#667781]">No se pudo cargar el mapa. Cierra y escribe la dirección.</p>
+            </div>
+          )}
+          {estado === 'listo' && (
+            <button
+              className="absolute right-4 top-4 flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#075E54] shadow-md hover:bg-[#f0faf6] disabled:opacity-60"
+              disabled={localizando}
+              onClick={usarMiUbicacion}
+              type="button"
+            >
+              {localizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>📡</span>}
+              Usar mi ubicación
+            </button>
+          )}
+        </div>
+
+        <div className="border-t border-[#e3ece9] bg-[#f7fbfa] p-4">
+          <p className="mb-3 min-h-[20px] text-sm font-medium text-[#0a332f]">
+            {direccion ?? 'Marca tu punto en el mapa'}
+          </p>
+          <div className="flex gap-2">
+            <button
+              className="flex-1 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-sm font-semibold text-[#667781] hover:bg-gray-50"
+              onClick={onCancelar}
+              type="button"
+            >
+              Cancelar
+            </button>
+            <button
+              className="flex-1 rounded-xl bg-[#128C7E] px-4 py-3 text-sm font-semibold text-white hover:bg-[#075E54] disabled:opacity-40"
+              disabled={!confirmable}
+              onClick={() => onConfirmar(direccion ?? `${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}`, coord)}
+              type="button"
+            >
+              Confirmar ubicación
+            </button>
           </div>
-        )}
-      </div>
-      <p className="text-xs text-[#667781]">
-        {direccion ?? 'Toca el mapa o arrastra el pin para marcar el punto exacto'}
-      </p>
-      <div className="flex gap-2">
-        <button
-          className="flex-1 rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm font-medium text-[#667781] transition hover:bg-gray-50"
-          onClick={onCancelar}
-          type="button"
-        >
-          Cancelar
-        </button>
-        <button
-          className="flex-1 rounded-lg bg-[#128C7E] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
-          disabled={estado !== 'listo' || !direccion || direccion.startsWith('Buscando')}
-          onClick={() => {
-            const etiqueta = direccion ?? `${coord.lat.toFixed(4)}, ${coord.lng.toFixed(4)}`;
-            onConfirmar(etiqueta, etiqueta);
-          }}
-          type="button"
-        >
-          Confirmar ubicación
-        </button>
+        </div>
       </div>
     </div>
   );
@@ -471,7 +584,7 @@ function ComponenteInteractivoChat({
   interactivo: ComponenteInteractivo;
   contestado: boolean;
   seleccionado: string | undefined;
-  onSeleccionar: (valor: string, etiqueta: string) => void;
+  onSeleccionar: (valor: string, etiqueta: string, coords?: CoordsSeleccion) => void;
   onRetroceder?: () => void;
 }) {
   const [fechaVal, setFechaVal] = useState('');
@@ -578,14 +691,42 @@ function ComponenteInteractivoChat({
     case 'location-options': {
       const isDestino = interactivo.modo === 'destino';
 
+      // Mapa a pantalla completa (resuelve el render en blanco). Devuelve coords reales.
       if (locMode === 'mapa') {
         return (
-          <InlineMapPicker
+          <MapPickerModal
+            modo={interactivo.modo}
             onCancelar={() => setLocMode(null)}
-            onConfirmar={(v, e) => onSeleccionar(v, e)}
+            onConfirmar={(etiqueta, coords) => onSeleccionar(etiqueta, etiqueta, coords)}
           />
         );
       }
+
+      // Escribir/pegar: intenta sacar coords del enlace o geocodificar la dirección,
+      // así el conductor recibe un punto trazable (no solo texto).
+      const confirmarTexto = async () => {
+        const valor = locTexto.trim();
+        if (valor.length < 4) return;
+        setGeoLoading(true);
+        const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? null;
+        const directas = parseLatLngFromText(valor);
+        if (directas) {
+          setGeoLoading(false);
+          onSeleccionar(valor, valor, directas);
+          return;
+        }
+        if (token && !/^https?:\/\//u.test(valor)) {
+          const geo = await forwardGeocodeWaSim(valor, token);
+          setGeoLoading(false);
+          if (geo) {
+            onSeleccionar(geo.etiqueta, geo.etiqueta, { lat: geo.lat, lng: geo.lng });
+            return;
+          }
+        }
+        setGeoLoading(false);
+        // Enlace acortado o dirección no geocodificable: guardamos el texto igual.
+        onSeleccionar(valor, valor);
+      };
 
       if (locMode === 'texto') {
         return (
@@ -595,11 +736,9 @@ function ComponenteInteractivoChat({
               className="rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
               onChange={(e) => setLocTexto(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && locTexto.trim().length >= 4) {
-                  onSeleccionar(locTexto.trim(), locTexto.trim());
-                }
+                if (e.key === 'Enter' && locTexto.trim().length >= 4 && !geoLoading) void confirmarTexto();
               }}
-              placeholder={isDestino ? 'Av. Pardo 123, Miraflores  ó  https://maps.app.goo.gl/…' : 'Hotel Costa Verde, Av. Malecón 200'}
+              placeholder={isDestino ? 'Av. Pardo 123, Miraflores  ó  enlace de Google Maps' : 'Hotel Costa Verde, Av. Malecón 200  ó  enlace'}
               value={locTexto}
             />
             <div className="flex gap-2">
@@ -611,11 +750,12 @@ function ComponenteInteractivoChat({
                 Volver
               </button>
               <button
-                className="flex-1 rounded-lg bg-[#128C7E] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
-                disabled={locTexto.trim().length < 4}
-                onClick={() => onSeleccionar(locTexto.trim(), locTexto.trim())}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#128C7E] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#075E54] disabled:opacity-40"
+                disabled={locTexto.trim().length < 4 || geoLoading}
+                onClick={() => void confirmarTexto()}
                 type="button"
               >
+                {geoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Confirmar
               </button>
             </div>
@@ -623,39 +763,9 @@ function ComponenteInteractivoChat({
         );
       }
 
+      // Dos opciones, según pidió el negocio: marcar en mapa o escribir/pegar enlace.
       return (
         <div className="mt-3 flex flex-col gap-2">
-          {!isDestino && (
-            <button
-              className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2] disabled:opacity-60"
-              disabled={geoLoading}
-              onClick={() => {
-                if (!navigator.geolocation) { setLocMode('texto'); return; }
-                setGeoLoading(true);
-                navigator.geolocation.getCurrentPosition(
-                  (pos) => {
-                    const txt = `Mi ubicación GPS (${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)})`;
-                    setGeoLoading(false);
-                    onSeleccionar(txt, txt);
-                  },
-                  () => { setGeoLoading(false); setLocMode('texto'); },
-                  { enableHighAccuracy: true, timeout: 8000 },
-                );
-              }}
-              type="button"
-            >
-              {geoLoading ? (
-                <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-[#128C7E]" />
-              ) : (
-                <span className="mt-0.5 text-xl leading-none">📡</span>
-              )}
-              <div>
-                <p className="text-sm font-semibold text-[#0a332f]">Compartir mi ubicación GPS</p>
-                <p className="mt-0.5 text-xs leading-4 text-[#667781]">El sistema usa tu GPS para encontrarte</p>
-              </div>
-            </button>
-          )}
-          {/* Marcar en mapa interactivo */}
           <button
             className="flex items-start gap-3 rounded-xl border border-[#c5dfd9] bg-white px-4 py-3 text-left transition hover:bg-[#e7fde2]"
             onClick={() => setLocMode('mapa')}
@@ -665,7 +775,7 @@ function ComponenteInteractivoChat({
             <div>
               <p className="text-sm font-semibold text-[#0a332f]">Marcar en el mapa</p>
               <p className="mt-0.5 text-xs leading-4 text-[#667781]">
-                {isDestino ? 'Arrastra el pin a tu destino' : 'Arrastra el pin a tu punto de recojo'}
+                {isDestino ? 'Ubica el pin en tu destino exacto' : 'Ubica el pin en tu punto de recojo'}
               </p>
             </div>
           </button>
@@ -676,11 +786,9 @@ function ComponenteInteractivoChat({
           >
             <span className="mt-0.5 text-xl leading-none">📍</span>
             <div>
-              <p className="text-sm font-semibold text-[#0a332f]">
-                {isDestino ? 'Escribir o pegar dirección' : 'Escribir dirección de recojo'}
-              </p>
+              <p className="text-sm font-semibold text-[#0a332f]">Escribir o pegar dirección</p>
               <p className="mt-0.5 text-xs leading-4 text-[#667781]">
-                {isDestino ? 'Dirección completa o enlace de Google Maps' : 'Dirección o nombre del lugar'}
+                Dirección completa o enlace de Google Maps (sacamos las coordenadas)
               </p>
             </div>
           </button>
@@ -712,13 +820,15 @@ function ComponenteInteractivoChat({
           >
             Confirmar
           </button>
-          <button
-            className="text-xs font-medium text-[#667781] underline-offset-2 hover:underline"
-            onClick={() => onSeleccionar(interactivo.skipValor, interactivo.skipLabel)}
-            type="button"
-          >
-            {interactivo.skipLabel}
-          </button>
+          {interactivo.skipLabel ? (
+            <button
+              className="text-xs font-medium text-[#667781] underline-offset-2 hover:underline"
+              onClick={() => onSeleccionar(interactivo.skipValor ?? 'skip', interactivo.skipLabel as string)}
+              type="button"
+            >
+              {interactivo.skipLabel}
+            </button>
+          ) : null}
           <BtnAtras onRetroceder={onRetroceder} />
         </div>
       );
@@ -809,21 +919,38 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
 
-  // Auto-extrae cuando el usuario activa el copiloto y ya hay mensajes de cliente cargados
+  // Copiloto en vivo: con el copiloto encendido, cada mensaje del cliente se extrae
+  // automáticamente (sin pulsar "Extraer"). Se de-duplica por el último texto del
+  // cliente para no re-extraer lo mismo, y no pisa el flujo guiado interactivo.
+  const lastAutoExtractRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!copilotoAuto) return;
-    const hasClient = messages.some((m) => m.autor === 'cliente');
-    if (!hasClient || extraccion || confirmada || guidedStep) return;
+    if (!copilotoAuto || confirmada || guidedStep) return;
+    const ultimoCliente = [...messages].reverse().find((m) => m.autor === 'cliente');
+    if (!ultimoCliente) return;
+    const huella = `${ultimoCliente.id}:${ultimoCliente.texto}`;
+    if (lastAutoExtractRef.current === huella) return;
+    lastAutoExtractRef.current = huella;
     void extractFromMessages(messages);
-  }, [copilotoAuto]); // Solo cuando cambia copilotoAuto — refs intencionales
+  }, [copilotoAuto, messages, confirmada, guidedStep]); // refs internos intencionales
 
   // Contexto del flujo guiado: accesible síncronamente (ref, no state)
   const guidedTextoRef = useRef<string[]>([]);
   const guidedContextRef = useRef<{
     intent?: 'reservar' | 'consultar' | 'queja';
     tipoUsuario?: 'independiente' | 'corporativo';
-    flujo?: 'A' | 'B';
+    flujo?: 'A' | 'B' | 'C';
   }>({});
+  // Overrides estructurados: lo que el cliente eligió/escribió EXPLÍCITAMENTE.
+  // Se envían al extractor con prioridad máxima (no se re-derivan por regex), así
+  // las ubicaciones con coords, el RUC, el responsable de pago y la fecha quedan
+  // guardados de forma estable y nunca se vuelven a preguntar.
+  const guidedReservaRef = useRef<Partial<ReservaExtraida>>({});
+  const setOverride = (patch: Partial<ReservaExtraida>) => {
+    guidedReservaRef.current = { ...guidedReservaRef.current, ...patch };
+  };
+  // 'puro' = chat nuevo desde cero (cadena fija de preguntas). 'completar' = el
+  // copiloto ya leyó un texto libre y solo rellena lo que falta (salta lo conocido).
+  const guidedModeRef = useRef<'puro' | 'completar'>('puro');
 
   const [isPending, startTransition] = useTransition();
 
@@ -860,6 +987,9 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     reasignandoRef.current = false;
     guidedTextoRef.current = [];
     guidedContextRef.current = {};
+    guidedReservaRef.current = {};
+    guidedModeRef.current = 'puro';
+    lastAutoExtractRef.current = null;
   }
 
   function nuevoChatManual() {
@@ -933,6 +1063,11 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     return { mensaje, contextoConversacion: contextoConversacion || undefined };
   }
 
+  function overridesActivos(): Partial<ReservaExtraida> | undefined {
+    const ov = guidedReservaRef.current;
+    return Object.keys(ov).length > 0 ? ov : undefined;
+  }
+
   async function extractFromMessages(sourceMessages: ChatMensaje[]) {
     const payload = extractionPayloadFrom(sourceMessages);
     if (!payload.mensaje) return;
@@ -943,7 +1078,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       const response = await fetch('/api/ingesta/extraer', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...payload, fechaActualIso: FECHA_SIMULADOR_ISO }),
+        body: JSON.stringify({ ...payload, overrides: overridesActivos(), fechaActualIso: FECHA_SIMULADOR_ISO }),
       });
       const json = (await response.json()) as unknown;
       if (!response.ok || (typeof json === 'object' && json && 'error' in json)) {
@@ -958,10 +1093,11 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     }
   }
 
-  // Extrae usando solo el contexto acumulado del flujo guiado (sin messages history)
+  // Extrae usando el contexto acumulado del flujo guiado + overrides estructurados.
+  // Los overrides (ubicación con coords, RUC, pago, fecha) mandan sobre el regex.
   async function extractGuided() {
-    const texto = guidedTextoRef.current.join('\n');
-    if (!texto.trim()) return;
+    const texto = guidedTextoRef.current.join('\n') || selected.nombre;
+    if (!texto.trim() && !overridesActivos()) return;
     setLoading(true);
     setError(null);
     setActionMessage(null);
@@ -970,8 +1106,9 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          mensaje: texto,
+          mensaje: texto || 'reserva guiada',
           contextoConversacion: selected.nombre,
+          overrides: overridesActivos(),
           fechaActualIso: FECHA_SIMULADOR_ISO,
         }),
       });
@@ -1064,20 +1201,25 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
         break;
 
       case 'ruc_empresa':
-        texto = 'Para cargar el servicio a tu empresa, ingresa el RUC:';
+        texto = 'Para que tu empresa asuma el gasto, identifícala con su RUC:';
         interactivo = {
           tipo: 'text-input',
-          campo: 'empresa_ruc',
+          campo: 'pasajero_ruc',
           placeholder: 'RUC de la empresa (11 dígitos)',
-          skipLabel: 'No tengo el RUC — lo pagaré yo',
+          skipLabel: 'No tengo el RUC — lo pago yo',
           skipValor: 'sin_ruc',
         };
         break;
 
       case 'nombre_pasajero':
-        // Texto libre — no es interactivo (el counter lo necesita para el letrero)
-        texto = '¿Cuál es el nombre completo del pasajero? El operador del mostrador lo buscará por su nombre.';
-        interactivo = undefined;
+        // El counter ubica al pasajero por su nombre en el letrero, así que se pide
+        // siempre. Widget de texto (con "Atrás") para mantener la experiencia guiada.
+        texto = '¿A nombre de quién va la reserva?';
+        interactivo = {
+          tipo: 'text-input',
+          campo: 'pasajero_nombre',
+          placeholder: 'Nombre y apellido del pasajero',
+        };
         break;
 
       case 'fecha':
@@ -1150,8 +1292,27 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     ]);
   }
 
-  // Procesa la selección del usuario en un componente interactivo y avanza el flujo
-  function procesarSeleccionInteractiva(valor: string, etiqueta: string) {
+  // Avanza al siguiente paso. En modo 'completar' (copiloto sobre texto libre) NO
+  // sigue la cadena fija: re-extrae y deja que pedirDatosInteractivos pida el próximo
+  // FALTANTE (así nunca re-pregunta algo ya conocido). En 'puro' sigue la cadena.
+  function avanzarGuiado(pasoPuro: GuidedStep) {
+    if (guidedModeRef.current === 'completar') {
+      setGuidedStep(null);
+      void extractGuided();
+    } else {
+      preguntarGuiado(pasoPuro);
+    }
+  }
+
+  // Tras la ubicación: corporativo → responsable_pago; particular → vehículo.
+  function avanzarTrasUbicacion() {
+    avanzarGuiado(guidedContextRef.current.tipoUsuario === 'corporativo' ? 'responsable_pago' : 'vehiculo');
+  }
+
+  // Procesa la selección del usuario en un componente interactivo y avanza el flujo.
+  // Cada paso fija OVERRIDES estructurados (autoritativos) además del texto sintético
+  // que ayuda al regex a resolver el aeropuerto/ámbito.
+  function procesarSeleccionInteractiva(valor: string, etiqueta: string, coords?: CoordsSeleccion) {
     const step = guidedStep;
     if (!step) return;
 
@@ -1159,30 +1320,45 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       case 'intent':
         guidedContextRef.current = { intent: valor as 'reservar' | 'consultar' | 'queja' };
         if (valor === 'reservar') {
+          // El teléfono del pasajero ES el propio WhatsApp; lo fijamos para no pedirlo.
+          setOverride({ pasajero_telefono: '959799190' });
           preguntarGuiado('tipo_usuario');
         } else {
           preguntarGuiado('code_lookup');
         }
         return;
 
-      case 'tipo_usuario':
-        guidedContextRef.current.tipoUsuario = valor as 'independiente' | 'corporativo';
-        guidedTextoRef.current.push(valor === 'independiente' ? 'Soy un viajero particular.' : 'Soy cliente corporativo.');
+      case 'tipo_usuario': {
+        const corporativo = valor === 'corporativo';
+        guidedContextRef.current.tipoUsuario = corporativo ? 'corporativo' : 'independiente';
+        guidedTextoRef.current.push(corporativo ? 'Soy cliente corporativo.' : 'Soy un viajero particular.');
+        if (corporativo) {
+          setOverride({ perfil_pasajero: 'corporativo' });
+        } else {
+          // Particular: paga él; no se le pregunta por empresa/RUC nunca.
+          setOverride({ perfil_pasajero: 'particular', responsable_pago: 'pasajero' });
+        }
         preguntarGuiado('flujo');
         return;
+      }
 
       case 'flujo':
         if (valor === 'recojo_aeropuerto') {
           guidedContextRef.current.flujo = 'A';
           guidedTextoRef.current.push('Necesito que me recojan en el aeropuerto Jorge Chávez.');
-          preguntarGuiado('zona_llegada');
+          setOverride({ tipo_viaje: 'recojo_aeropuerto' });
+          avanzarGuiado('zona_llegada');
         } else if (valor === 'traslado_aeropuerto') {
           guidedContextRef.current.flujo = 'B';
-          guidedTextoRef.current.push('Necesito que me lleven al aeropuerto.');
-          preguntarGuiado('fecha');
+          guidedTextoRef.current.push('Necesito que me lleven al aeropuerto Jorge Chávez.');
+          setOverride({ tipo_viaje: 'traslado_aeropuerto' });
+          // Flujo B: NO participa el counter ⇒ sin zona ni número de vuelo.
+          avanzarGuiado('nombre_pasajero');
         } else {
-          guidedTextoRef.current.push('Necesito un traslado en la ciudad.');
-          preguntarGuiado('fecha');
+          guidedContextRef.current.flujo = 'C';
+          guidedTextoRef.current.push('Necesito un traslado dentro de la ciudad.');
+          setOverride({ tipo_viaje: 'city' });
+          avanzarGuiado('nombre_pasajero');
         }
         return;
 
@@ -1194,65 +1370,83 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       case 'vuelo':
         if (valor !== 'sin_vuelo') {
           guidedTextoRef.current.push(`Mi vuelo es ${valor}.`);
+          setOverride({ vuelo_codigo: valor.toUpperCase() });
         }
-        preguntarGuiado('nombre_pasajero');
+        avanzarGuiado('nombre_pasajero');
+        return;
+
+      case 'nombre_pasajero':
+        setOverride({ pasajero_nombre: valor });
+        guidedTextoRef.current.push(`El pasajero se llama ${valor}.`);
+        avanzarGuiado('fecha');
         return;
 
       case 'fecha':
+        // `valor` ya viene como ISO (YYYY-MM-DDThh:mm:ss) desde el date-time-picker.
+        setOverride({ fecha_hora_servicio: valor });
         guidedTextoRef.current.push(`El servicio es para el ${etiqueta}.`);
-        if (guidedContextRef.current.flujo === 'A') {
-          preguntarGuiado('destino');
-        } else if (guidedContextRef.current.flujo === 'B') {
-          preguntarGuiado('origen_b');
-        } else {
-          // city
-          preguntarGuiado('vehiculo');
-        }
+        avanzarGuiado(guidedContextRef.current.flujo === 'A' ? 'destino' : 'origen_b');
         return;
 
       case 'destino':
+        setOverride({
+          destino_texto: etiqueta,
+          destino_lat: coords?.lat ?? null,
+          destino_lng: coords?.lng ?? null,
+        });
         guidedTextoRef.current.push(`Mi destino es: ${etiqueta}.`);
-        if (guidedContextRef.current.tipoUsuario === 'corporativo') {
-          preguntarGuiado('responsable_pago');
-        } else {
-          preguntarGuiado('vehiculo');
-        }
+        avanzarTrasUbicacion();
         return;
 
       case 'origen_b':
+        setOverride({
+          origen_texto: etiqueta,
+          origen_lat: coords?.lat ?? null,
+          origen_lng: coords?.lng ?? null,
+        });
         guidedTextoRef.current.push(`El punto de recojo es: ${etiqueta}.`);
-        if (guidedContextRef.current.tipoUsuario === 'corporativo') {
-          preguntarGuiado('responsable_pago');
-        } else {
-          preguntarGuiado('vehiculo');
-        }
+        // En city todavía falta el destino; en B la siguiente es pago/vehículo.
+        if (guidedContextRef.current.flujo === 'C') avanzarGuiado('destino');
+        else avanzarTrasUbicacion();
         return;
 
       case 'responsable_pago':
-        guidedTextoRef.current.push(
-          valor === 'empresa' ? 'El servicio lo cubre mi empresa.' : 'Este viaje lo pago yo.',
-        );
         if (valor === 'empresa') {
+          guidedTextoRef.current.push('El servicio lo cubre mi empresa.');
+          setOverride({ responsable_pago: 'empresa' });
+          // Empresa asume el costo ⇒ hay que identificarla con su RUC (siempre se pregunta).
           preguntarGuiado('ruc_empresa');
         } else {
-          preguntarGuiado('vehiculo');
+          guidedTextoRef.current.push('Este viaje lo pago yo.');
+          setOverride({ responsable_pago: 'pasajero' });
+          avanzarGuiado('vehiculo');
         }
         return;
 
       case 'ruc_empresa':
         if (valor === 'sin_ruc') {
-          guidedTextoRef.current.push('No tengo el RUC disponible, el gasto lo asumiré individualmente.');
+          // Sin identificar la empresa NO puede asumir el costo: lo asume el pasajero.
+          guidedTextoRef.current.push('No tengo el RUC; el gasto lo asumo yo.');
+          setOverride({ responsable_pago: 'pasajero', pasajero_ruc: null });
         } else {
+          // RUC presente ⇒ empresa identificada (demo) ⇒ asume el costo y se factura.
           guidedTextoRef.current.push(`El RUC de la empresa es ${valor}.`);
+          setOverride({
+            responsable_pago: 'empresa',
+            pasajero_ruc: valor,
+            empresa_nombre: guidedReservaRef.current.empresa_nombre ?? `Empresa identificada (RUC ${valor})`,
+            convenio_validado_demo: true,
+            requiere_factura: true,
+          });
         }
-        preguntarGuiado('vehiculo');
+        avanzarGuiado('vehiculo');
         return;
 
       case 'vehiculo':
-        if (valor === 'sedan') guidedTextoRef.current.push('Prefiero un sedán.');
-        else if (valor === 'camioneta') guidedTextoRef.current.push('Prefiero una camioneta con espacio para el equipaje.');
-        else if (valor === 'van') guidedTextoRef.current.push('Necesitamos una van para el grupo.');
-        // 'cualquiera' → no agrega texto (default)
+        if (valor === 'sedan') { setOverride({ vehiculo_preferencia: 'sedan' }); guidedTextoRef.current.push('Prefiero un sedán.'); }
+        else if (valor === 'camioneta') { setOverride({ vehiculo_preferencia: 'camioneta' }); guidedTextoRef.current.push('Prefiero una camioneta con espacio.'); }
+        else if (valor === 'van') { setOverride({ vehiculo_preferencia: 'van' }); guidedTextoRef.current.push('Necesitamos una van para el grupo.'); }
+        // 'cualquiera' → sin override (el despacho elige el mejor disponible)
         setGuidedStep(null);
         void extractGuided();
         return;
@@ -1266,14 +1460,14 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     }
   }
 
-  // Cuando el usuario selecciona una opción interactiva
-  function respondInteractivo(messageId: string, valor: string, etiqueta: string) {
+  // Cuando el usuario selecciona una opción interactiva (con coords opcionales).
+  function respondInteractivo(messageId: string, valor: string, etiqueta: string, coords?: CoordsSeleccion) {
     setMensajesContestados((prev) => new Map(prev).set(messageId, etiqueta));
     setMessages((prev) => [
       ...prev,
       { id: `resp-${Date.now()}`, autor: 'cliente', hora: horaAhora(), texto: etiqueta },
     ]);
-    procesarSeleccionInteractiva(valor, etiqueta);
+    procesarSeleccionInteractiva(valor, etiqueta, coords);
   }
 
   // Consulta de reserva para el flujo de "consultar/queja"
@@ -1315,25 +1509,31 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
 
   // ─── Pedir datos al cliente (modo panel derecho) ───────────────────────────
 
-  // Envía la PRIMERA pregunta faltante como componente interactivo
+  // Envía la PRIMERA pregunta faltante como componente interactivo (uno por uno,
+  // nunca un mensaje "bulk"). Sirve tanto al flujo guiado puro como al copiloto que
+  // leyó un texto libre y necesita completar lo que falte.
   function pedirDatosInteractivos() {
     if (!extraccion) return;
     const reserva = extraccion.reserva;
+    // El copiloto completa SOLO lo que falta (salta lo ya conocido del texto libre).
+    guidedModeRef.current = 'completar';
 
-    // Sincronizar guidedContextRef desde la extracción existente para que
-    // procesarSeleccionInteractiva tome la rama correcta (A/B/city) al avanzar.
-    if (reserva.tipo_viaje === 'recojo_aeropuerto') {
-      guidedContextRef.current.flujo = 'A';
-    } else if (reserva.tipo_viaje === 'traslado_aeropuerto') {
-      guidedContextRef.current.flujo = 'B';
-    } else if (reserva.tipo_viaje) {
-      guidedContextRef.current.flujo = undefined;
+    // Para el copiloto de texto libre: sembrar el contexto del extractor con el
+    // mensaje original, así extractGuided() (que reusa overrides) no parte de cero.
+    if (guidedTextoRef.current.length === 0 && reserva.raw_texto) {
+      guidedTextoRef.current = [reserva.raw_texto];
     }
-    if (reserva.perfil_pasajero === 'corporativo') {
-      guidedContextRef.current.tipoUsuario = 'corporativo';
-    } else if (reserva.perfil_pasajero) {
-      guidedContextRef.current.tipoUsuario = 'independiente';
+    // El teléfono es el propio WhatsApp: lo dejamos listo para no pedirlo.
+    if (!reserva.pasajero_telefono && !guidedReservaRef.current.pasajero_telefono) {
+      setOverride({ pasajero_telefono: '959799190' });
     }
+
+    // Sincronizar el contexto desde la extracción para tomar la rama correcta.
+    if (reserva.tipo_viaje === 'recojo_aeropuerto') guidedContextRef.current.flujo = 'A';
+    else if (reserva.tipo_viaje === 'traslado_aeropuerto') guidedContextRef.current.flujo = 'B';
+    else if (reserva.tipo_viaje === 'city') guidedContextRef.current.flujo = 'C';
+    if (reserva.perfil_pasajero === 'corporativo') guidedContextRef.current.tipoUsuario = 'corporativo';
+    else if (reserva.perfil_pasajero) guidedContextRef.current.tipoUsuario = 'independiente';
 
     const addMsg = (texto: string, interactivo: ComponenteInteractivo) => {
       setMessages((prev) => [
@@ -1364,46 +1564,54 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       return;
     }
 
+    // Punto de recojo: el cliente lo da en B y en city (en A el origen es el aeropuerto).
+    if (!reserva.origen_texto && (reserva.tipo_viaje === 'traslado_aeropuerto' || reserva.tipo_viaje === 'city')) {
+      setGuidedStep('origen_b');
+      addMsg('¿Desde dónde te recogemos?', { tipo: 'location-options', modo: 'origen' });
+      return;
+    }
+
+    // Destino: el cliente lo da en A y en city (en B el destino es el aeropuerto).
     if (!reserva.destino_texto && reserva.tipo_viaje !== 'traslado_aeropuerto') {
       setGuidedStep('destino');
       addMsg('¿A dónde te dirigimos?', { tipo: 'location-options', modo: 'destino' });
       return;
     }
 
-    if (!reserva.origen_texto && reserva.tipo_viaje === 'traslado_aeropuerto') {
-      setGuidedStep('origen_b');
-      addMsg('¿Desde dónde te recogemos?', { tipo: 'location-options', modo: 'origen' });
-      return;
-    }
-
-    // Nombre del pasajero (para el letrero del counter)
+    // Nombre del pasajero (para el letrero del counter) — widget de texto.
     if (!reserva.pasajero_nombre) {
       setGuidedStep('nombre_pasajero');
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `ask-nombre-${Date.now()}`,
-          autor: 'taxigreen',
-          hora: horaAhora(),
-          texto: '¿Cuál es el nombre completo del pasajero? El operador del mostrador lo buscará por su nombre.',
-        },
-      ]);
-      setDatosPedidos(true);
+      addMsg('¿A nombre de quién va la reserva?', {
+        tipo: 'text-input',
+        campo: 'pasajero_nombre',
+        placeholder: 'Nombre y apellido del pasajero',
+      });
       return;
     }
 
-    // Pago corporativo: pedir RUC si no lo tenemos
-    if (
-      reserva.perfil_pasajero === 'corporativo' &&
-      reserva.responsable_pago === 'empresa' &&
-      !reserva.pasajero_ruc
-    ) {
+    // ¿Quién asume el costo? Solo para corporativos sin decidir aún.
+    if (reserva.perfil_pasajero === 'corporativo' && !reserva.responsable_pago) {
+      setGuidedStep('responsable_pago');
+      addMsg('¿El servicio lo cubre tu empresa o lo pagas tú?', {
+        tipo: 'radio-group',
+        campo: 'responsable_pago',
+        etiqueta: '¿Quién paga?',
+        opciones: [
+          { valor: 'empresa', etiqueta: 'Lo cubre mi empresa', emoji: '🏢' },
+          { valor: 'pasajero', etiqueta: 'Lo pago yo', emoji: '💳' },
+        ],
+      });
+      return;
+    }
+
+    // RUC: SOLO cuando la empresa asume el costo y aún no la identificamos.
+    if (reserva.responsable_pago === 'empresa' && !reserva.pasajero_ruc) {
       setGuidedStep('ruc_empresa');
-      addMsg('Para cargar el servicio a tu empresa, ingresa el RUC:', {
+      addMsg('Para que tu empresa asuma el gasto, identifícala con su RUC:', {
         tipo: 'text-input',
         campo: 'pasajero_ruc',
         placeholder: 'RUC de la empresa (11 dígitos)',
-        skipLabel: 'No tengo el RUC — lo pagaré yo',
+        skipLabel: 'No tengo el RUC — lo pago yo',
         skipValor: 'sin_ruc',
       });
       return;
@@ -1454,10 +1662,9 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       return;
     }
 
-    // Paso de texto "nombre_pasajero" en el flujo guiado
+    // Paso "nombre_pasajero": si el usuario escribe en el composer en vez del widget.
     if (guidedStep === 'nombre_pasajero') {
-      guidedTextoRef.current.push(`El pasajero se llama ${text}.`);
-      preguntarGuiado('fecha');
+      procesarSeleccionInteractiva(text, text);
       return;
     }
 
@@ -1483,6 +1690,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     if (!guidedStep && !extraccion && !confirmada && !hayTaxigreen) {
       guidedTextoRef.current = [text]; // preservar lo que escribió por si elige "Reservar"
       guidedContextRef.current = {};
+      guidedModeRef.current = 'puro';
       preguntarGuiado('intent');
       return;
     }
@@ -1719,52 +1927,61 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   useEffect(() => {
     if (!copilotoAuto || !extraccion || confirmada || loading || esperandoConfirmacionCliente || autoConfirmingRef.current) return;
     if (guidedStep !== null) return; // flujo guiado tiene prioridad
-    if (extraccion.confianza >= 0.7 && pagoPreviewLoading) return;
-    const key = `${selectedId}:${extraccion.reserva.raw_texto}:${extraccion.preguntas_aclaracion.join('|')}:${Math.round(extraccion.confianza * 100)}`;
+    if (pagoPreviewLoading) return; // esperar la tarifa para mostrarla en el resumen
+    const reserva = extraccion.reserva;
+
+    // ¿Falta algo para poder crear la reserva? (lo que crearReserva exige + el RUC
+    // cuando la empresa asume el costo). Si falta, se pide UN widget (nunca bulk).
+    const faltaUbicacion =
+      (reserva.tipo_viaje === 'recojo_aeropuerto' && !reserva.destino_texto) ||
+      (reserva.tipo_viaje === 'traslado_aeropuerto' && !reserva.origen_texto) ||
+      (reserva.tipo_viaje === 'city' && (!reserva.origen_texto || !reserva.destino_texto));
+    const faltaRucEmpresa = reserva.responsable_pago === 'empresa' && !reserva.pasajero_ruc;
+    const faltaPagoCorp = reserva.perfil_pasajero === 'corporativo' && !reserva.responsable_pago;
+    // Solo campos que un widget puede pedir (evita quedar en bucle por un aclarador
+    // que pida algo sin widget). Cubre todo lo que crearReserva exige para crear.
+    const faltaAlgo =
+      !reserva.tipo_viaje ||
+      !reserva.fecha_hora_servicio ||
+      faltaUbicacion ||
+      !reserva.pasajero_nombre ||
+      faltaPagoCorp ||
+      faltaRucEmpresa;
+
+    const key = `${selectedId}:${extraccion.reserva.raw_texto}:${faltaAlgo ? 'falta' : 'listo'}:${JSON.stringify(guidedReservaRef.current)}:${Math.round(extraccion.confianza * 100)}`;
     if (autoHandledRef.current === key) return;
     autoHandledRef.current = key;
 
-    if (extraccion.preguntas_aclaracion.length > 0) {
-      const cuerpo = extraccion.preguntas_aclaracion.map((q) => `• ${q}`).join('\n');
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `ask-${Date.now()}`,
-          autor: 'taxigreen',
-          hora: horaAhora(),
-          texto: `¡Con gusto coordinamos tu Taxi Green! Para dejarlo listo me confirmas:\n${cuerpo}`,
-        },
-      ]);
-      setDatosPedidos(true);
+    if (faltaAlgo) {
+      // Pide el PRÓXIMO dato faltante como widget interactivo, uno por uno.
+      pedirDatosInteractivos();
       setEsperandoConfirmacionCliente(false);
       return;
     }
 
-    if (extraccion.confianza >= 0.7) {
-      const reserva = extraccion.reserva;
-      const comercial = identidadDesdeExtraccion(reserva);
-      resumenEmitidoRef.current += 1;
-      const intro = resumenEmitidoRef.current > 1 ? 'Actualicé tu reserva:' : 'Te confirmo tu reserva:';
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `sum-${Date.now()}`,
-          autor: 'taxigreen',
-          hora: horaAhora(),
-          texto:
-            `${intro}\n` +
-            `• Recojo: ${reserva.punto_encuentro ?? reserva.origen_texto ?? 'por confirmar'}\n` +
-            `• Destino: ${reserva.destino_texto ?? 'por confirmar'}\n` +
-            `• Pasajero: ${reserva.pasajero_nombre ?? 'por confirmar'}\n` +
-            `• Fecha: ${formatValue(reserva.fecha_hora_servicio)}\n` +
-            `• Cliente: ${comercial.resumen}\n` +
-            `• ${comercial.pagoChat}\n` +
-            `${pagoPreview ? `• Tarifa estimada protegida v${cotizacionVersion || 1}: ${pagoPreview.montoEtiqueta}\n` : ''}` +
-            `¿La confirmo? Responde "Sí" y queda lista.`,
-        },
-      ]);
-      setEsperandoConfirmacionCliente(true);
-    }
+    // Todo listo: resumen + tarifa (incluso si la empresa asume el gasto) + confirmación.
+    const comercial = identidadDesdeExtraccion(reserva);
+    resumenEmitidoRef.current += 1;
+    const intro = resumenEmitidoRef.current > 1 ? 'Actualicé tu reserva:' : 'Te confirmo tu reserva:';
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `sum-${Date.now()}`,
+        autor: 'taxigreen',
+        hora: horaAhora(),
+        texto:
+          `${intro}\n` +
+          `• Recojo: ${reserva.punto_encuentro ?? reserva.origen_texto ?? 'por confirmar'}\n` +
+          `• Destino: ${reserva.destino_texto ?? 'por confirmar'}\n` +
+          `• Pasajero: ${reserva.pasajero_nombre ?? 'por confirmar'}\n` +
+          `• Fecha: ${formatValue(reserva.fecha_hora_servicio)}\n` +
+          `• Cliente: ${comercial.resumen}\n` +
+          `${pagoPreview ? `• Tarifa estimada: ${pagoPreview.montoEtiqueta}\n` : ''}` +
+          `• ${comercial.pagoChat}\n` +
+          `¿La confirmo? Responde "Sí" y queda lista.`,
+      },
+    ]);
+    setEsperandoConfirmacionCliente(true);
   }, [
     copilotoAuto, extraccion, confirmada, loading, selectedId,
     pagoPreview, pagoPreviewLoading, cotizacionVersion, esperandoConfirmacionCliente, guidedStep,
@@ -1871,7 +2088,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                             <ComponenteInteractivoChat
                               contestado={isContestado}
                               interactivo={message.interactivo}
-                              onSeleccionar={(valor, etiqueta) => respondInteractivo(message.id, valor, etiqueta)}
+                              onSeleccionar={(valor, etiqueta, coords) => respondInteractivo(message.id, valor, etiqueta, coords)}
                               onRetroceder={!isContestado && guidedHistory.length > 0 ? retrocederPaso : undefined}
                               seleccionado={seleccionado}
                             />
