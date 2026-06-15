@@ -357,25 +357,26 @@ function camposEsperados(reserva: ReservaExtraida): string[] {
   const campos = [...CAMPOS_BASE];
 
   // El punto que el cliente debe dar (el aeropuerto se completa solo según el flujo).
+  // El número de vuelo NO es vital: es opcional y solo ayuda al counter a ubicar al
+  // pasajero (flujo A). En el flujo B no participa el counter, así que nunca se exige.
   if (reserva.tipo_viaje === 'recojo_aeropuerto') {
-    // Flujo A: destino + vuelo (el vuelo da la hora real de llegada para el recojo).
-    campos.push('destino_texto', 'vuelo_codigo');
+    campos.push('destino_texto');
   } else if (reserva.tipo_viaje === 'traslado_aeropuerto') {
-    // Flujo B: punto de recojo + vuelo (para calcular la antelación a la salida).
-    campos.push('origen_texto', 'vuelo_codigo');
+    campos.push('origen_texto');
   } else {
     campos.push('origen_texto', 'destino_texto');
   }
 
-  // Vitales por perfil: el corporativo necesita empresa + RUC para cargar/facturar;
-  // el de hotel, el hotel; el particular NO necesita dar su nombre.
-  if (reserva.perfil_pasajero === 'corporativo') {
+  campos.push('responsable_pago');
+
+  // El RUC/empresa solo es vital cuando la EMPRESA asume el costo: ahí hay que
+  // identificarla para cargarle el gasto. Si el pasajero paga, es irrelevante.
+  if (reserva.responsable_pago === 'empresa') {
     campos.push('empresa_nombre', 'pasajero_ruc');
-  } else if (reserva.perfil_pasajero === 'hotel') {
+  } else if (reserva.responsable_pago === 'hotel') {
     campos.push('hotel_nombre');
   }
 
-  campos.push('responsable_pago');
   return [...new Set(campos)];
 }
 
@@ -463,7 +464,22 @@ function aplicarCoherenciaComercial(reserva: ReservaExtraida) {
     if (reserva.perfil_pasajero === 'corporativo') reserva.solicitante_tipo = 'empresa';
     if (reserva.perfil_pasajero === 'particular') reserva.solicitante_tipo = 'pasajero';
   }
+  // El pasajero que asume su propio viaje paga, por defecto, en efectivo. Esto deja
+  // SIEMPRE un método de pago para cotizar/crear (antes la tarifa no se mostraba si
+  // tipo_pago quedaba nulo) sin reabrir el caso hotel/empresa, que tienen el suyo.
+  if (reserva.responsable_pago === 'pasajero' && !reserva.tipo_pago) {
+    reserva.tipo_pago = 'efectivo';
+  }
   reserva.pasajeros_cantidad = reserva.pasajeros_cantidad ?? reserva.pasajeros;
+}
+
+// Aplica los datos explícitos del flujo guiado con prioridad máxima. Solo pisan los
+// valores presentes (un null/undefined del override NO borra lo ya extraído).
+function aplicarOverrides(reserva: ReservaExtraida, overrides: Partial<ReservaExtraida>) {
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined || value === null || value === '') continue;
+    (reserva as Record<string, unknown>)[key] = value;
+  }
 }
 
 export class ExtractorDeterminista {
@@ -546,6 +562,8 @@ export class ExtractorDeterminista {
       ? this.extraerParcial(parsed.contextoConversacion, parsed.fechaActualIso)
       : null;
     const reserva = mergeConContexto(actual, contexto);
+    // El flujo guiado manda: sus datos explícitos pisan lo inferido por regex.
+    if (parsed.overrides) aplicarOverrides(reserva, parsed.overrides);
     aplicarCoherenciaComercial(reserva);
 
     const esperados = camposEsperados(reserva);

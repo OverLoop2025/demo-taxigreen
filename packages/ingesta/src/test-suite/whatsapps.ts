@@ -104,7 +104,9 @@ export const WHATSAPP_CASOS_S4: WhatsappCaso[] = [
       pasajero_ruc: null,
       perfil_pasajero: 'corporativo',
       responsable_pago: 'pasajero',
-      tipo_pago: null,
+      // RUC inválido ⇒ la empresa no puede asumir el costo ⇒ paga el pasajero, y por
+      // defecto en efectivo (siempre queda un método para cotizar/crear).
+      tipo_pago: 'efectivo',
     },
   },
   {
@@ -158,6 +160,7 @@ export const WHATSAPP_CASOS_S4: WhatsappCaso[] = [
       fechaActualIso: FECHA_REFERENCIA_S4,
       mensaje: 'Necesito un taxi bonito mañana.',
     },
-    esperadoMinimo: { destino_texto: null, tipo_pago: null },
+    // Sigue faltando el destino (pide aclaración); el pasajero paga en efectivo por defecto.
+    esperadoMinimo: { destino_texto: null, tipo_pago: 'efectivo' },
   },
 ];

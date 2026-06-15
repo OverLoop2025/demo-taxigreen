@@ -80,6 +80,10 @@ export const extractorInputSchema = z.object({
   mensaje: z.string().min(1),
   contextoConversacion: z.string().optional(),
   fechaActualIso: z.string().optional(),
+  // Overrides estructurados (flujo guiado del simulador): datos que el cliente
+  // eligió o escribió EXPLÍCITAMENTE (ubicación con coords, RUC, responsable de
+  // pago, fecha ISO…). Se aplican con máxima prioridad, sin re-derivar por regex.
+  overrides: reservaExtraidaSchema.partial().optional(),
 });
 
 export type CanalOrigen = z.infer<typeof canalOrigenSchema>;

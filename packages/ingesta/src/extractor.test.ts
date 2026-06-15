@@ -42,7 +42,8 @@ describe('ExtractorDeterminista', () => {
     // mensaje sin origen ni destino aún cae en confianza moderada-baja y pide datos.
     expect(result.confianza).toBeLessThanOrEqual(0.6);
     expect(result.reserva.destino_texto).toBeNull();
-    expect(result.reserva.tipo_pago).toBeNull();
+    // El pasajero paga en efectivo por defecto; lo que falta es el destino, no el método.
+    expect(result.reserva.tipo_pago).toBe('efectivo');
     expect(result.preguntas_aclaracion.length).toBeGreaterThan(0);
   });
 
@@ -69,7 +70,8 @@ describe('ExtractorDeterminista', () => {
     expect(result.reserva.origen_texto).toBe('Hotel Costa Verde, Av. Malecón 200, Miraflores');
     expect(result.reserva.destino_texto).toBe('Aeropuerto Jorge Chávez - Salidas');
     expect(result.reserva.punto_encuentro).toBeNull();
-    expect(result.campos_esperados).toContain('vuelo_codigo');
+    // El vuelo es opcional (ayuda al counter en A; en B no participa el counter).
+    expect(result.campos_esperados).not.toContain('vuelo_codigo');
     expect(result.campos_esperados).not.toContain('punto_encuentro');
   });
 
@@ -130,7 +132,8 @@ describe('ExtractorDeterminista', () => {
         esperado: {
           perfil_pasajero: 'corporativo',
           responsable_pago: 'pasajero',
-          tipo_pago: null,
+          // Sin convenio la empresa no asume el costo ⇒ paga el pasajero (efectivo por defecto).
+          tipo_pago: 'efectivo',
           convenio_validado_demo: false,
           requiere_factura: true,
         },
@@ -315,5 +318,39 @@ describe('ExtractorDeterminista', () => {
     });
     expect(corporativo.campos_esperados).toContain('empresa_nombre');
     expect(corporativo.campos_esperados).toContain('pasajero_ruc');
+  });
+
+  it('aplica overrides estructurados del flujo guiado con prioridad máxima (coords y RUC reales)', () => {
+    // El flujo guiado entrega ubicación con coordenadas y RUC que el regex NUNCA
+    // podría parsear ("Mi ubicación GPS (…)"). Los overrides los fijan directo.
+    const result = extraerReservaDeterminista({
+      fechaActualIso: FECHA_REFERENCIA_S4,
+      mensaje: 'Necesito que me recojan en el aeropuerto Jorge Chávez.',
+      overrides: {
+        tipo_viaje: 'recojo_aeropuerto',
+        perfil_pasajero: 'corporativo',
+        responsable_pago: 'empresa',
+        pasajero_nombre: 'Jose Alvarez',
+        pasajero_telefono: '959799190',
+        fecha_hora_servicio: '2026-06-02T14:30:00',
+        destino_texto: 'Punto marcado en el mapa',
+        destino_lat: -12.121,
+        destino_lng: -77.03,
+        pasajero_ruc: '20100070970',
+        empresa_nombre: 'ACME Perú',
+        vuelo_codigo: 'LA2456',
+      },
+    });
+
+    expect(result.reserva.destino_texto).toBe('Punto marcado en el mapa');
+    expect(result.reserva.destino_lat).toBe(-12.121);
+    expect(result.reserva.destino_lng).toBe(-77.03);
+    expect(result.reserva.pasajero_ruc).toBe('20100070970');
+    expect(result.reserva.responsable_pago).toBe('empresa');
+    expect(result.reserva.tipo_pago).toBe('factura_empresa');
+    expect(result.reserva.fecha_hora_servicio).toBe('2026-06-02T14:30:00');
+    // Con todos los vitales cubiertos por overrides, no debe quedar nada por aclarar.
+    expect(result.preguntas_aclaracion).toHaveLength(0);
+    expect(result.confianza).toBeGreaterThanOrEqual(0.9);
   });
 });
