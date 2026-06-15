@@ -72,6 +72,16 @@ async function asignarReserva({
     });
     if (!reserva) throw new Error('Reserva no encontrada.');
 
+    // Coherencia: no se cambia conductor/unidad si la reserva ya está cerrada,
+    // cancelada o el viaje está en curso (el pasajero ya va en ruta).
+    if (
+      reserva.estado === EstadoReserva.cancelada ||
+      reserva.estado === EstadoReserva.por_liquidar ||
+      reserva.estado === EstadoReserva.en_curso
+    ) {
+      throw new Error('Esta reserva ya no admite cambio de conductor ni unidad.');
+    }
+
     const conductor = await tx.conductores.findFirst({
       where: {
         id: conductorId,
@@ -333,9 +343,17 @@ export async function asignarVehiculo(formData: FormData): Promise<ActionResult>
         id: true,
         voucher_codigo: true,
         conductor_id: true,
+        estado: true,
       },
     });
     if (!reserva?.conductor_id) throw new Error('Primero asigna un conductor.');
+    if (
+      reserva.estado === EstadoReserva.cancelada ||
+      reserva.estado === EstadoReserva.por_liquidar ||
+      reserva.estado === EstadoReserva.en_curso
+    ) {
+      throw new Error('Esta reserva ya no admite cambio de unidad.');
+    }
 
     const vehiculo = await tx.vehiculos.findFirst({
       where: { id: vehiculoId, tenant_id: tenantId },

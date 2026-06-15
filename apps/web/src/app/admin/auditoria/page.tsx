@@ -41,32 +41,114 @@ function actorLabel(actor: string, id: string | null) {
   return id ? `${base} · ${id.slice(0, 8)}` : base;
 }
 
-function actionLabel(action: string) {
-  const labels: Record<string, string> = {
-    reserva_ingesta_whatsapp_creada: 'Reserva creada por WhatsApp',
-    reserva_asignada: 'Conductor asignado',
-    reserva_sugerencia_override: 'Operador eligió otra opción',
-    login_admin: 'Ingreso de operador',
-    login_conductor: 'Ingreso de conductor',
-    voucher_qr_emitido: 'Pase preparado',
-    voucher_qr_verificado: 'Pase validado',
-    voucher_qr_rechazado: 'Pase rechazado',
-    voucher_qr_consumido: 'Pase usado en mostrador',
-    voucher_qr_reuso_bloqueado: 'Reuso de pase bloqueado',
-    abordaje_autorizado: 'Luz verde enviada',
-    pago_demo_autorizado: 'Pago autorizado',
-    pago_demo_cerrado: 'Pago cerrado',
-    comprobante_preparado: 'Comprobante listo',
-    comprobante_pasajero_preparado: 'Datos de comprobante actualizados',
-    driver_estado_viaje_actualizado: 'Conductor actualizó el viaje',
-    driver_inicio_bloqueado_counter: 'Inicio bloqueado por mostrador',
-    comprobante_pdf_generado: 'Comprobante generado',
-    reniec_lookup: 'Documento consultado',
-    incidencia_creada: 'Caso abierto',
-    incidencia_respuesta_conductor: 'Respuesta del conductor',
-    incidencia_cerrada: 'Caso cerrado',
-  };
-  return labels[action] ?? action.replaceAll('_', ' ');
+// Diccionario único de acciones en lenguaje de negocio (sin tecnicismos): se usa
+// tanto para mostrar la fila como para poblar el selector de filtro.
+const ACCION_LABELS: Record<string, string> = {
+  login_admin: 'Ingresó un administrador',
+  login_counter: 'Ingresó personal de mostrador',
+  login_driver: 'Ingresó un conductor',
+  login_driver_mobile: 'Ingresó un conductor (app móvil)',
+  reserva_ingesta_whatsapp_creada: 'Se creó una reserva por WhatsApp',
+  reserva_asignada: 'Se asignó conductor a la reserva',
+  vehiculo_asignado: 'Se asignó o cambió la unidad',
+  reserva_sugerencia_override: 'El operador eligió otra opción del copiloto',
+  reserva_excepcion: 'Se marcó la reserva para revisión',
+  reserva_requiere_reasignacion: 'La reserva necesita una nueva unidad',
+  reserva_cancelada_pasajero: 'El pasajero canceló la reserva',
+  cancelacion_solicitada_pasajero: 'El pasajero pidió cancelar',
+  viaje_cancelado_por_conductor: 'El conductor canceló el viaje',
+  reserva_calificada: 'El pasajero calificó el servicio',
+  driver_estado_viaje_actualizado: 'El conductor avanzó el viaje',
+  driver_inicio_bloqueado_counter: 'No pudo iniciar: falta validar en mostrador',
+  driver_push_token_registrado: 'El conductor activó los avisos en su teléfono',
+  notificacion_conductor_pendiente: 'Se envió un aviso al conductor',
+  voucher_qr_emitido: 'Se preparó el pase de abordaje',
+  voucher_qr_consumido: 'Se usó el pase en el mostrador',
+  voucher_qr_reuso_bloqueado: 'Se bloqueó el reúso de un pase',
+  abordaje_autorizado: 'El mostrador dio luz verde al viaje',
+  pago_demo_autorizado: 'Se autorizó el pago',
+  pago_demo_cerrado: 'Se cerró el pago al terminar',
+  pago_demo_anulado_cancelacion: 'Se anuló el pago por cancelación',
+  pago_pasajero_capturado_demo: 'El pasajero registró su pago',
+  comprobante_preparado: 'Se preparó el comprobante',
+  comprobante_pasajero_preparado: 'El pasajero completó sus datos de comprobante',
+  comprobante_pdf_generado: 'Se generó el comprobante en PDF',
+  reniec_lookup: 'Se consultó un documento de identidad',
+  ubicacion_marcada_pasajero: 'El pasajero marcó su ubicación en el mapa',
+  incidencia_objeto_olvidado_creada: 'El pasajero reportó un objeto olvidado',
+  incidencia_objeto_olvidado_respondida: 'Se respondió un caso de objeto olvidado',
+  reporte_objeto: 'Reporte de objeto olvidado',
+  reporte_objeto_olvidado: 'Reporte de objeto olvidado',
+  objeto_encontrado: 'Se encontró el objeto olvidado',
+  entrega_coordinada: 'Se coordinó la entrega del objeto',
+};
+
+// Acciones ofrecidas en el selector de filtro, agrupadas por lo que le importa al negocio.
+const FILTRO_ACCIONES: Array<{ grupo: string; opciones: Array<{ value: string; label: string }> }> = [
+  {
+    grupo: 'Reservas y asignación',
+    opciones: [
+      { value: 'reserva_ingesta_whatsapp_creada', label: 'Reserva creada por WhatsApp' },
+      { value: 'reserva_asignada', label: 'Conductor asignado' },
+      { value: 'vehiculo_asignado', label: 'Unidad asignada o cambiada' },
+      { value: 'reserva_excepcion', label: 'Reserva marcada para revisión' },
+      { value: 'reserva_cancelada_pasajero', label: 'Pasajero canceló' },
+      { value: 'viaje_cancelado_por_conductor', label: 'Conductor canceló' },
+    ],
+  },
+  {
+    grupo: 'Viaje y mostrador',
+    opciones: [
+      { value: 'driver_estado_viaje_actualizado', label: 'El conductor avanzó el viaje' },
+      { value: 'voucher_qr_consumido', label: 'Pase usado en mostrador' },
+      { value: 'abordaje_autorizado', label: 'Mostrador dio luz verde' },
+      { value: 'ubicacion_marcada_pasajero', label: 'Pasajero marcó ubicación' },
+    ],
+  },
+  {
+    grupo: 'Pagos y comprobantes',
+    opciones: [
+      { value: 'pago_demo_autorizado', label: 'Pago autorizado' },
+      { value: 'pago_demo_cerrado', label: 'Pago cerrado' },
+      { value: 'comprobante_pdf_generado', label: 'Comprobante generado' },
+    ],
+  },
+  {
+    grupo: 'Casos e ingresos',
+    opciones: [
+      { value: 'incidencia_objeto_olvidado_creada', label: 'Objeto olvidado reportado' },
+      { value: 'reserva_calificada', label: 'Servicio calificado' },
+      { value: 'login_admin', label: 'Ingreso de administrador' },
+      { value: 'login_counter', label: 'Ingreso de mostrador' },
+      { value: 'login_driver', label: 'Ingreso de conductor' },
+    ],
+  },
+];
+
+const FILTRO_ACTORES: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Cualquier responsable' },
+  { value: 'usuario', label: 'Operador / administrador' },
+  { value: 'conductor', label: 'Conductor' },
+  { value: 'pasajero', label: 'Pasajero' },
+  { value: 'sistema', label: 'Sistema / automático' },
+];
+
+const ESTADO_VIAJE_FRASE: Record<string, string> = {
+  en_camino: 'El conductor inició la ruta',
+  en_punto: 'El conductor llegó al punto de encuentro',
+  a_bordo: 'Pasajero a bordo · viaje en curso',
+  finalizado: 'El conductor finalizó el viaje',
+  cancelado: 'El conductor canceló el viaje',
+  asignado: 'El conductor recibió la asignación',
+};
+
+function actionLabel(action: string, payload?: unknown) {
+  // Para el avance del viaje, mostrar el estado concreto si el payload lo trae.
+  if (action === 'driver_estado_viaje_actualizado' && payload && typeof payload === 'object') {
+    const estado = (payload as { estado_viaje_nuevo?: string }).estado_viaje_nuevo;
+    if (estado && ESTADO_VIAJE_FRASE[estado]) return ESTADO_VIAJE_FRASE[estado];
+  }
+  return ACCION_LABELS[action] ?? action.replaceAll('_', ' ');
 }
 
 // Resumen legible del detalle (nunca JSON crudo): "Nuevo estado: en camino · Origen: copiloto".
@@ -137,7 +219,7 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
     id: event.id,
     ts: event.ts.toLocaleString('es-PE', { timeZone: 'America/Lima' }),
     actor: actorLabel(event.actor_tipo, event.actor_id),
-    action: actionLabel(event.action),
+    action: actionLabel(event.action, event.payload),
     target: event.target_id ? event.target_id.slice(0, 8) : event.target_table ?? '—',
     payload: resumenPayload(event.payload),
   }));
@@ -150,7 +232,12 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-product">Panel de despacho</p>
-            <h1 className="mt-1 text-2xl font-semibold text-product-deep dark:text-product-200">Registro de actividad</h1>
+            <h1 className="mt-1 text-2xl font-semibold text-product-deep dark:text-product-200">
+              Quién hizo qué
+            </h1>
+            <p className="mt-1 text-sm text-foreground-muted">
+              Cada movimiento del servicio queda registrado: quién lo hizo, qué hizo y cuándo.
+            </p>
           </div>
           <Link className="text-sm font-medium text-product hover:text-product-deep dark:hover:text-product-200" href="/admin">
             Volver
@@ -158,31 +245,58 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
         </div>
 
         <form className="mb-5 grid gap-3 md:grid-cols-5">
-          <input
-            className="h-10 rounded-md border border-border px-3 text-sm"
-            defaultValue={params.action}
-            name="action"
-            placeholder="Buscar acción"
-          />
-          <input
-            className="h-10 rounded-md border border-border px-3 text-sm"
-            defaultValue={params.actor}
-            name="actor"
-            placeholder="Responsable"
-          />
-          <input
-            className="h-10 rounded-md border border-border px-3 text-sm"
-            defaultValue={params.from}
-            name="from"
-            type="date"
-          />
-          <input
-            className="h-10 rounded-md border border-border px-3 text-sm"
-            defaultValue={params.to}
-            name="to"
-            type="date"
-          />
-          <button className="h-10 rounded-md bg-product px-4 text-sm font-medium text-white" type="submit">
+          <label className="md:col-span-2 flex flex-col gap-1 text-xs font-medium text-foreground-muted">
+            ¿Qué pasó?
+            <select
+              className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
+              defaultValue={params.action ?? ''}
+              name="action"
+            >
+              <option value="">Cualquier acción</option>
+              {FILTRO_ACCIONES.map((grupo) => (
+                <optgroup key={grupo.grupo} label={grupo.grupo}>
+                  {grupo.opciones.map((op) => (
+                    <option key={op.value} value={op.value}>
+                      {op.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-foreground-muted">
+            ¿Quién?
+            <select
+              className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
+              defaultValue={params.actor ?? ''}
+              name="actor"
+            >
+              {FILTRO_ACTORES.map((op) => (
+                <option key={op.value || 'todos'} value={op.value}>
+                  {op.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-foreground-muted">
+            Desde
+            <input
+              className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
+              defaultValue={params.from}
+              name="from"
+              type="date"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-foreground-muted">
+            Hasta
+            <input
+              className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
+              defaultValue={params.to}
+              name="to"
+              type="date"
+            />
+          </label>
+          <button className="h-10 self-end rounded-md bg-product px-4 text-sm font-medium text-white md:col-span-5 md:w-40" type="submit">
             Filtrar
           </button>
         </form>

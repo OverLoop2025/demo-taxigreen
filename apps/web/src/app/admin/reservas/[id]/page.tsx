@@ -84,8 +84,38 @@ function actionLabel(action: string) {
     driver_inicio_bloqueado_counter: 'Inicio bloqueado por mostrador',
     vehiculo_asignado: 'Unidad actualizada',
     reniec_lookup: 'Documento consultado',
+    reserva_cancelada_pasajero: 'El pasajero canceló',
+    pago_demo_anulado_cancelacion: 'Pago anulado por cancelación',
   };
   return labels[action] ?? action.replaceAll('_', ' ');
+}
+
+// Traduce el estado del viaje a una frase concreta de negocio (no "actualizó el viaje").
+function estadoViajeFrase(estado: string | undefined): string | null {
+  const frases: Record<string, string> = {
+    en_camino: 'Conductor inició la ruta',
+    en_punto: 'Conductor llegó al punto de encuentro',
+    a_bordo: 'Pasajero a bordo · viaje en curso',
+    finalizado: 'Conductor finalizó el viaje',
+    cancelado: 'Conductor canceló el viaje',
+    asignado: 'Conductor recibió la asignación',
+  };
+  return estado ? frases[estado] ?? null : null;
+}
+
+// Etiqueta clara para cada evento: si es un cambio de estado del conductor, usa la
+// frase concreta leída del payload (no el genérico "Conductor actualizó el viaje").
+function actividadLabel(event: { action: string; payload: string }): string {
+  if (event.action === 'driver_estado_viaje_actualizado') {
+    try {
+      const data = JSON.parse(event.payload) as { estado_viaje_nuevo?: string };
+      const frase = estadoViajeFrase(data.estado_viaje_nuevo);
+      if (frase) return frase;
+    } catch {
+      // payload no parseable: cae a la etiqueta genérica
+    }
+  }
+  return actionLabel(event.action);
 }
 
 function reservaAdmiteSugerencia(estado: string) {
@@ -155,13 +185,13 @@ export default async function AdminReservaDetallePage({ params }: { params: Prom
               <span
                 className={`rounded-full px-3 py-1 text-xs font-semibold ${
                   reserva.abordaje.requiereMostrador
-                    ? 'bg-amber-100 text-amber-800'
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300'
                     : 'bg-success/10 text-success'
                 }`}
               >
                 {reserva.abordaje.requiereMostrador ? 'Requiere mostrador' : 'Sin mostrador'}
               </span>
-              <span className="rounded-full bg-product-muted px-3 py-1 text-xs font-semibold text-product-deep">
+              <span className="rounded-full bg-product-muted px-3 py-1 text-xs font-semibold text-product-deep dark:text-product-200">
                 {reserva.comercial.resumen}
               </span>
             </div>
@@ -305,7 +335,7 @@ export default async function AdminReservaDetallePage({ params }: { params: Prom
               <div className="divide-y divide-border">
                 {reserva.auditoria.map((event) => (
                   <div className="flex items-baseline justify-between gap-3 py-3 text-sm" key={event.id}>
-                    <span className="font-medium text-product-deep dark:text-product-200">{actionLabel(event.action)}</span>
+                    <span className="font-medium text-product-deep dark:text-product-200">{actividadLabel(event)}</span>
                     <span className="shrink-0 text-foreground-muted">{event.ts}</span>
                   </div>
                 ))}

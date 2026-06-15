@@ -35,6 +35,19 @@ function resultText(result: { ok: boolean; message: string } | null) {
   );
 }
 
+function motivoBloqueo(estado: string): string | null {
+  switch (estado) {
+    case 'cancelada':
+      return 'Esta reserva fue cancelada. Ya no se puede cambiar el conductor ni la unidad.';
+    case 'por_liquidar':
+      return 'El servicio ya se cerró. No se cambia conductor ni unidad de un viaje terminado.';
+    case 'en_curso':
+      return 'El viaje está en curso. No cambies el conductor con el pasajero ya en ruta.';
+    default:
+      return null;
+  }
+}
+
 export function ReservaDetalleActions({
   conductores,
   reserva,
@@ -49,6 +62,7 @@ export function ReservaDetalleActions({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [state, setState] = useState<{ ok: boolean; message: string } | null>(null);
+  const bloqueo = motivoBloqueo(reserva.estado);
 
   function runAction(
     event: FormEvent<HTMLFormElement>,
@@ -81,8 +95,14 @@ export function ReservaDetalleActions({
           {resultText(state)}
         </div>
       ) : null}
+      {bloqueo ? (
+        <div className="rounded-md border border-border bg-surface-muted px-4 py-3 text-sm text-foreground-muted" role="note">
+          {bloqueo}
+        </div>
+      ) : null}
+
       <form
-        className="rounded-md border border-border bg-surface p-5"
+        className={`rounded-md border border-border bg-surface p-5 ${bloqueo ? 'pointer-events-none opacity-50' : ''}`}
         onSubmit={(event) => runAction(event, asignarConductor)}
       >
         <input name="reserva_id" type="hidden" value={reserva.id} />
@@ -141,7 +161,7 @@ export function ReservaDetalleActions({
       </form>
 
       <form
-        className="rounded-md border border-border bg-surface p-5"
+        className={`rounded-md border border-border bg-surface p-5 ${bloqueo ? 'pointer-events-none opacity-50' : ''}`}
         onSubmit={(event) => runAction(event, asignarVehiculo)}
       >
         <input name="reserva_id" type="hidden" value={reserva.id} />

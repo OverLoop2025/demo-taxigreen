@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { RefreshCw, Satellite, WifiOff } from 'lucide-react';
+import { RefreshCw, Satellite, Search, WifiOff, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { AdminReservaRow } from '@/lib/admin/reservas';
@@ -54,6 +54,34 @@ function estadoLabel(estado: string) {
   return labels[estado] ?? estado.replaceAll('_', ' ');
 }
 
+type FiltroEstado = 'todas' | 'por_asignar' | 'en_camino' | 'cerradas' | 'revision' | 'canceladas';
+
+const FILTROS: Array<{ valor: FiltroEstado; etiqueta: string }> = [
+  { valor: 'todas', etiqueta: 'Todas' },
+  { valor: 'por_asignar', etiqueta: 'Por asignar' },
+  { valor: 'en_camino', etiqueta: 'En camino' },
+  { valor: 'revision', etiqueta: 'Por revisar' },
+  { valor: 'cerradas', etiqueta: 'Cerradas' },
+  { valor: 'canceladas', etiqueta: 'Canceladas' },
+];
+
+function coincideFiltro(reserva: AdminReservaRow, filtro: FiltroEstado): boolean {
+  switch (filtro) {
+    case 'por_asignar':
+      return !reserva.conductorId && !reserva.cancelada;
+    case 'en_camino':
+      return reserva.estado === 'en_curso';
+    case 'cerradas':
+      return reserva.estado === 'por_liquidar';
+    case 'revision':
+      return reserva.estado === 'necesita_revision' || reserva.estado === 'ingesta_pendiente';
+    case 'canceladas':
+      return Boolean(reserva.cancelada) || reserva.estado === 'cancelada';
+    default:
+      return true;
+  }
+}
+
 export function AdminReservasLive({
   initialReservas,
   tenantId,
@@ -64,6 +92,8 @@ export function AdminReservasLive({
   const [reservas, setReservas] = useState(initialReservas);
   const [status, setStatus] = useState<RealtimeStatus>('connecting');
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todas');
   const loadingRef = useRef(false);
 
   async function refreshReservas() {
@@ -139,6 +169,25 @@ export function AdminReservasLive({
     return { sinAsignar, enCurso, necesitanUnidad };
   }, [reservas]);
 
+  // Buscador (código, pasajero, destino, vuelo) + filtro por estado.
+  const reservasFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return reservas.filter((reserva) => {
+      if (!coincideFiltro(reserva, filtroEstado)) return false;
+      if (!q) return true;
+      return [
+        reserva.voucherCodigo,
+        reserva.pasajeroNombre,
+        reserva.destinoTexto,
+        reserva.origenTexto,
+        reserva.vueloCodigo,
+        reserva.conductorNombre,
+      ]
+        .filter(Boolean)
+        .some((campo) => String(campo).toLowerCase().includes(q));
+    });
+  }, [reservas, busqueda, filtroEstado]);
+
   return (
     <section className="space-y-4">
       {/* Resumen en tarjetas: tres números que importan, nada más. */}
@@ -206,9 +255,58 @@ export function AdminReservasLive({
         </button>
       </div>
 
+      {/* Buscador + filtros por estado: el operador encuentra una reserva al instante. */}
+      <div className="space-y-3 rounded-2xl border border-border bg-surface p-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-muted" />
+          <input
+            className="h-10 w-full rounded-lg border border-border bg-surface pl-9 pr-9 text-sm text-foreground placeholder:text-foreground-muted focus:border-product focus:outline-none focus:ring-2 focus:ring-product/20"
+            onChange={(event) => setBusqueda(event.target.value)}
+            placeholder="Buscar por código, pasajero, destino, vuelo o conductor…"
+            value={busqueda}
+          />
+          {busqueda ? (
+            <button
+              aria-label="Limpiar búsqueda"
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-foreground-muted hover:bg-surface-muted"
+              onClick={() => setBusqueda('')}
+              type="button"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {FILTROS.map((filtro) => {
+            const activo = filtroEstado === filtro.valor;
+            const cuenta =
+              filtro.valor === 'todas'
+                ? reservas.length
+                : reservas.filter((reserva) => coincideFiltro(reserva, filtro.valor)).length;
+            return (
+              <button
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  activo
+                    ? 'border-product bg-product text-white'
+                    : 'border-border bg-surface text-foreground-muted hover:bg-surface-muted'
+                }`}
+                key={filtro.valor}
+                onClick={() => setFiltroEstado(filtro.valor)}
+                type="button"
+              >
+                {filtro.etiqueta}
+                <span className={`rounded-full px-1.5 text-[10px] ${activo ? 'bg-white/25' : 'bg-surface-muted'}`}>
+                  {cuenta}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Tarjetas por servicio: lo humano primero (quién viaja, a dónde, con quién). */}
       <div className="grid gap-3 lg:grid-cols-2">
-        {reservas.map((reserva) => (
+        {reservasFiltradas.map((reserva) => (
           <Link
             className={`rounded-2xl border bg-surface p-4 transition hover:border-product/60 hover:shadow-md ${
               reserva.necesitaNuevaUnidad ? 'border-amber-400/60' : 'border-border'
@@ -267,9 +365,11 @@ export function AdminReservasLive({
             </div>
           </Link>
         ))}
-        {reservas.length === 0 ? (
+        {reservasFiltradas.length === 0 ? (
           <div className="rounded-2xl border border-border bg-surface px-4 py-10 text-center text-sm text-foreground-muted lg:col-span-2">
-            Aún no hay servicios para esta empresa.
+            {reservas.length === 0
+              ? 'Aún no hay servicios para esta empresa.'
+              : 'Ningún servicio coincide con tu búsqueda o filtro.'}
           </div>
         ) : null}
       </div>
