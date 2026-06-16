@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Smartphone,
 } from 'lucide-react';
+import { AuthorCredit } from '@/components/brand/author-credit';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { GradientHeading } from '@/components/ui/gradient-heading';
 import {
@@ -198,11 +199,6 @@ export default function HomePage() {
                 </a>
               </div>
 
-              <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-white/85">
-                <MessageCircle aria-hidden="true" className="h-4 w-4 text-product-400" />
-                Escríbenos: <a className="underline-offset-2 hover:underline" href={whatsappHref}>959 799 190</a>
-              </p>
-
               <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-medium text-white/70">
                 <span className="flex items-center gap-2">
                   <Smartphone aria-hidden="true" className="h-4 w-4 text-product-400" />
@@ -325,9 +321,7 @@ export default function HomePage() {
             </a>
           </div>
         </div>
-        <p className="mx-auto mt-4 max-w-7xl text-xs text-foreground-muted/70">
-          Hecho por José Álvarez
-        </p>
+        <AuthorCredit className="mx-auto mt-4 max-w-7xl" />
       </footer>
     </main>
   );
