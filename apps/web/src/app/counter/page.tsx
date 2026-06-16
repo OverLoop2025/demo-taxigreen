@@ -1,3 +1,4 @@
+import { AuthorCredit } from '@/components/brand/author-credit';
 import { BrandHeader } from '@/components/brand-header';
 import { auth } from '@/lib/auth';
 import { VoucherValidator } from './voucher-validator';
@@ -27,6 +28,7 @@ export default async function CounterPage() {
         <div className="mt-8">
           <VoucherValidator />
         </div>
+        <AuthorCredit className="mt-10 text-center" />
       </section>
     </main>
   );

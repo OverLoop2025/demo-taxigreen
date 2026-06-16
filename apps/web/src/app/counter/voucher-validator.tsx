@@ -8,6 +8,7 @@ import {
   CreditCard,
   Loader2,
   MapPin,
+  Clock,
   Megaphone,
   Plane,
   QrCode,
@@ -79,7 +80,30 @@ type LetreroData = {
   vuelo: string | null;
   punto: string | null;
   codigo: string;
+  fechaServicio?: string | null;
+  estado?: string;
 };
+
+// Clasifica y etiqueta la hora de llegada para que el counter priorice de un vistazo.
+function infoLlegada(iso: string | null | undefined): {
+  proximo: boolean;
+  etiqueta: string;
+  urgente: boolean;
+} {
+  if (!iso) return { proximo: false, etiqueta: 'Sin hora', urgente: false };
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return { proximo: false, etiqueta: 'Sin hora', urgente: false };
+  const diffMin = Math.round((t - Date.now()) / 60000);
+  const hora = new Date(iso).toLocaleTimeString('es-PE', {
+    timeZone: 'America/Lima',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  if (diffMin <= -10) return { proximo: true, etiqueta: `${hora} · ya debería estar`, urgente: true };
+  if (diffMin <= 0) return { proximo: true, etiqueta: `${hora} · llegando`, urgente: true };
+  if (diffMin <= 90) return { proximo: true, etiqueta: `${hora} · en ${diffMin} min`, urgente: diffMin <= 30 };
+  return { proximo: false, etiqueta: hora, urgente: false };
+}
 
 function voucherIdFromTokenOrCode(value: string) {
   const trimmed = value.trim();
@@ -275,8 +299,9 @@ export function VoucherValidator() {
   // Letrero externo: datos del pase obtenidos SIN avanzar el estado de validación.
   // Se activa desde "Pasajeros en sala" para llamar al pasajero antes de escanear.
   const [letreroExterno, setLetreroExterno] = useState<LetreroData | null>(null);
-  // Lista de pasajeros pendientes de validación
-  const [listaVisible, setListaVisible] = useState(false);
+  // Lista de pasajeros pendientes de validación (visible por defecto: es lo primero
+  // que el counter necesita ver al abrir la tablet).
+  const [listaVisible, setListaVisible] = useState(true);
   const [pasajerosPendientes, setPasajerosPendientes] = useState<LetreroData[]>([]);
   const [listaLoading, setListaLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -334,6 +359,8 @@ export function VoucherValidator() {
             vuelo_codigo: string | null;
             punto_encuentro: string | null;
             origen_texto: string;
+            fecha_hora_servicio: string | null;
+            estado: string;
           }>;
         };
         setPasajerosPendientes(
@@ -342,6 +369,8 @@ export function VoucherValidator() {
             vuelo: p.vuelo_codigo,
             punto: p.punto_encuentro ?? p.origen_texto ?? null,
             codigo: p.voucher_codigo,
+            fechaServicio: p.fecha_hora_servicio,
+            estado: p.estado,
           })),
         );
       }
@@ -351,6 +380,14 @@ export function VoucherValidator() {
       setListaLoading(false);
     }
   };
+
+  // Refresco automático: la sala se llena sola conforme entran reservas, sin recargar.
+  // `loadLista` solo escribe estado; reusar su closure inicial es intencional.
+  useEffect(() => {
+    void loadLista();
+    const id = setInterval(() => void loadLista(), 15000);
+    return () => clearInterval(id);
+  }, []);
 
   const consume = async () => {
     if (!token) return;
@@ -604,7 +641,7 @@ export function VoucherValidator() {
                 <div className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-product" />
                   <span className="text-sm font-semibold text-foreground">Pasajeros en sala</span>
-                  {pasajerosPendientes.length > 0 && !listaVisible ? (
+                  {pasajerosPendientes.length > 0 ? (
                     <span className="rounded-full bg-product px-2 py-0.5 text-xs font-bold text-white">
                       {pasajerosPendientes.length}
                     </span>
@@ -617,24 +654,46 @@ export function VoucherValidator() {
 
               {listaVisible && (
                 <div className="border-t border-border">
-                  {listaLoading ? (
+                  {listaLoading && pasajerosPendientes.length === 0 ? (
                     <div className="flex items-center justify-center py-6">
                       <Loader2 className="h-5 w-5 animate-spin text-product" />
                     </div>
                   ) : pasajerosPendientes.length === 0 ? (
-                    <p className="px-4 py-4 text-center text-sm text-foreground-muted">
-                      No hay pasajeros esperando en este momento.
+                    <p className="px-4 py-5 text-center text-sm text-foreground-muted">
+                      Aún no hay pasajeros en sala. Aparecerán aquí en cuanto reserven.
                     </p>
                   ) : (
-                    <div className="divide-y divide-border">
-                      {pasajerosPendientes.map((p) => (
+                    (() => {
+                      const items = pasajerosPendientes.map((p) => ({ p, info: infoLlegada(p.fechaServicio) }));
+                      const proximos = items.filter((x) => x.info.proximo);
+                      const lejanos = items.filter((x) => !x.info.proximo);
+                      const fila = ({ p, info }: (typeof items)[number]) => (
                         <div key={p.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-foreground">{p.nombre}</p>
-                            <p className="text-xs text-foreground-muted">
-                              {[p.vuelo, p.punto].filter(Boolean).join(' · ')}
-                            </p>
-                            <p className="text-xs text-foreground-muted">{p.codigo}</p>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate font-semibold text-foreground">{p.nombre}</p>
+                              {info.urgente ? (
+                                <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
+                                  Prioridad
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-foreground-muted">
+                              <span className={`inline-flex items-center gap-1 font-medium ${info.urgente ? 'text-warning' : ''}`}>
+                                <Clock className="h-3.5 w-3.5" /> {info.etiqueta}
+                              </span>
+                              {p.punto ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <MapPin className="h-3.5 w-3.5" /> {p.punto}
+                                </span>
+                              ) : null}
+                              {p.vuelo ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Plane className="h-3.5 w-3.5" /> {p.vuelo}
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-foreground-muted/70">{p.codigo}</p>
                           </div>
                           <button
                             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-product px-3 text-xs font-bold text-white transition hover:bg-product/90"
@@ -648,8 +707,34 @@ export function VoucherValidator() {
                             Letrero
                           </button>
                         </div>
-                      ))}
-                    </div>
+                      );
+                      return (
+                        <div>
+                          {proximos.length > 0 ? (
+                            <div>
+                              <div className="flex items-center gap-2 bg-warning/5 px-4 py-2">
+                                <span className="relative flex h-2 w-2">
+                                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75" />
+                                  <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
+                                </span>
+                                <span className="text-xs font-bold uppercase tracking-wide text-warning">
+                                  Próximos a llegar
+                                </span>
+                              </div>
+                              <div className="divide-y divide-border">{proximos.map(fila)}</div>
+                            </div>
+                          ) : null}
+                          {lejanos.length > 0 ? (
+                            <div>
+                              <div className="bg-surface px-4 py-2 text-xs font-bold uppercase tracking-wide text-foreground-muted">
+                                Más tarde
+                              </div>
+                              <div className="divide-y divide-border">{lejanos.map(fila)}</div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
               )}
