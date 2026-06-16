@@ -66,6 +66,8 @@ export type CerrarPagoDemoInput = {
 export type CapturarPagoPasajeroInput = {
   reservaId: string;
   accion: 'pagar_app' | 'confirmar_efectivo';
+  // Marca elegida en la pasarela demo (tarjeta/yape/plin/paypal). Solo etiqueta.
+  metodo?: string | null;
   now?: Date;
 };
 
@@ -437,6 +439,9 @@ export async function capturarPagoPasajeroDemo(
       capturado_en: now,
       proveedor_demo: proveedorDemo,
       autorizacion: autorizacion ?? pago.autorizacion,
+      // Si el pasajero elige pagar digitalmente en la pasarela demo, el método pasa
+      // a `app_pago` aunque la reserva naciera con efectivo por defecto.
+      ...(input.accion === 'pagar_app' ? { tipo_pago: TipoPago.app_pago } : {}),
       payload_demo: {
         ...(pago.payload_demo && typeof pago.payload_demo === 'object' && !Array.isArray(pago.payload_demo)
           ? pago.payload_demo
@@ -444,6 +449,7 @@ export async function capturarPagoPasajeroDemo(
         captura_pasajero: {
           accion: input.accion,
           proveedor: proveedorDemo,
+          metodo: input.metodo ?? null,
           ts: now.toISOString(),
         },
       } satisfies Prisma.InputJsonValue,
