@@ -3,26 +3,32 @@
 import {
   Car,
   CheckCircle2,
+  ChevronLeft,
   CreditCard,
   Crosshair,
   FileText,
   Loader2,
+  Lock,
   MapPin,
   Maximize2,
   MessageCircle,
   PackageSearch,
   Phone,
   Plane,
+  QrCode,
   Search,
   Send,
   ShieldCheck,
+  Smartphone,
   Star,
   UserRound,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { estadoViajePasajero, formatLlegada, type EstadoViaje } from '@taxigreen/shared/copy';
+import { AuthorCredit } from '@/components/brand/author-credit';
 import { BottomSheet, type SheetLevel } from '@/components/product/bottom-sheet';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { useTheme, type Theme } from '@/components/theme/theme-provider';
@@ -675,58 +681,274 @@ function StarRatingInput({
   );
 }
 
-// F6: el pasajero paga al finalizar. Pasarela determinista (sin red real): los
-// pasos animados son narrativa; la captura ocurre en un solo POST al confirmar.
+// Patrón QR determinista (estético) para Yape/Plin. No es un QR real: es atmósfera
+// de pasarela para la demo. Esquinas con "finder patterns" para que se lea como QR.
+function fauxQr(seed: string, size = 23): boolean[][] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(h ^ seed.charCodeAt(i), 16777619) >>> 0);
+  const rand = () => {
+    h = (Math.imul(h, 1103515245) + 12345) >>> 0;
+    return h / 0xffffffff;
+  };
+  const g: boolean[][] = Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => rand() > 0.52),
+  );
+  const stamp = (r0: number, c0: number) => {
+    for (let r = 0; r < 7; r++)
+      for (let c = 0; c < 7; c++) {
+        const edge = r === 0 || r === 6 || c === 0 || c === 6;
+        const inner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        const row = g[r0 + r];
+        if (row) row[c0 + c] = edge || inner;
+      }
+  };
+  stamp(0, 0);
+  stamp(0, size - 7);
+  stamp(size - 7, 0);
+  return g;
+}
+
+const METODOS_PAGO = [
+  { id: 'tarjeta', nombre: 'Tarjeta', sub: 'Visa · Mastercard', bg: 'linear-gradient(135deg,#0B7A3B,#0B0952)' },
+  { id: 'yape', nombre: 'Yape', sub: 'Escanea y listo', bg: 'linear-gradient(135deg,#742384,#9b2fb0)' },
+  { id: 'plin', nombre: 'Plin', sub: 'Escanea y listo', bg: 'linear-gradient(135deg,#0AB6C9,#11859b)' },
+  { id: 'paypal', nombre: 'PayPal', sub: 'Cuenta o tarjeta', bg: 'linear-gradient(135deg,#003087,#0070BA)' },
+] as const;
+
+type MetodoPago = (typeof METODOS_PAGO)[number]['id'];
+
+// F6: el pasajero paga al finalizar. Pasarela premium SIMULADA (sin red real): el
+// pasajero elige tarjeta / Yape / Plin / PayPal o efectivo. La captura es un solo
+// POST; los pasos animados son narrativa para que se sienta real y confiable.
 function PaymentActions({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
-  const [fase, setFase] = useState<'idle' | 'procesando' | 'error'>('idle');
-  const [paso, setPaso] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<'menu' | 'tarjeta' | 'wallet' | 'paypal' | 'procesando' | 'ok'>('menu');
+  const [metodo, setMetodo] = useState<MetodoPago | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [paso, setPaso] = useState('Procesando tu pago…');
+  const [card, setCard] = useState({ num: '4242 4242 4242 4242', name: 'JOSE ALVAREZ', exp: '12/29', cvv: '123' });
   const accion = data.acciones.pago;
   if (!accion) return null;
+  const monto = data.pago?.montoEtiqueta ?? '';
 
-  const pagar = async () => {
-    setFase('procesando');
-    if (accion === 'pagar_app') {
-      setPaso('Conectando con tu banco…');
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      setPaso('Autorizando el pago…');
-      await new Promise((resolve) => setTimeout(resolve, 900));
-    } else {
-      setPaso('Registrando tu pago…');
+  const cerrar = () => {
+    setOpen(false);
+    setStep('menu');
+    setMetodo(null);
+    setError(null);
+  };
+
+  const capturar = async (body: { accion: 'pagar_app' | 'confirmar_efectivo'; metodo?: MetodoPago }) => {
+    setError(null);
+    setStep('procesando');
+    const narrativa =
+      body.accion === 'confirmar_efectivo'
+        ? ['Registrando tu pago en efectivo…']
+        : body.metodo === 'tarjeta'
+          ? ['Conectando con tu banco…', 'Autorizando la tarjeta…']
+          : body.metodo === 'paypal'
+            ? ['Abriendo PayPal…', 'Confirmando tu cuenta…']
+            : ['Esperando tu confirmación…', 'Validando el pago…'];
+    for (const t of narrativa) {
+      setPaso(t);
+      await new Promise((r) => setTimeout(r, 850));
     }
     const response = await fetch(`/api/pasajero/${data.token}/pago`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ accion }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
-      setFase('error');
-      setPaso('No pudimos confirmar el pago. Inténtalo otra vez.');
+      setError('No pudimos confirmar el pago. Inténtalo otra vez.');
+      setStep(metodo ? (metodo === 'tarjeta' ? 'tarjeta' : metodo === 'paypal' ? 'paypal' : 'wallet') : 'menu');
       return;
     }
-    setPaso('¡Pago confirmado!');
+    setStep('ok');
+    await new Promise((r) => setTimeout(r, 1100));
     await refresh();
-    setFase('idle');
-    setPaso(null);
+    cerrar();
   };
+
+  const elegir = (id: MetodoPago) => {
+    setMetodo(id);
+    setError(null);
+    setStep(id === 'tarjeta' ? 'tarjeta' : id === 'paypal' ? 'paypal' : 'wallet');
+  };
+
+  const qr = metodo === 'yape' || metodo === 'plin' ? fauxQr(`${data.token}:${metodo}:${monto}`) : null;
+  const acentoWallet = metodo === 'yape' ? '#742384' : '#11859b';
 
   return (
     <div className="mt-3">
-      {fase === 'procesando' ? (
-        <div className="flex h-11 items-center justify-center gap-2 rounded-lg bg-product-muted text-sm font-semibold text-product">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {paso}
+      <button
+        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-product text-sm font-semibold text-white shadow-sm transition active:scale-[0.99]"
+        type="button"
+        onClick={() => {
+          setStep('menu');
+          setOpen(true);
+        }}
+      >
+        <Lock className="h-4 w-4" />
+        Pagar ahora{monto ? ` · ${monto}` : ''}
+      </button>
+
+      {open ? (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true">
+          <div className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:max-w-[420px] sm:rounded-3xl">
+            {/* Cabecera */}
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex items-center gap-2">
+                {step !== 'menu' && step !== 'ok' && step !== 'procesando' ? (
+                  <button aria-label="Volver" className="text-muted-foreground hover:text-foreground" onClick={() => setStep('menu')} type="button">
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                ) : null}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Pagar tu viaje</p>
+                  <p className="text-lg font-bold leading-tight text-foreground">{monto}</p>
+                </div>
+              </div>
+              <button aria-label="Cerrar" className="flex h-8 w-8 items-center justify-center rounded-full bg-product-muted text-muted-foreground hover:text-foreground" onClick={cerrar} type="button">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {step === 'menu' ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-muted-foreground">Elige cómo quieres pagar. Es 100% seguro.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {METODOS_PAGO.map((m) => (
+                      <button
+                        className="flex h-24 flex-col items-start justify-between rounded-2xl p-3 text-left text-white shadow-sm transition active:scale-[0.97]"
+                        key={m.id}
+                        onClick={() => elegir(m.id)}
+                        style={{ backgroundImage: m.bg }}
+                        type="button"
+                      >
+                        {m.id === 'tarjeta' ? <CreditCard className="h-5 w-5" /> : m.id === 'paypal' ? <Wallet className="h-5 w-5" /> : <Smartphone className="h-5 w-5" />}
+                        <span>
+                          <span className="block text-sm font-bold">{m.nombre}</span>
+                          <span className="block text-[11px] opacity-80">{m.sub}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    className="mt-1 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface text-sm font-semibold text-foreground transition hover:bg-product-muted"
+                    onClick={() => void capturar({ accion: 'confirmar_efectivo' })}
+                    type="button"
+                  >
+                    Pagaré en efectivo al conductor
+                  </button>
+                </div>
+              ) : null}
+
+              {step === 'tarjeta' ? (
+                <div className="flex flex-col gap-4">
+                  {/* Preview de tarjeta */}
+                  <div className="relative h-44 overflow-hidden rounded-2xl p-4 text-white shadow-md" style={{ backgroundImage: 'linear-gradient(135deg,#0B7A3B,#0B0952)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold tracking-tight">Taxi Green</span>
+                      <CreditCard className="h-5 w-5 opacity-80" />
+                    </div>
+                    <div className="mt-7 h-7 w-11 rounded-md bg-white/25" />
+                    <p className="mt-3 font-mono text-lg tracking-[0.18em]">{card.num || '•••• •••• •••• ••••'}</p>
+                    <div className="mt-3 flex items-end justify-between text-[11px]">
+                      <span className="max-w-[60%] truncate uppercase">{card.name || 'NOMBRE APELLIDO'}</span>
+                      <span>{card.exp || 'MM/YY'}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <input className="rounded-xl border border-border bg-surface px-3 py-2.5 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-product" inputMode="numeric" maxLength={19}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/gu, '').slice(0, 16);
+                        setCard((c) => ({ ...c, num: digits.replace(/(.{4})/gu, '$1 ').trim() }));
+                      }}
+                      placeholder="Número de tarjeta" value={card.num} />
+                    <input className="rounded-xl border border-border bg-surface px-3 py-2.5 text-sm uppercase text-foreground focus:outline-none focus:ring-2 focus:ring-product"
+                      onChange={(e) => setCard((c) => ({ ...c, name: e.target.value }))} placeholder="Nombre en la tarjeta" value={card.name} />
+                    <div className="flex gap-2">
+                      <input className="w-1/2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-product" maxLength={5}
+                        onChange={(e) => {
+                          const d = e.target.value.replace(/\D/gu, '').slice(0, 4);
+                          setCard((c) => ({ ...c, exp: d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d }));
+                        }}
+                        placeholder="MM/YY" value={card.exp} />
+                      <input className="w-1/2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-product" inputMode="numeric" maxLength={4}
+                        onChange={(e) => setCard((c) => ({ ...c, cvv: e.target.value.replace(/\D/gu, '').slice(0, 4) }))} placeholder="CVV" value={card.cvv} />
+                    </div>
+                  </div>
+                  {error ? <p className="text-sm text-danger">{error}</p> : null}
+                  <button className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-product text-sm font-semibold text-white disabled:opacity-50"
+                    disabled={card.num.replace(/\s/gu, '').length < 15} onClick={() => void capturar({ accion: 'pagar_app', metodo: 'tarjeta' })} type="button">
+                    <Lock className="h-4 w-4" /> Pagar {monto}
+                  </button>
+                </div>
+              ) : null}
+
+              {step === 'wallet' && qr ? (
+                <div className="flex flex-col items-center gap-4">
+                  <p className="text-center text-sm text-muted-foreground">Abre <span className="font-semibold capitalize text-foreground">{metodo}</span> y escanea para pagar {monto}.</p>
+                  <div className="rounded-2xl bg-white p-3 shadow-sm" style={{ border: `2px solid ${acentoWallet}` }}>
+                    <div className="grid" style={{ gridTemplateColumns: `repeat(${qr.length}, 1fr)`, width: 196, height: 196 }}>
+                      {qr.flatMap((row, r) => row.map((on, c) => (
+                        <div key={`${r}-${c}`} style={{ background: on ? acentoWallet : 'transparent', aspectRatio: '1' }} />
+                      )))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <QrCode className="h-4 w-4" /> Escanea con la app de tu banco
+                  </div>
+                  {error ? <p className="text-sm text-danger">{error}</p> : null}
+                  <button className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white"
+                    onClick={() => metodo && void capturar({ accion: 'pagar_app', metodo })} style={{ background: acentoWallet }} type="button">
+                    <CheckCircle2 className="h-4 w-4" /> Ya escaneé · confirmar pago
+                  </button>
+                </div>
+              ) : null}
+
+              {step === 'paypal' ? (
+                <div className="flex flex-col items-center gap-4 py-2">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl text-white" style={{ backgroundImage: 'linear-gradient(135deg,#003087,#0070BA)' }}>
+                    <Wallet className="h-7 w-7" />
+                  </div>
+                  <p className="text-center text-sm text-muted-foreground">Te llevaremos a <span className="font-semibold text-foreground">PayPal</span> para confirmar tu pago de {monto} de forma segura.</p>
+                  {error ? <p className="text-sm text-danger">{error}</p> : null}
+                  <button className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white"
+                    onClick={() => void capturar({ accion: 'pagar_app', metodo: 'paypal' })} style={{ backgroundImage: 'linear-gradient(135deg,#003087,#0070BA)' }} type="button">
+                    Continuar con PayPal
+                  </button>
+                </div>
+              ) : null}
+
+              {step === 'procesando' ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-12">
+                  <Loader2 className="h-9 w-9 animate-spin text-product" />
+                  <p className="text-sm font-medium text-foreground">{paso}</p>
+                  <p className="text-xs text-muted-foreground">No cierres esta ventana</p>
+                </div>
+              ) : null}
+
+              {step === 'ok' ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-12">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/15">
+                    <CheckCircle2 className="h-10 w-10 text-success" />
+                  </div>
+                  <p className="text-base font-bold text-foreground">¡Pago confirmado!</p>
+                  <p className="text-center text-xs text-muted-foreground">Tu comprobante ya está disponible aquí mismo.</p>
+                </div>
+              ) : null}
+            </div>
+
+            {step === 'menu' ? (
+              <div className="flex items-center justify-center gap-1.5 border-t border-border px-5 py-3 text-[11px] text-muted-foreground">
+                <ShieldCheck className="h-3.5 w-3.5 text-product" /> Pago protegido · Taxi Green
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : (
-        <button
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-product text-sm font-semibold text-white"
-          type="button"
-          onClick={pagar}
-        >
-          <CreditCard className="h-4 w-4" />
-          {accion === 'pagar_app' ? `Pagar ahora · ${data.pago?.montoEtiqueta ?? ''}` : 'Ya pagué en efectivo al conductor'}
-        </button>
-      )}
-      {fase === 'error' && paso ? <p className="mt-2 text-sm text-danger">{paso}</p> : null}
+      ) : null}
     </div>
   );
 }
@@ -1667,6 +1889,8 @@ export function PassengerTrackingClient({ initialData, mapboxToken }: Props) {
               <Phone className="h-4 w-4" />
               Llamar a Taxi Green
             </a>
+
+            <AuthorCredit className="mt-6 text-center" />
           </BottomSheet>
         </>
       )}

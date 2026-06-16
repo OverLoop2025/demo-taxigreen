@@ -136,11 +136,27 @@ describe('POST /api/pasajero/[token]/pago', () => {
     await expect(response.json()).resolves.toEqual({ error: 'viaje_no_terminado' });
   });
 
-  it('rechaza la acción que no coincide con el método', async () => {
-    const response = await request({ accion: 'confirmar_efectivo' });
+  it('permite pagar con una marca digital aunque el método inicial fuera efectivo', async () => {
+    // El pasajero decide al final cómo paga: una reserva nacida en efectivo puede
+    // pagarse digitalmente y el método pasa a app_pago en la captura.
+    tx.reservas.findFirst.mockResolvedValue({
+      ...reservaBase,
+      pago: { ...reservaBase.pago, tipo_pago: TipoPago.efectivo },
+    });
+    tx.pagos.findUnique.mockResolvedValue({ ...pagoBase, tipo_pago: TipoPago.efectivo });
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ error: 'metodo_no_coincide' });
+    const response = await request({ accion: 'pagar_app', metodo: 'yape' });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      pago: { estado: EstadoPago.capturado },
+    });
+    expect(tx.pagos.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tipo_pago: TipoPago.app_pago }),
+      }),
+    );
   });
 
   it('es idempotente cuando el pago ya estaba capturado', async () => {

@@ -1,6 +1,6 @@
 import { recordAudit } from '@taxigreen/auditoria';
 import {
-  renderComprobantePDF,
+  renderComprobantePdf,
   renderComprobanteHtml,
   renderFallbackPdf,
 } from '@taxigreen/comprobantes';
@@ -39,14 +39,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     });
   }
 
+  // Render primario con pdf-lib (JS puro): idéntico en local y producción, sin
+  // depender de Chromium. El PDF de texto plano queda solo como última red de
+  // seguridad por si algo inesperado fallara.
   let pdf: Buffer;
-  let renderer: 'puppeteer' | 'fallback' = 'puppeteer';
+  let renderer: 'pdf-lib' | 'fallback' = 'pdf-lib';
   try {
-    pdf = await renderComprobantePDF(input);
+    pdf = await renderComprobantePdf(input);
   } catch (error) {
     renderer = 'fallback';
     pdf = renderFallbackPdf(input);
-    console.warn('PDF Puppeteer no disponible; usando PDF de contingencia local', error);
+    console.warn('PDF pdf-lib no disponible; usando PDF de contingencia local', error);
   }
 
   const storagePath = `${comprobante.tenant_id}/${comprobante.id}.pdf`;

@@ -1,5 +1,5 @@
 import { recordAudit } from '@taxigreen/auditoria';
-import { EstadoReserva, EstadoViaje, TipoPago, prisma } from '@taxigreen/database';
+import { EstadoReserva, EstadoViaje, prisma } from '@taxigreen/database';
 import { capturarPagoPasajeroDemo } from '@taxigreen/pagos';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -10,6 +10,8 @@ export const runtime = 'nodejs';
 
 const schema = z.object({
   accion: z.enum(['pagar_app', 'confirmar_efectivo']),
+  // Marca elegida en la pasarela demo (solo etiqueta; el monto nunca viene del cliente).
+  metodo: z.enum(['tarjeta', 'yape', 'plin', 'paypal']).optional(),
 });
 
 // El pasajero paga su viaje desde /p/[token] DESPUÉS de finalizar (F6).
@@ -61,18 +63,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json({ error: 'viaje_no_terminado' }, { status: 409 });
   }
 
-  // Coherencia método/acción: efectivo se confirma, app se paga.
-  const metodoEsperado = accion === 'pagar_app' ? TipoPago.app_pago : TipoPago.efectivo;
-  if (reserva.pago && reserva.pago.tipo_pago !== metodoEsperado) {
-    return NextResponse.json(
-      { error: 'metodo_no_coincide', metodo: reserva.pago.tipo_pago },
-      { status: 409 },
-    );
-  }
-
+  // El pasajero decide al final cómo paga: si elige una marca digital (tarjeta/
+  // Yape/Plin/PayPal) el método pasa a `app_pago` en la captura; si confirma
+  // efectivo, se queda en efectivo. No bloqueamos por el método inicial.
   const now = new Date();
   const result = await prisma.$transaction(async (tx) => {
-    const captura = await capturarPagoPasajeroDemo({ reservaId: reserva.id, accion, now }, tx);
+    const captura = await capturarPagoPasajeroDemo(
+      { reservaId: reserva.id, accion, metodo: parsed.data.metodo ?? null, now },
+      tx,
+    );
     if (captura.kind !== 'capturado') return { captura, comprobante: null };
 
     // Pagas → recibes comprobante: recién aquí se prepara (F6 §7.3).
