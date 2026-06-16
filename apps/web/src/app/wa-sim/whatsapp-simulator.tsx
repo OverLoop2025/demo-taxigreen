@@ -13,6 +13,7 @@ import {
   MessagesSquare,
   Plus,
   QrCode,
+  Search,
   Send,
   ShieldCheck,
   UserRound,
@@ -371,6 +372,43 @@ async function forwardGeocodeWaSim(
   }
 }
 
+// Autocompletado de direcciones (estilo Uber): hasta 5 resultados cercanos a Lima.
+async function suggestGeocodeWaSim(
+  texto: string,
+  token: string,
+): Promise<Array<{ lat: number; lng: number; etiqueta: string }>> {
+  try {
+    const q = encodeURIComponent(texto);
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${q}.json?access_token=${token}&language=es&limit=5&country=pe&proximity=-77.0428,-12.0464&autocomplete=true`;
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const d = (await r.json()) as {
+      features?: Array<{ place_name?: string; center?: [number, number] }>;
+    };
+    return (d.features ?? [])
+      .filter((f) => Array.isArray(f.center))
+      .map((f) => ({ lng: f.center![0], lat: f.center![1], etiqueta: f.place_name ?? texto }));
+  } catch {
+    return [];
+  }
+}
+
+// Resuelve un enlace corto de Google Maps (goo.gl / maps.app.goo.gl) a coordenadas
+// siguiendo la redirección en el servidor (el cliente no puede por CORS).
+async function resolverEnlaceUbicacion(url: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const r = await fetch(`/api/ubicacion/resolver?url=${encodeURIComponent(url)}`);
+    if (!r.ok) return null;
+    const d = (await r.json()) as { ok?: boolean; lat?: number; lng?: number };
+    if (d.ok && typeof d.lat === 'number' && typeof d.lng === 'number') {
+      return { lat: d.lat, lng: d.lng };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Extrae coordenadas de un enlace de Google Maps o de un texto con lat,lng.
 // Cubre @lat,lng · q=lat,lng · !3dlat!4dlng · "lat, lng" suelto.
 function parseLatLngFromText(text: string): { lat: number; lng: number } | null {
@@ -393,15 +431,62 @@ function parseLatLngFromText(text: string): { lat: number; lng: number } | null 
   return null;
 }
 
+// Resolución ÚNICA de una ubicación escrita/pegada → punto trazable. Es la fuente de
+// verdad compartida por el widget y por el composer: solo acepta algo que el conductor
+// pueda enrutar (coords de enlace, enlace resoluble, o dirección geocodificable).
+type ResolucionUbicacion =
+  | { ok: true; label: string; coords: { lat: number; lng: number } }
+  | { ok: false; motivo: keyof typeof MOTIVOS_UBICACION };
+
+const MOTIVOS_UBICACION = {
+  corto: 'Escribe la dirección completa (calle y distrito) o usa el mapa.',
+  enlace_no_maps: 'Ese enlace no parece de Google Maps. Pega el de "Compartir ubicación" o usa el mapa.',
+  enlace_no_resuelto: 'No pudimos leer la ubicación de ese enlace. Vuelve a copiarlo o márcala en el mapa.',
+  direccion_no_geocodificable: 'No reconocimos esa dirección. Escríbela completa (calle y distrito) o márcala en el mapa.',
+  sin_token: 'Necesitamos ubicarte en el mapa. Toca "Marcar en el mapa" para fijar el punto.',
+} as const;
+
+async function resolverUbicacionDesdeTexto(
+  valor: string,
+  token: string | null,
+): Promise<ResolucionUbicacion> {
+  const v = valor.trim();
+  if (v.length < 4) return { ok: false, motivo: 'corto' };
+  const etiquetaCoords = async (c: { lat: number; lng: number }) => {
+    const nombre = token ? await reverseGeocodeWaSim(c, token) : null;
+    return nombre ?? `Ubicación compartida (${c.lat.toFixed(5)}, ${c.lng.toFixed(5)})`;
+  };
+  // 1) Coordenadas explícitas (enlace largo de Google Maps o "lat, lng").
+  const directas = parseLatLngFromText(v);
+  if (directas) return { ok: true, label: await etiquetaCoords(directas), coords: directas };
+  // 2) Enlace: solo de mapas; los cortos (goo.gl) se resuelven en el servidor.
+  if (/^https?:\/\//iu.test(v)) {
+    const esMapa = /(goo\.gl|maps\.app\.goo\.gl|google\.[^/]+\/maps|maps\.google|g\.co\/kgs)/iu.test(v);
+    if (!esMapa) return { ok: false, motivo: 'enlace_no_maps' };
+    const resuelto = await resolverEnlaceUbicacion(v);
+    if (resuelto) return { ok: true, label: await etiquetaCoords(resuelto), coords: resuelto };
+    return { ok: false, motivo: 'enlace_no_resuelto' };
+  }
+  // 3) Dirección escrita: geocodificar. Si no resuelve, NO la aceptamos.
+  if (token) {
+    const geo = await forwardGeocodeWaSim(v, token);
+    if (geo) return { ok: true, label: geo.etiqueta, coords: { lat: geo.lat, lng: geo.lng } };
+    return { ok: false, motivo: 'direccion_no_geocodificable' };
+  }
+  return { ok: false, motivo: 'sin_token' };
+}
+
 // Selector de mapa a PANTALLA COMPLETA (modal). Resuelve el bug del mapa en blanco
 // (contenedor de tamaño 0 dentro de la burbuja): aquí el contenedor tiene dimensiones
 // estables y se fuerza resize() tras cargar. Incluye "usar mi ubicación" (GPS).
 function MapPickerModal({
   modo,
+  token,
   onConfirmar,
   onCancelar,
 }: {
   modo: 'destino' | 'origen';
+  token: string | null;
   onConfirmar: (etiqueta: string, coords: { lat: number; lng: number }) => void;
   onCancelar: () => void;
 }) {
@@ -410,9 +495,10 @@ function MapPickerModal({
   const markerRef = useRef<MapboxMarkerInst | null>(null);
   const [coord, setCoord] = useState<MapboxLngLat>({ lat: -12.0464, lng: -77.0428 });
   const [direccion, setDireccion] = useState<string | null>(null);
-  const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>('cargando');
+  const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>(token ? 'cargando' : 'error');
   const [localizando, setLocalizando] = useState(false);
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? null;
+  const [busqueda, setBusqueda] = useState('');
+  const [sugerencias, setSugerencias] = useState<Array<{ lat: number; lng: number; etiqueta: string }>>([]);
   const titulo = modo === 'destino' ? '¿A dónde vas?' : '¿Desde dónde te recogemos?';
 
   const actualizarDesdeMarker = async (lng: number, lat: number) => {
@@ -422,9 +508,19 @@ function MapPickerModal({
     setDireccion(nombre ?? `Punto marcado (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
   };
 
+  const moverA = (lng: number, lat: number) => {
+    markerRef.current?.setLngLat([lng, lat]);
+    (mapRef.current as unknown as { flyTo?: (o: unknown) => void })?.flyTo?.({
+      center: [lng, lat],
+      zoom: 15,
+    });
+    void actualizarDesdeMarker(lng, lat);
+  };
+
   useEffect(() => {
     if (!token || !containerRef.current || mapRef.current) return;
     let cancelled = false;
+    let ro: ResizeObserver | null = null;
     void loadMapboxGLOnce().then((mb) => {
       if (cancelled || !mb || !containerRef.current) {
         setEstado('error');
@@ -452,19 +548,45 @@ function MapPickerModal({
         void actualizarDesdeMarker(ev.lngLat.lng, ev.lngLat.lat);
       });
       // El mapa nace dentro de un modal recién montado: forzar resize evita el
-      // render en blanco por contenedor con tamaño 0 en el primer frame.
+      // render en blanco por contenedor con tamaño 0 en el primer frame. Cubrimos
+      // varios caminos: evento 'load', timers escalonados y un ResizeObserver.
       const fixSize = () => (map as unknown as { resize?: () => void }).resize?.();
+      (map as unknown as { on: (e: string, h: () => void) => void }).on('load', fixSize);
       setTimeout(fixSize, 60);
       setTimeout(fixSize, 250);
+      setTimeout(fixSize, 600);
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        ro = new ResizeObserver(fixSize);
+        ro.observe(containerRef.current);
+      }
       setEstado('listo');
     });
     return () => {
       cancelled = true;
+      ro?.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
       markerRef.current = null;
     };
   }, [token]);
+
+  // Autocompletado del buscador (debounce 300ms).
+  useEffect(() => {
+    if (!token || busqueda.trim().length < 3) {
+      setSugerencias([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      void suggestGeocodeWaSim(busqueda.trim(), token).then((r) => {
+        if (!cancelled) setSugerencias(r);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [busqueda, token]);
 
   const usarMiUbicacion = () => {
     if (!navigator.geolocation) return;
@@ -472,13 +594,7 @@ function MapPickerModal({
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocalizando(false);
-        const { latitude: lat, longitude: lng } = pos.coords;
-        markerRef.current?.setLngLat([lng, lat]);
-        (mapRef.current as unknown as { flyTo?: (o: unknown) => void })?.flyTo?.({
-          center: [lng, lat],
-          zoom: 15,
-        });
-        void actualizarDesdeMarker(lng, lat);
+        moverA(pos.coords.longitude, pos.coords.latitude);
       },
       () => setLocalizando(false),
       { enableHighAccuracy: true, timeout: 8000 },
@@ -518,15 +634,57 @@ function MapPickerModal({
             </div>
           )}
           {estado === 'listo' && (
-            <button
-              className="absolute right-4 top-4 flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#075E54] shadow-md hover:bg-[#f0faf6] disabled:opacity-60"
-              disabled={localizando}
-              onClick={usarMiUbicacion}
-              type="button"
-            >
-              {localizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>📡</span>}
-              Usar mi ubicación
-            </button>
+            <>
+              <div className="absolute left-3 right-3 top-3 z-10">
+                <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2.5 shadow-md">
+                  <Search className="h-4 w-4 shrink-0 text-[#667781]" />
+                  <input
+                    className="min-w-0 flex-1 bg-transparent text-sm text-[#0a332f] placeholder:text-[#9aa6a1] focus:outline-none"
+                    onChange={(e) => setBusqueda(e.target.value)}
+                    placeholder="Busca una dirección, lugar o negocio"
+                    value={busqueda}
+                  />
+                  {busqueda ? (
+                    <button
+                      aria-label="Limpiar"
+                      className="text-[#9aa6a1] hover:text-[#667781]"
+                      onClick={() => setBusqueda('')}
+                      type="button"
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </div>
+                {sugerencias.length > 0 ? (
+                  <div className="mt-1 overflow-hidden rounded-2xl bg-white shadow-lg">
+                    {sugerencias.map((s) => (
+                      <button
+                        className="flex w-full items-start gap-2.5 border-b border-[#f0f2f5] px-4 py-2.5 text-left last:border-0 hover:bg-[#f7fbfa]"
+                        key={`${s.lat},${s.lng}`}
+                        onClick={() => {
+                          moverA(s.lng, s.lat);
+                          setBusqueda('');
+                          setSugerencias([]);
+                        }}
+                        type="button"
+                      >
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#128C7E]" />
+                        <span className="text-xs leading-4 text-[#0a332f]">{s.etiqueta}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                className="absolute bottom-4 right-4 flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#075E54] shadow-md hover:bg-[#f0faf6] disabled:opacity-60"
+                disabled={localizando}
+                onClick={usarMiUbicacion}
+                type="button"
+              >
+                {localizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>📡</span>}
+                Usar mi ubicación
+              </button>
+            </>
           )}
         </div>
 
@@ -578,12 +736,14 @@ function ComponenteInteractivoChat({
   interactivo,
   contestado,
   seleccionado,
+  mapboxToken,
   onSeleccionar,
   onRetroceder,
 }: {
   interactivo: ComponenteInteractivo;
   contestado: boolean;
   seleccionado: string | undefined;
+  mapboxToken: string | null;
   onSeleccionar: (valor: string, etiqueta: string, coords?: CoordsSeleccion) => void;
   onRetroceder?: () => void;
 }) {
@@ -592,6 +752,7 @@ function ComponenteInteractivoChat({
   const [locTexto, setLocTexto] = useState('');
   const [locMode, setLocMode] = useState<null | 'texto' | 'mapa'>(null);
   const [geoLoading, setGeoLoading] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
   const [codigoVal, setCodigoVal] = useState('');
   const [textInputVal, setTextInputVal] = useState('');
 
@@ -696,36 +857,28 @@ function ComponenteInteractivoChat({
         return (
           <MapPickerModal
             modo={interactivo.modo}
+            token={mapboxToken}
             onCancelar={() => setLocMode(null)}
             onConfirmar={(etiqueta, coords) => onSeleccionar(etiqueta, etiqueta, coords)}
           />
         );
       }
 
-      // Escribir/pegar: intenta sacar coords del enlace o geocodificar la dirección,
-      // así el conductor recibe un punto trazable (no solo texto).
+      // Escribir/pegar: SOLO aceptamos algo trazable para el conductor (coords de un
+      // enlace, enlace resoluble o dirección geocodificable). Si nada resuelve, se
+      // re-pregunta (nunca guardamos basura como "asdasd" ni un enlace literal).
       const confirmarTexto = async () => {
         const valor = locTexto.trim();
         if (valor.length < 4) return;
+        setLocError(null);
         setGeoLoading(true);
-        const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? null;
-        const directas = parseLatLngFromText(valor);
-        if (directas) {
+        try {
+          const r = await resolverUbicacionDesdeTexto(valor, mapboxToken);
+          if (r.ok) onSeleccionar(r.label, r.label, r.coords);
+          else setLocError(MOTIVOS_UBICACION[r.motivo]);
+        } finally {
           setGeoLoading(false);
-          onSeleccionar(valor, valor, directas);
-          return;
         }
-        if (token && !/^https?:\/\//u.test(valor)) {
-          const geo = await forwardGeocodeWaSim(valor, token);
-          setGeoLoading(false);
-          if (geo) {
-            onSeleccionar(geo.etiqueta, geo.etiqueta, { lat: geo.lat, lng: geo.lng });
-            return;
-          }
-        }
-        setGeoLoading(false);
-        // Enlace acortado o dirección no geocodificable: guardamos el texto igual.
-        onSeleccionar(valor, valor);
       };
 
       if (locMode === 'texto') {
@@ -734,13 +887,23 @@ function ComponenteInteractivoChat({
             <input
               autoFocus
               className="rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#128C7E]"
-              onChange={(e) => setLocTexto(e.target.value)}
+              onChange={(e) => {
+                setLocTexto(e.target.value);
+                if (locError) setLocError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && locTexto.trim().length >= 4 && !geoLoading) void confirmarTexto();
               }}
               placeholder={isDestino ? 'Av. Pardo 123, Miraflores  ó  enlace de Google Maps' : 'Hotel Costa Verde, Av. Malecón 200  ó  enlace'}
               value={locTexto}
             />
+            {locError ? (
+              <p className="rounded-lg bg-[#fdecec] px-3 py-2 text-xs font-medium text-[#b3261e]">{locError}</p>
+            ) : (
+              <p className="px-1 text-[11px] leading-4 text-[#667781]">
+                Pega un enlace de Google Maps o escribe la dirección completa. Si dudas, usa el mapa.
+              </p>
+            )}
             <div className="flex gap-2">
               <button
                 className="flex-1 rounded-lg border border-[#c5dfd9] bg-white px-3 py-2 text-sm font-medium text-[#667781] transition hover:bg-gray-50"
@@ -865,9 +1028,28 @@ function ComponenteInteractivoChat({
   return null;
 }
 
+// Identidad de la cotización: si cambia algo que mueve la tarifa, cambia la clave.
+// Se usa para no emitir el resumen con una tarifa que aún corresponde a otra versión.
+function cotizacionKeyDe(reserva: ReservaExtraida) {
+  return [
+    reserva.origen_texto,
+    reserva.destino_texto,
+    reserva.vehiculo_preferencia,
+    reserva.pasajeros_cantidad ?? reserva.pasajeros,
+    reserva.equipaje_nivel,
+    reserva.tipo_pago,
+  ].join('|');
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function WhatsappSimulator({ conversaciones }: { conversaciones: ConversacionSeed[] }) {
+export function WhatsappSimulator({
+  conversaciones,
+  mapboxToken,
+}: {
+  conversaciones: ConversacionSeed[];
+  mapboxToken: string | null;
+}) {
   const router = useRouter();
 
   // Chats manuales (creados con el botón +)
@@ -908,6 +1090,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
   const enlaceEnviadoRef = useRef(false);
   const autoConfirmingRef = useRef(false);
   const cotizacionKeyRef = useRef<string | null>(null);
+  const pagoPreviewKeyRef = useRef<string | null>(null);
   const resumenEmitidoRef = useRef(0);
   const unidadVistaRef = useRef<string | null>(null);
   const avisoSinUnidadRef = useRef(false);
@@ -1675,6 +1858,29 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       return;
     }
 
+    // Paso de ubicación: si el cliente escribe en el composer en vez de usar el widget,
+    // lo resolvemos con la MISMA validación (coords/enlace/dirección). Nunca guardamos
+    // texto suelto como ubicación: si no resuelve, pedimos el mapa o un enlace.
+    if (guidedStep === 'destino' || guidedStep === 'origen_b') {
+      void (async () => {
+        const r = await resolverUbicacionDesdeTexto(text, mapboxToken);
+        if (r.ok) {
+          procesarSeleccionInteractiva(r.label, r.label, r.coords);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `loc-rechazo-${Date.now()}`,
+              autor: 'taxigreen',
+              hora: horaAhora(),
+              texto: `${MOTIVOS_UBICACION[r.motivo]} También puedes tocar "Marcar en el mapa" arriba.`,
+            },
+          ]);
+        }
+      })();
+      return;
+    }
+
     // Si hay un paso interactivo activo y el usuario escribe texto libre,
     // lo acumulamos como contexto y extraemos igualmente
     if (guidedStep) {
@@ -1900,25 +2106,26 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
     }
     let cancelled = false;
     const reserva = extraccion.reserva;
-    const cotizacionKey = [
-      reserva.origen_texto,
-      reserva.destino_texto,
-      reserva.vehiculo_preferencia,
-      reserva.pasajeros_cantidad ?? reserva.pasajeros,
-      reserva.equipaje_nivel,
-      reserva.tipo_pago,
-    ].join('|');
+    const cotizacionKey = cotizacionKeyDe(reserva);
     setPagoPreviewLoading(true);
     previsualizarPagoDesdeIngesta(extraccion)
       .then((result) => {
         if (cancelled) return;
         setPagoPreview(result.ok ? result.pago : null);
+        // La clave del preview rastrea a qué extracción pertenece la tarifa, para
+        // que el resumen no se emita con una cotización de otra versión.
+        pagoPreviewKeyRef.current = result.ok ? cotizacionKey : null;
         if (result.ok && cotizacionKeyRef.current !== cotizacionKey) {
           cotizacionKeyRef.current = cotizacionKey;
           setCotizacionVersion((v) => v + 1);
         }
       })
-      .catch(() => { if (!cancelled) setPagoPreview(null); })
+      .catch(() => {
+        if (!cancelled) {
+          setPagoPreview(null);
+          pagoPreviewKeyRef.current = null;
+        }
+      })
       .finally(() => { if (!cancelled) setPagoPreviewLoading(false); });
     return () => { cancelled = true; };
   }, [extraccion]);
@@ -1948,6 +2155,14 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
       faltaPagoCorp ||
       faltaRucEmpresa;
 
+    // El resumen NUNCA se emite sin la tarifa de ESTA extracción. Si la cotización
+    // todavía no llega (o corresponde a otra versión), esperamos: el efecto vuelve a
+    // correr cuando `pagoPreview` se actualiza. Garantiza "siempre con cotización".
+    if (!faltaAlgo) {
+      const cotKey = cotizacionKeyDe(reserva);
+      if (pagoPreviewLoading || !pagoPreview || pagoPreviewKeyRef.current !== cotKey) return;
+    }
+
     const key = `${selectedId}:${extraccion.reserva.raw_texto}:${faltaAlgo ? 'falta' : 'listo'}:${JSON.stringify(guidedReservaRef.current)}:${Math.round(extraccion.confianza * 100)}`;
     if (autoHandledRef.current === key) return;
     autoHandledRef.current = key;
@@ -1976,7 +2191,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
           `• Pasajero: ${reserva.pasajero_nombre ?? 'por confirmar'}\n` +
           `• Fecha: ${formatValue(reserva.fecha_hora_servicio)}\n` +
           `• Cliente: ${comercial.resumen}\n` +
-          `${pagoPreview ? `• Tarifa estimada: ${pagoPreview.montoEtiqueta}\n` : ''}` +
+          `• Tarifa estimada: ${pagoPreview?.montoEtiqueta ?? 'calculando…'}\n` +
           `• ${comercial.pagoChat}\n` +
           `¿La confirmo? Responde "Sí" y queda lista.`,
       },
@@ -2088,6 +2303,7 @@ export function WhatsappSimulator({ conversaciones }: { conversaciones: Conversa
                             <ComponenteInteractivoChat
                               contestado={isContestado}
                               interactivo={message.interactivo}
+                              mapboxToken={mapboxToken}
                               onSeleccionar={(valor, etiqueta, coords) => respondInteractivo(message.id, valor, etiqueta, coords)}
                               onRetroceder={!isContestado && guidedHistory.length > 0 ? retrocederPaso : undefined}
                               seleccionado={seleccionado}

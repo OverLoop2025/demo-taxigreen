@@ -158,13 +158,14 @@ export async function previsualizarPagoDesdeIngesta(
   await requireRole(['admin_tenant', 'despachador']);
   const parsed = extraccionReservaResultadoSchema.parse(extraccion);
   const reserva = parsed.reserva;
-  if (!reserva.tipo_pago) {
-    return { ok: false, message: 'El método de pago aún no está claro.' };
-  }
+  // La tarifa SIEMPRE debe poder mostrarse en el resumen antes de confirmar. Si el
+  // método de pago aún no está fijado, cotizamos asumiendo efectivo (el caso por
+  // defecto del pasajero); el método final no cambia el monto cotizado.
+  const tipoPago = reserva.tipo_pago ?? 'efectivo';
 
   const cotizacion = cotizarReserva(reserva);
   const pago = serializarPagoDemo({
-    tipoPago: reserva.tipo_pago,
+    tipoPago,
     cotizacionMonto: cotizacion.montoDecimal,
     cotizacionMoneda: cotizacion.moneda,
   });
