@@ -11,6 +11,7 @@ import {
   MapPin,
   MessageCircle,
   MessagesSquare,
+  PackageSearch,
   Plus,
   QrCode,
   Search,
@@ -29,6 +30,7 @@ import {
   asignarConductorAutomatico,
   buscarReservaPorCodigo,
   crearReservaDesdeIngesta,
+  obtenerIncidenciaObjetoOlvidado,
   obtenerSeguimientoReserva,
   previsualizarPagoDesdeIngesta,
   type PagoDemoChat,
@@ -282,16 +284,23 @@ function ConfirmacionMensaje({ data }: { data: ConfirmacionChat }) {
 }
 
 function EnlaceMensaje({ link }: { link: string }) {
+  // El mismo componente sirve para el enlace en vivo del viaje y para el seguimiento de
+  // un caso de bienestar (objeto olvidado): se adapta por la ruta del enlace.
+  const esCaso = link.includes('/bienestar/');
+  const Icon = esCaso ? PackageSearch : MapPin;
+  const label = esCaso ? 'Ver seguimiento del caso' : 'Seguir mi taxi en vivo';
   return (
     <a
-      className="mt-1 flex w-[248px] max-w-full items-center justify-between rounded-lg bg-[#075E54] px-3 py-2.5 text-white transition hover:bg-[#05453e]"
+      className={`mt-1 flex w-[248px] max-w-full items-center justify-between rounded-lg px-3 py-2.5 text-white transition ${
+        esCaso ? 'bg-[#6D28D9] hover:bg-[#5b21b6]' : 'bg-[#075E54] hover:bg-[#05453e]'
+      }`}
       href={link}
       rel="noreferrer"
       target="_blank"
     >
       <span className="flex items-center gap-2">
-        <MapPin aria-hidden="true" className="h-4 w-4" />
-        <span className="text-sm font-semibold">Seguir mi taxi en vivo</span>
+        <Icon aria-hidden="true" className="h-4 w-4" />
+        <span className="text-sm font-semibold">{label}</span>
       </span>
       <ArrowUpRight aria-hidden="true" className="h-4 w-4" />
     </a>
@@ -622,7 +631,11 @@ function MapPickerModal({
         </div>
 
         <div className="relative flex-1">
-          <div className="absolute inset-0" ref={containerRef} />
+          {/* h-full w-full es CRÍTICO: mapbox-gl inyecta `.mapboxgl-map { position: relative }`
+              por CDN DESPUÉS de Tailwind, ganándole a `absolute` y anulando `inset-0` → el
+              contenedor colapsaba a altura 0 y el mapa salía en blanco. Con h-full/w-full el
+              elemento toma la altura del padre aunque mapbox lo deje en position:relative. */}
+          <div className="absolute inset-0 h-full w-full" ref={containerRef} />
           {estado === 'cargando' && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80">
               <Loader2 className="h-7 w-7 animate-spin text-[#128C7E]" />
@@ -1090,6 +1103,8 @@ export function WhatsappSimulator({
   const enlaceEnviadoRef = useRef(false);
   const autoConfirmingRef = useRef(false);
   const cotizacionKeyRef = useRef<string | null>(null);
+  // Bienestar → chat: id de la incidencia de objeto olvidado ya avisada en el chat.
+  const incidenciaAvisadaRef = useRef<string | null>(null);
   const pagoPreviewKeyRef = useRef<string | null>(null);
   const resumenEmitidoRef = useRef(0);
   const unidadVistaRef = useRef<string | null>(null);
@@ -1164,6 +1179,7 @@ export function WhatsappSimulator({
     enlaceEnviadoRef.current = false;
     autoConfirmingRef.current = false;
     cotizacionKeyRef.current = null;
+    incidenciaAvisadaRef.current = null;
     resumenEmitidoRef.current = 0;
     unidadVistaRef.current = null;
     avisoSinUnidadRef.current = false;
@@ -2027,6 +2043,35 @@ export function WhatsappSimulator({
     }, 4000);
     return () => clearInterval(timer);
   }, [reservaId, confirmada, enlaceEnviado, copilotoAuto]);
+
+  // Bienestar → chat: si el pasajero reporta un objeto olvidado desde /p, el copiloto
+  // lo refleja en ESTE chat con el enlace de seguimiento (espejo del aviso al conductor).
+  useEffect(() => {
+    if (!reservaId || !confirmada) return;
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const incidencia = await obtenerIncidenciaObjetoOlvidado(reservaId);
+          if (!incidencia || incidenciaAvisadaRef.current === incidencia.id) return;
+          incidenciaAvisadaRef.current = incidencia.id;
+          const detalle = incidencia.descripcion.replace(/^Olvidé en el vehículo:\s*/iu, '').replace(/\.$/u, '');
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `incidencia-${incidencia.id}`,
+              autor: 'taxigreen',
+              hora: horaAhora(),
+              texto: `📦 Registramos el objeto olvidado del pasajero${detalle ? ` (${detalle})` : ''}. Ya avisamos al conductor. Sigue el caso aquí:`,
+              enlace: incidencia.casoUrl,
+            },
+          ]);
+        } catch {
+          // polling best-effort
+        }
+      })();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [reservaId, confirmada]);
 
   // F7: vigilancia de la unidad tras confirmar
   useEffect(() => {

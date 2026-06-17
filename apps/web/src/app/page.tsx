@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Smartphone,
 } from 'lucide-react';
-import { AuthorCredit } from '@/components/brand/author-credit';
+import { SiteFooter } from '@/components/brand/site-footer';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { GradientHeading } from '@/components/ui/gradient-heading';
 import {
@@ -147,20 +147,33 @@ function PhoneMock() {
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-background">
+    <main className="flex min-h-screen flex-col bg-background">
       {/* HERO */}
       <section className="relative isolate overflow-hidden bg-product-deep px-5 pb-24 pt-8 text-white">
         <div className="absolute inset-0 bg-[radial-gradient(60rem_38rem_at_85%_-10%,rgba(52,211,153,0.35),transparent),radial-gradient(50rem_32rem_at_-10%_110%,rgba(16,185,129,0.28),transparent)]" />
         <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/25 to-transparent" />
 
         <div className="relative mx-auto w-full max-w-7xl">
-          <nav className="flex items-center justify-between">
+          <nav className="flex items-center justify-between gap-4">
             <span className="rounded-md bg-brand-tenant px-3 py-2 text-sm font-bold">Taxi Green</span>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <ThemeToggle className="border-white/25 bg-white/10 text-white hover:bg-white/20" />
-              <a className="text-sm font-semibold text-white/80 transition hover:text-white" href="/login-admin">
-                Ingreso operadores
-              </a>
+              {/* Acceso de operadores agrupado (segmentado glass): Mostrador y Admin
+                  quedan claros y bien distribuidos junto al cambio de tema. */}
+              <div className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 p-1 backdrop-blur">
+                <a
+                  className="rounded-full px-3.5 py-1.5 text-sm font-semibold text-white/85 transition hover:bg-white/10 hover:text-white"
+                  href="/login-counter"
+                >
+                  Mostrador
+                </a>
+                <a
+                  className="rounded-full bg-white/15 px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-white/25"
+                  href="/login-admin"
+                >
+                  Admin
+                </a>
+              </div>
             </div>
           </nav>
 
@@ -309,20 +322,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="px-5 pb-10">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 text-sm text-foreground-muted">
-          <span>Taxi Green · Movilidad aeroportuaria</span>
-          <div className="flex items-center gap-4">
-            <a className="font-semibold text-product transition hover:text-product-500" href="/counter">
-              Mostrador
-            </a>
-            <a className="font-semibold text-product transition hover:text-product-500" href="/wa-sim">
-              WhatsApp
-            </a>
-          </div>
-        </div>
-        <AuthorCredit className="mx-auto mt-4 max-w-7xl" />
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

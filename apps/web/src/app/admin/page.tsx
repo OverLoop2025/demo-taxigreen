@@ -1,4 +1,5 @@
 import { BrandHeader } from '@/components/brand-header';
+import { SiteFooter } from '@/components/brand/site-footer';
 import { AdminReservasLive } from '@/components/admin/admin-reservas-live';
 import { getAdminReservas } from '@/lib/admin/reservas';
 import { requireRole } from '@/lib/auth';
@@ -12,9 +13,9 @@ export default async function AdminPage() {
   const reservas = tenantId ? await getAdminReservas(tenantId) : [];
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="flex min-h-screen flex-col bg-background">
       <BrandHeader />
-      <section className="mx-auto max-w-7xl px-6 py-8">
+      <section className="mx-auto w-full max-w-7xl px-6 py-8">
         <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-product">Panel de despacho</p>
@@ -53,6 +54,7 @@ export default async function AdminPage() {
           </Link>
         </div>
       </section>
+      <SiteFooter />
     </main>
   );
 }

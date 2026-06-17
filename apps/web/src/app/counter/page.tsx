@@ -1,4 +1,4 @@
-import { AuthorCredit } from '@/components/brand/author-credit';
+import { SiteFooter } from '@/components/brand/site-footer';
 import { BrandHeader } from '@/components/brand-header';
 import { auth } from '@/lib/auth';
 import { VoucherValidator } from './voucher-validator';
@@ -9,9 +9,9 @@ export default async function CounterPage() {
   const session = await auth();
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="flex min-h-screen flex-col bg-background">
       <BrandHeader />
-      <section className="mx-auto max-w-3xl px-5 py-8 lg:px-8">
+      <section className="mx-auto w-full max-w-3xl px-5 py-8 lg:px-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-product">Mostrador Taxi Green · Aeropuerto Jorge Chávez</p>
@@ -28,8 +28,8 @@ export default async function CounterPage() {
         <div className="mt-8">
           <VoucherValidator />
         </div>
-        <AuthorCredit className="mt-10 text-center" />
       </section>
+      <SiteFooter />
     </main>
   );
 }

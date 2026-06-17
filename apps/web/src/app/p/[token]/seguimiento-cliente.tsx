@@ -3,6 +3,7 @@
 import {
   Car,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   CreditCard,
   Crosshair,
@@ -16,7 +17,6 @@ import {
   Phone,
   Plane,
   QrCode,
-  Search,
   Send,
   ShieldCheck,
   Smartphone,
@@ -33,7 +33,7 @@ import { BottomSheet, type SheetLevel } from '@/components/product/bottom-sheet'
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { useTheme, type Theme } from '@/components/theme/theme-provider';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import type { PassengerPosition, PassengerRating, PassengerTripData } from '@/lib/pasajero';
+import type { PassengerPosition, PassengerTripData } from '@/lib/pasajero';
 
 type Props = {
   initialData: PassengerTripData;
@@ -644,39 +644,30 @@ function InfoRow({ icon, label, value }: { icon: ReactNode; label: string; value
   );
 }
 
-function StarRatingInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
+// Fila de estrellas interactiva (sin etiqueta): el rótulo del eje vive arriba en el
+// flujo paso a paso de calificación. Estrellas grandes y centradas para tocar fácil.
+function StarRow({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   const [hover, setHover] = useState(0);
   const activo = hover || value;
   return (
-    <div>
-      <p className="text-sm font-semibold text-foreground">{label}</p>
-      <div className="mt-1.5 flex gap-1.5" onMouseLeave={() => setHover(0)}>
-        {[1, 2, 3, 4, 5].map((nivel) => (
-          <button
-            aria-label={`${nivel} ${nivel === 1 ? 'estrella' : 'estrellas'}`}
-            aria-pressed={value === nivel}
-            className="rounded-md p-1 transition-transform hover:scale-110"
-            key={nivel}
-            type="button"
-            onClick={() => onChange(nivel)}
-            onMouseEnter={() => setHover(nivel)}
-          >
-            <Star
-              className={`h-9 w-9 ${
-                activo >= nivel ? 'fill-product text-product' : 'fill-transparent text-foreground-muted/40'
-              }`}
-            />
-          </button>
-        ))}
-      </div>
+    <div className="flex justify-center gap-2" onMouseLeave={() => setHover(0)}>
+      {[1, 2, 3, 4, 5].map((nivel) => (
+        <button
+          aria-label={`${nivel} ${nivel === 1 ? 'estrella' : 'estrellas'}`}
+          aria-pressed={value === nivel}
+          className="rounded-md p-1 transition-transform hover:scale-110 active:scale-95"
+          key={nivel}
+          type="button"
+          onClick={() => onChange(nivel)}
+          onMouseEnter={() => setHover(nivel)}
+        >
+          <Star
+            className={`h-10 w-10 transition-colors ${
+              activo >= nivel ? 'fill-product text-product' : 'fill-transparent text-foreground-muted/40'
+            }`}
+          />
+        </button>
+      ))}
     </div>
   );
 }
@@ -1045,88 +1036,274 @@ function CancelPanel({ data, refresh }: { data: PassengerTripData; refresh: () =
   );
 }
 
-function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
-  const [dni, setDni] = useState(data.pasajero.dni ?? '');
-  const [nombreDocumento, setNombreDocumento] = useState('');
-  const [documentStatus, setDocumentStatus] = useState<string | null>(null);
-  // El cierre del viaje ya prepara el comprobante. El pasajero ve descargar como acción principal.
-  const [comprobanteListo, setComprobanteListo] = useState(Boolean(data.comprobante.tipo));
-  const yaCalificado = Boolean(data.calificacion);
-  const [rating, setRating] = useState<PassengerRating>(
-    data.calificacion ?? { servicio: 0, conductor: 0, unidad: 0, motivo: '', comentario: '' },
-  );
-  const [ratingStatus, setRatingStatus] = useState<string | null>(null);
-  // Revelado progresivo: cada eje aparece cuando el anterior tiene estrellas.
-  const mostrarConductor = yaCalificado || rating.servicio > 0;
-  const mostrarUnidad = yaCalificado || rating.conductor > 0;
-  const calificacionCompleta = rating.servicio > 0 && rating.conductor > 0 && rating.unidad > 0;
-  // Comentario opcional solo si algún eje YA elegido quedó en 3 o menos.
-  const needsReason =
-    (rating.servicio > 0 && rating.servicio <= 3) ||
-    (rating.conductor > 0 && rating.conductor <= 3) ||
-    (rating.unidad > 0 && rating.unidad <= 3);
-  const hasComprobante = Boolean(data.comprobante.tipo) || comprobanteListo;
+// Comprobante: SOLO la información relevante (pasajero + método de pago) y una descarga
+// fiable. Aparece únicamente cuando ya está disponible (tras pagar, si paga el pasajero;
+// al terminar, si paga la empresa). Si paga la empresa, se prepara solo para que el botón
+// sea un enlace directo, sin formularios ni pasos.
+function ComprobanteBlock({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
+  const disponible = data.comprobante.disponible;
+  const tipoListo = Boolean(data.comprobante.tipo);
+  const [preparando, setPreparando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const intentado = useRef(false);
+  const metodo = data.pago?.metodoLabel ?? 'Cubierto por la empresa';
 
   useEffect(() => {
-    setComprobanteListo(Boolean(data.comprobante.tipo));
-  }, [data.comprobante.tipo]);
-
-  const lookupDni = async () => {
-    if (!/^\d{8}$/.test(dni)) {
-      setDocumentStatus('Ingresa un DNI de 8 dígitos o deja el campo vacío.');
-      return;
-    }
-    setDocumentStatus('Consultando tus datos…');
-    const response = await fetch('/api/reniec/lookup', {
+    if (!disponible || tipoListo || intentado.current) return;
+    intentado.current = true;
+    setPreparando(true);
+    setError(null);
+    void fetch(`/api/pasajero/${data.token}/comprobante`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tipo: 'dni', documento: dni }),
-    });
-    const payload = (await response.json().catch(() => null)) as {
-      payload?: { nombres?: string; apellido_paterno?: string; apellido_materno?: string };
-    } | null;
-    if (!response.ok || !payload?.payload) {
-      setDocumentStatus('No disponible; puedes continuar sin documento.');
-      return;
-    }
-    const fullName = [payload.payload.nombres, payload.payload.apellido_paterno, payload.payload.apellido_materno]
-      .filter(Boolean)
-      .join(' ');
-    setNombreDocumento(fullName);
-    setDocumentStatus(`Datos confirmados: ${fullName}`);
+      body: JSON.stringify({
+        tipo: data.comercial.requiereFactura ? 'factura' : 'boleta',
+        ruc: data.pasajero.ruc ?? null,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          setError('No pudimos preparar tu comprobante. Reintenta en un momento.');
+          intentado.current = false;
+          return;
+        }
+        await refresh();
+      })
+      .catch(() => {
+        setError('No pudimos preparar tu comprobante. Reintenta en un momento.');
+        intentado.current = false;
+      })
+      .finally(() => setPreparando(false));
+  }, [disponible, tipoListo, data.token, data.comercial.requiereFactura, data.pasajero.ruc, refresh]);
+
+  if (!disponible) {
+    return (
+      <div className="rounded-xl bg-surface-muted p-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-product-muted text-product">
+            <FileText className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Tu comprobante se habilita al pagar</p>
+            <p className="mt-0.5 text-xs leading-5 text-foreground-muted">
+              Confirma tu pago arriba y aquí mismo aparecerá tu comprobante para descargar.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const listoParaDescargar = tipoListo && !preparando;
+  return (
+    <div className="rounded-xl border border-product/20 bg-product-muted/40 p-3.5">
+      <div className="flex items-center gap-2.5">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-product text-white">
+          <FileText className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">Tu comprobante está listo</p>
+          {data.comprobante.etiqueta ? (
+            <p className="truncate text-xs text-foreground-muted">{data.comprobante.etiqueta}</p>
+          ) : null}
+        </div>
+      </div>
+
+      <dl className="mt-3 grid gap-1.5 rounded-lg bg-surface px-3 py-2.5 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-foreground-muted">Pasajero</dt>
+          <dd className="truncate font-medium text-foreground">{data.pasajero.nombre}</dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-foreground-muted">Método de pago</dt>
+          <dd className="font-medium text-foreground">{metodo}</dd>
+        </div>
+      </dl>
+
+      {error ? <p className="mt-2 text-xs font-medium text-danger">{error}</p> : null}
+
+      <a
+        aria-disabled={!listoParaDescargar}
+        className={`mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition ${
+          listoParaDescargar ? 'bg-product text-white active:scale-[0.99]' : 'pointer-events-none bg-product/50 text-white/80'
+        }`}
+        href={data.comprobante.pdfUrl}
+        rel="noreferrer"
+        target="_blank"
+      >
+        {preparando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+        {preparando ? 'Preparando comprobante…' : 'Descargar comprobante'}
+      </a>
+    </div>
+  );
+}
+
+// Calificación paso a paso: un eje a la vez con transición; al completar los 3 ejes
+// aparece el comentario (opcional) y el botón de enviar. Premium y sin fricción.
+const RATING_AXES = [
+  { key: 'servicio', label: '¿Cómo estuvo tu servicio?', hint: 'Tu experiencia general con Taxi Green', short: 'Servicio' },
+  { key: 'conductor', label: '¿Y tu conductor?', hint: 'Trato, manejo y puntualidad', short: 'Conductor' },
+  { key: 'unidad', label: '¿Y el vehículo?', hint: 'Comodidad y limpieza', short: 'Vehículo' },
+] as const;
+
+type RatingAxisKey = (typeof RATING_AXES)[number]['key'];
+
+function RatingBlock({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
+  const yaCalificado = Boolean(data.calificacion);
+  const [valores, setValores] = useState<Record<RatingAxisKey, number>>({
+    servicio: data.calificacion?.servicio ?? 0,
+    conductor: data.calificacion?.conductor ?? 0,
+    unidad: data.calificacion?.unidad ?? 0,
+  });
+  const [step, setStep] = useState(yaCalificado ? RATING_AXES.length : 0);
+  const [visible, setVisible] = useState(true);
+  const [comentario, setComentario] = useState(data.calificacion?.comentario ?? '');
+  const [status, setStatus] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [enviado, setEnviado] = useState(yaCalificado);
+
+  const completo = valores.servicio > 0 && valores.conductor > 0 && valores.unidad > 0;
+  const needsReason =
+    (valores.servicio > 0 && valores.servicio <= 3) ||
+    (valores.conductor > 0 && valores.conductor <= 3) ||
+    (valores.unidad > 0 && valores.unidad <= 3);
+
+  const pick = (key: RatingAxisKey, value: number) => {
+    setValores((v) => ({ ...v, [key]: value }));
+    // Transición: desvanece el eje actual y revela el siguiente (o el resumen).
+    setVisible(false);
+    window.setTimeout(() => {
+      setStep((s) => Math.min(s + 1, RATING_AXES.length));
+      setVisible(true);
+    }, 280);
   };
 
-  const emitirComprobante = async () => {
-    setDocumentStatus('Preparando tu comprobante…');
-    const response = await fetch(`/api/pasajero/${data.token}/comprobante`, {
+  const irAEje = (index: number) => {
+    setVisible(false);
+    window.setTimeout(() => {
+      setStep(index);
+      setVisible(true);
+    }, 120);
+  };
+
+  const enviar = async () => {
+    setEnviando(true);
+    setStatus('Guardando tu calificación…');
+    const comentarioLimpio = comentario.trim();
+    const res = await fetch(`/api/pasajero/${data.token}/calificacion`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tipo: 'boleta', dni: dni || null, nombre: nombreDocumento || null }),
+      body: JSON.stringify({
+        ...valores,
+        comentario: comentarioLimpio || null,
+        motivo: needsReason ? comentarioLimpio || null : null,
+      }),
     });
-    if (!response.ok) {
-      setDocumentStatus('No se pudo preparar el comprobante.');
+    setEnviando(false);
+    if (!res.ok) {
+      setStatus('No pudimos guardar tu calificación. Reintenta.');
       return;
     }
-    setDocumentStatus('Comprobante listo.');
-    setComprobanteListo(true);
+    setStatus(null);
+    setEnviado(true);
     await refresh();
   };
 
-  const saveRating = async () => {
-    setRatingStatus('Guardando tu calificación…');
-    const response = await fetch(`/api/pasajero/${data.token}/calificacion`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(rating),
-    });
-    if (!response.ok) {
-      setRatingStatus('Cuéntanos el motivo si algo estuvo en 3 o menos.');
-      return;
-    }
-    setRatingStatus('¡Gracias! Tu calificación quedó registrada.');
-    await refresh();
-  };
+  if (enviado) {
+    return (
+      <div className="rounded-xl bg-surface-muted p-3.5">
+        <div className="flex items-center gap-2">
+          <Star className="h-4 w-4 fill-product text-product" />
+          <p className="text-sm font-semibold text-foreground">¡Gracias por calificar tu viaje!</p>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {RATING_AXES.map((axis) => (
+            <div className="rounded-lg bg-surface px-2 py-2 text-center" key={axis.key}>
+              <p className="text-[11px] text-foreground-muted">{axis.short}</p>
+              <div className="mt-0.5 flex justify-center">
+                <RatingStars value={valores[axis.key]} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
+  const enResumen = step >= RATING_AXES.length;
+  const eje = RATING_AXES[Math.min(step, RATING_AXES.length - 1)]!;
+
+  return (
+    <div className="rounded-xl bg-surface-muted p-3.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Star className="h-4 w-4 text-product" />
+          <p className="text-sm font-semibold text-foreground">Califica tu viaje</p>
+        </div>
+        {/* Progreso 1·2·3 */}
+        <div className="flex items-center gap-1.5">
+          {RATING_AXES.map((axis, i) => (
+            <span
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                valores[axis.key] > 0 ? 'w-5 bg-product' : i === step && !enResumen ? 'w-5 bg-product/50' : 'w-1.5 bg-foreground-muted/30'
+              }`}
+              key={axis.key}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className={`mt-4 transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'translate-y-1 opacity-0'}`}>
+        {!enResumen ? (
+          <div className="text-center">
+            <p className="text-base font-semibold text-foreground">{eje.label}</p>
+            <p className="mt-0.5 text-xs text-foreground-muted">{eje.hint}</p>
+            <div className="mt-4">
+              <StarRow onChange={(v) => pick(eje.key, v)} value={valores[eje.key]} />
+            </div>
+            <p className="mt-3 text-[11px] text-foreground-muted/70">Paso {step + 1} de {RATING_AXES.length}</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            <div className="grid grid-cols-3 gap-2">
+              {RATING_AXES.map((axis) => (
+                <button
+                  className="rounded-lg bg-surface px-2 py-2 text-center transition hover:ring-1 hover:ring-product/40"
+                  key={axis.key}
+                  onClick={() => irAEje(RATING_AXES.findIndex((a) => a.key === axis.key))}
+                  type="button"
+                >
+                  <p className="text-[11px] text-foreground-muted">{axis.short}</p>
+                  <div className="mt-0.5 flex justify-center">
+                    <RatingStars value={valores[axis.key]} />
+                  </div>
+                </button>
+              ))}
+            </div>
+            <textarea
+              className="min-h-20 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
+              onChange={(event) => setComentario(event.target.value)}
+              placeholder={needsReason ? '¿Qué podríamos mejorar?' : 'Déjanos un comentario (opcional)'}
+              value={comentario}
+            />
+            <button
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-product text-sm font-semibold text-white disabled:opacity-50"
+              disabled={!completo || enviando}
+              onClick={() => void enviar()}
+              type="button"
+            >
+              {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Enviar calificación
+            </button>
+            {status ? <p className="text-sm text-foreground-muted">{status}</p> : null}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: () => Promise<void> }) {
   return (
     <section className="rounded-2xl border border-success/30 bg-surface p-4">
       <div className="flex items-start gap-3">
@@ -1138,117 +1315,8 @@ function CompletionPanel({ data, refresh }: { data: PassengerTripData; refresh: 
       </div>
 
       <div className="mt-4 grid gap-3">
-        {!data.comprobante.disponible ? (
-          <div className="rounded-xl bg-surface-muted p-3">
-            <p className="text-sm font-semibold text-foreground">Tu comprobante llega con el pago</p>
-            <p className="mt-1 text-sm leading-5 text-foreground-muted">
-              Confirma tu pago arriba y aquí mismo podrás descargar tu comprobante.
-            </p>
-          </div>
-        ) : (
-        <div className="rounded-xl bg-surface-muted p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                {hasComprobante ? 'Tu comprobante está listo' : '¿Necesitas comprobante?'}
-              </p>
-              {data.comprobante.etiqueta ? (
-                <p className="mt-1 text-sm text-foreground-muted">{data.comprobante.etiqueta}</p>
-              ) : null}
-            </div>
-            {hasComprobante ? (
-              <a
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white"
-                href={data.comprobante.pdfUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <FileText className="h-4 w-4" />
-                Descargar comprobante
-              </a>
-            ) : null}
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input
-              className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
-              inputMode="numeric"
-              maxLength={8}
-              placeholder="DNI (opcional)"
-              value={dni}
-              onChange={(event) => setDni(event.target.value.replace(/\D/g, ''))}
-            />
-            <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-product px-4 text-sm font-semibold text-product"
-              type="button"
-              onClick={lookupDni}
-            >
-              <Search className="h-4 w-4" />
-              Buscar
-            </button>
-          </div>
-          {documentStatus ? <p className="mt-2 text-sm text-foreground-muted">{documentStatus}</p> : null}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className={`inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold ${
-                hasComprobante
-                  ? 'border border-border bg-surface text-product'
-                  : 'bg-product text-white'
-              }`}
-              type="button"
-              onClick={emitirComprobante}
-            >
-              <FileText className="h-4 w-4" />
-              {hasComprobante ? 'Actualizar datos' : 'Preparar comprobante'}
-            </button>
-          </div>
-        </div>
-        )}
-
-        <div className="rounded-xl bg-surface-muted p-3">
-          <div className="flex items-center gap-2">
-            <Star className="h-4 w-4 text-product" />
-            <p className="text-sm font-semibold text-foreground">¿Cómo estuvo tu viaje?</p>
-          </div>
-          <div className="mt-4 grid gap-4">
-            <StarRatingInput
-              label="Servicio"
-              value={rating.servicio}
-              onChange={(value) => setRating((current) => ({ ...current, servicio: value }))}
-            />
-            {mostrarConductor ? (
-              <StarRatingInput
-                label="Conductor"
-                value={rating.conductor}
-                onChange={(value) => setRating((current) => ({ ...current, conductor: value }))}
-              />
-            ) : null}
-            {mostrarUnidad ? (
-              <StarRatingInput
-                label="Vehículo"
-                value={rating.unidad}
-                onChange={(value) => setRating((current) => ({ ...current, unidad: value }))}
-              />
-            ) : null}
-            {needsReason ? (
-              <textarea
-                className="min-h-20 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
-                placeholder="¿Qué podríamos mejorar? (opcional)"
-                value={rating.motivo ?? ''}
-                onChange={(event) => setRating((current) => ({ ...current, motivo: event.target.value }))}
-              />
-            ) : null}
-            <button
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={!calificacionCompleta}
-              type="button"
-              onClick={saveRating}
-            >
-              <Send className="h-4 w-4" />
-              {calificacionCompleta ? 'Enviar calificación' : 'Marca las 3 estrellas'}
-            </button>
-            {ratingStatus ? <p className="text-sm text-foreground-muted">{ratingStatus}</p> : null}
-          </div>
-        </div>
+        <ComprobanteBlock data={data} refresh={refresh} />
+        <RatingBlock data={data} refresh={refresh} />
       </div>
     </section>
   );
@@ -1317,101 +1385,106 @@ function IncidentPanel({ data, refresh }: { data: PassengerTripData; refresh: ()
     await refresh();
   };
 
-  // Link de WhatsApp que reenvía el seguimiento del caso (en la demo simula el aviso).
-  const whatsappCasoHref = casoEnviado
-    ? `https://wa.me/?text=${encodeURIComponent(`Taxi Green · Seguimiento de tu objeto olvidado: ${casoEnviado}`)}`
-    : null;
+  // Enlace de seguimiento del caso (la confirmación dentro de /p; el aviso "por WhatsApp"
+  // aparece en el chat simulado de /wa-sim, y el conductor recibe la alerta en su app).
+  const casoUrl = casoEnviado ?? lastIncident?.casoUrl ?? null;
+  const reportado = Boolean(casoUrl);
 
   return (
-    <section className="rounded-2xl border border-care/20 bg-surface p-4">
+    <section className="overflow-hidden rounded-2xl border border-care/25 bg-surface">
       <button
-        type="button"
-        className="flex w-full items-center gap-3 text-left"
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-care/5"
         onClick={() => setOpen((value) => !value)}
+        type="button"
       >
-        <PackageSearch className="h-5 w-5 text-care" />
-        <span className="flex-1">
-          <span className="block text-sm font-semibold text-foreground">¿Olvidaste algo?</span>
-          <span className="block text-xs text-foreground-muted">Toca lo que dejaste y lo buscamos</span>
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-care/15 text-care">
+          <PackageSearch className="h-5 w-5" />
         </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-foreground">¿Olvidaste algo en el viaje?</span>
+          <span className="block text-xs leading-5 text-foreground-muted">
+            {reportado ? 'Tu caso ya está en marcha · toca para ver el detalle' : 'Lo reportas y avisamos al conductor al instante'}
+          </span>
+        </span>
+        <ChevronDown className={`h-5 w-5 shrink-0 text-foreground-muted transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
+
       {open ? (
-        <div className="mt-3">
-          <div className="flex flex-wrap gap-2">
-            {OBJETOS_FRECUENTES.map((label) => {
-              const activo = seleccion.includes(label);
-              return (
-                <button
-                  aria-pressed={activo}
-                  className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                    activo
-                      ? 'border-care bg-care text-white'
-                      : 'border-border bg-surface text-foreground hover:bg-surface-muted'
-                  }`}
-                  key={label}
-                  type="button"
-                  onClick={() => toggle(label)}
-                >
-                  {label}
-                </button>
-              );
-            })}
-            <button
-              aria-pressed={otrosActivo}
-              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                otrosActivo
-                  ? 'border-care bg-care text-white'
-                  : 'border-border bg-surface text-foreground hover:bg-surface-muted'
-              }`}
-              type="button"
-              onClick={() => setOtrosActivo((value) => !value)}
-            >
-              Otros
-            </button>
-          </div>
-          {otrosActivo ? (
-            <input
-              className="mt-3 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
-              placeholder="¿Qué otra cosa olvidaste?"
-              value={otrosTexto}
-              onChange={(event) => setOtrosTexto(event.target.value)}
-            />
-          ) : null}
-          <button
-            className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-care px-4 text-sm font-semibold text-white disabled:opacity-50"
-            disabled={items.length === 0}
-            type="button"
-            onClick={submitIncident}
-          >
-            <Send className="h-4 w-4" />
-            Reportar objeto olvidado
-          </button>
-          {status ? <p className="mt-2 text-sm text-foreground-muted">{status}</p> : null}
-          {whatsappCasoHref ? (
-            <div className="mt-3 rounded-xl border border-success/30 bg-success/10 p-3">
+        <div className="border-t border-care/15 px-4 pb-4 pt-3">
+          {reportado ? (
+            <div className="rounded-xl border border-success/30 bg-success/10 p-3.5">
               <p className="flex items-center gap-2 text-sm font-semibold text-success">
-                <MessageCircle className="h-4 w-4" />
-                Te enviamos el enlace de seguimiento por WhatsApp
+                <CheckCircle2 className="h-4 w-4" />
+                Caso registrado
               </p>
-              <p className="mt-1 text-xs text-foreground-muted">
-                Sigue tu caso cuando quieras desde tu chat. También puedes abrirlo aquí:
+              <p className="mt-1 text-xs leading-5 text-foreground-muted">
+                Te enviamos el enlace de seguimiento a tu chat de WhatsApp y avisamos al conductor de tu viaje.
+                Puedes seguir tu caso aquí cuando quieras.
               </p>
               <a
-                className="mt-2 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 text-sm font-semibold text-white"
-                href={whatsappCasoHref}
-                rel="noreferrer"
-                target="_blank"
+                className="mt-3 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-care px-4 text-sm font-semibold text-white"
+                href={casoUrl ?? '#'}
               >
-                <MessageCircle className="h-4 w-4" />
-                Abrir en WhatsApp
+                <PackageSearch className="h-4 w-4" />
+                Ver seguimiento del caso
               </a>
             </div>
-          ) : null}
-          {lastIncident ? (
-            <a className="mt-3 inline-flex text-sm font-semibold text-care" href={lastIncident.casoUrl}>
-              Ver mi caso
-            </a>
-          ) : null}
+          ) : (
+            <>
+              <p className="mb-2.5 text-xs font-medium text-foreground-muted">Toca lo que dejaste. Puedes elegir varios.</p>
+              <div className="flex flex-wrap gap-2">
+                {OBJETOS_FRECUENTES.map((label) => {
+                  const activo = seleccion.includes(label);
+                  return (
+                    <button
+                      aria-pressed={activo}
+                      className={`rounded-full border px-3 py-1.5 text-sm font-medium transition active:scale-95 ${
+                        activo
+                          ? 'border-care bg-care text-white shadow-sm'
+                          : 'border-border bg-surface text-foreground hover:bg-surface-muted'
+                      }`}
+                      key={label}
+                      onClick={() => toggle(label)}
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <button
+                  aria-pressed={otrosActivo}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium transition active:scale-95 ${
+                    otrosActivo
+                      ? 'border-care bg-care text-white shadow-sm'
+                      : 'border-border bg-surface text-foreground hover:bg-surface-muted'
+                  }`}
+                  onClick={() => setOtrosActivo((value) => !value)}
+                  type="button"
+                >
+                  Otros
+                </button>
+              </div>
+              {otrosActivo ? (
+                <input
+                  className="mt-3 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-care/40"
+                  onChange={(event) => setOtrosTexto(event.target.value)}
+                  placeholder="¿Qué otra cosa olvidaste?"
+                  value={otrosTexto}
+                />
+              ) : null}
+              <button
+                className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-care px-4 text-sm font-semibold text-white transition active:scale-[0.99] disabled:opacity-50"
+                disabled={items.length === 0}
+                onClick={submitIncident}
+                type="button"
+              >
+                <Send className="h-4 w-4" />
+                Reportar y avisar al conductor
+              </button>
+              {status ? <p className="mt-2 text-sm text-foreground-muted">{status}</p> : null}
+            </>
+          )}
         </div>
       ) : null}
     </section>

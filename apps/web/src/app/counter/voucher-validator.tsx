@@ -2,7 +2,9 @@
 
 import {
   ArrowRight,
+  Bot,
   Camera,
+  Car,
   CheckCircle2,
   ChevronDown,
   CreditCard,
@@ -19,7 +21,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import jsQR from 'jsqr';
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
 type VerifyPayload = {
@@ -193,6 +194,245 @@ function DataRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
+type ConductorOpt = {
+  id: string;
+  nombre: string;
+  rating: number;
+  totalViajes: number;
+  vehiculoActual: string | null;
+};
+type VehiculoOpt = { id: string; placa: string; marca: string; modelo: string };
+type AsignacionData = {
+  puedeAsignar: boolean;
+  asignado: { conductorId: string; conductorNombre: string | null; vehiculoLabel: string | null } | null;
+  sugerencia: { conductorId: string; conductorNombre: string; placa: string | null; razon: string; fuente: string } | null;
+  conductores: ConductorOpt[];
+  vehiculos: VehiculoOpt[];
+};
+
+// Asignación de conductor/unidad DESDE el mostrador (rol supervisor), sin abrir el panel
+// admin. El counter ve al conductor asignado o al sugerido por el copiloto y puede
+// asignarlo o cambiarlo antes de dar luz verde.
+function AsignacionPanel({ reservaId, onAsignado }: { reservaId: string; onAsignado: () => void }) {
+  const [data, setData] = useState<AsignacionData | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [modoManual, setModoManual] = useState(false);
+  const [conductorSel, setConductorSel] = useState('');
+  const [vehiculoSel, setVehiculoSel] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = async () => {
+    setCargando(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/counter/asignacion/${reservaId}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('no_ok');
+      setData((await res.json()) as AsignacionData);
+    } catch {
+      setError('No pudimos cargar los conductores. Reintenta.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    void cargar();
+  }, [reservaId]);
+
+  const asignar = async (conductorId: string, vehiculoId: string | null, fuente: 'algoritmo' | 'llm', razon?: string) => {
+    if (!conductorId) return;
+    setGuardando(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/counter/asignacion/${reservaId}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conductorId, vehiculoId, fuente, razon }),
+      });
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setError(body?.message ?? 'No se pudo asignar. Reintenta.');
+        return;
+      }
+      setModoManual(false);
+      onAsignado();
+      await cargar();
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  if (cargando) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl bg-surface-muted px-4 py-3 text-sm text-foreground-muted">
+        <Loader2 className="h-4 w-4 animate-spin" /> Buscando al conductor…
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="rounded-xl bg-surface-muted px-4 py-3 text-sm text-foreground-muted">
+        {error ?? 'Sin datos de conductor.'}
+        <button className="ml-2 font-semibold text-product underline" onClick={() => void cargar()} type="button">
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  const conductorActual = data.asignado
+    ? data.conductores.find((c) => c.id === data.asignado?.conductorId)
+    : undefined;
+
+  // Selector manual (asignar o cambiar): elige conductor y, opcionalmente, su unidad.
+  const Selector = (
+    <div className="grid gap-2 rounded-xl border border-border bg-surface p-3">
+      <label className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Conductor</label>
+      <select
+        className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+        onChange={(e) => setConductorSel(e.target.value)}
+        value={conductorSel}
+      >
+        <option value="">Elige un conductor…</option>
+        {data.conductores.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.nombre} · ⭐ {c.rating.toFixed(1)} · {c.totalViajes} viajes
+            {c.vehiculoActual ? ` · ${c.vehiculoActual}` : ''}
+          </option>
+        ))}
+      </select>
+      <label className="mt-1 text-xs font-semibold uppercase tracking-wide text-foreground-muted">Unidad (opcional)</label>
+      <select
+        className="h-11 rounded-lg border border-border bg-surface px-3 text-sm text-foreground"
+        onChange={(e) => setVehiculoSel(e.target.value)}
+        value={vehiculoSel}
+      >
+        <option value="">Mantener su unidad habitual</option>
+        {data.vehiculos.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.placa} · {v.marca} {v.modelo}
+          </option>
+        ))}
+      </select>
+      <div className="mt-1 flex gap-2">
+        <button
+          className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white disabled:opacity-50"
+          disabled={!conductorSel || guardando}
+          onClick={() => void asignar(conductorSel, vehiculoSel || null, 'algoritmo')}
+          type="button"
+        >
+          {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {data.asignado ? 'Guardar cambio' : 'Asignar conductor'}
+        </button>
+        {data.asignado || data.sugerencia ? (
+          <button
+            className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-foreground-muted"
+            onClick={() => setModoManual(false)}
+            type="button"
+          >
+            Cancelar
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-2 rounded-2xl border border-border bg-surface-muted p-3">
+      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+        <UserRound className="h-4 w-4" /> Conductor del viaje
+      </p>
+
+      {!data.puedeAsignar ? (
+        <p className="rounded-xl bg-surface px-4 py-3 text-sm text-foreground-muted">
+          {conductorActual
+            ? `${conductorActual.nombre}${data.asignado?.vehiculoLabel ? ` · ${data.asignado.vehiculoLabel}` : ''}`
+            : 'Este viaje ya no admite cambios de conductor.'}
+        </p>
+      ) : modoManual ? (
+        Selector
+      ) : data.asignado ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-success/30 bg-success/10 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-success/20 text-success">
+              <CheckCircle2 className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-foreground">{data.asignado.conductorNombre ?? 'Conductor asignado'}</p>
+              <p className="text-xs text-foreground-muted">
+                <Car className="mr-1 inline h-3.5 w-3.5" />
+                {data.asignado.vehiculoLabel ?? 'Unidad por confirmar'}
+              </p>
+            </div>
+          </div>
+          <button
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-surface px-3 text-sm font-semibold text-product"
+            onClick={() => {
+              setConductorSel(data.asignado?.conductorId ?? '');
+              setVehiculoSel('');
+              setModoManual(true);
+            }}
+            type="button"
+          >
+            Cambiar
+          </button>
+        </div>
+      ) : data.sugerencia ? (
+        <div className="grid gap-2 rounded-xl border border-product/30 bg-product-muted/40 p-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-product/15 text-product">
+              <Bot className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-product">Sugerencia del copiloto</p>
+              <p className="text-sm font-bold text-foreground">
+                {data.sugerencia.conductorNombre}
+                {data.sugerencia.placa ? ` · ${data.sugerencia.placa}` : ''}
+              </p>
+            </div>
+          </div>
+          <p className="rounded-lg bg-surface px-3 py-2 text-xs leading-5 text-foreground-muted">{data.sugerencia.razon}</p>
+          <div className="flex gap-2">
+            <button
+              className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-product px-4 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={guardando}
+              onClick={() =>
+                data.sugerencia &&
+                void asignar(data.sugerencia.conductorId, null, data.sugerencia.fuente === 'llm' ? 'llm' : 'algoritmo', data.sugerencia.razon)
+              }
+              type="button"
+            >
+              {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Asignar este conductor
+            </button>
+            <button
+              className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-product"
+              onClick={() => {
+                setConductorSel('');
+                setVehiculoSel('');
+                setModoManual(true);
+              }}
+              type="button"
+            >
+              Elegir otro
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="rounded-xl bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-600 dark:text-amber-400">
+            Aún no hay conductor. Asigna uno antes de dar luz verde.
+          </p>
+          {Selector}
+        </>
+      )}
+
+      {error ? <p className="text-sm font-medium text-danger">{error}</p> : null}
+    </div>
+  );
+}
+
 // Letrero de llamado en sala: la tablet se levanta con el nombre del pasajero en grande
 // (patrón "conductor con cartel" del aeropuerto, versión digital). Pantalla
 // completa, horizontal si el dispositivo lo permite, y se cierra con un toque.
@@ -294,6 +534,9 @@ export function VoucherValidator() {
   const [payload, setPayload] = useState<VerifyPayload | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState<string | null>(null);
+  // El mostrador acaba de asignar conductor desde su panel: refleja "luz verde" sin
+  // re-validar (re-validar reiniciaría el flujo al paso 1).
+  const [asignadoLocal, setAsignadoLocal] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraMessage, setCameraMessage] = useState<string | null>(null);
   // Letrero externo: datos del pase obtenidos SIN avanzar el estado de validación.
@@ -314,12 +557,14 @@ export function VoucherValidator() {
     setMessage(null);
     setCameraMessage(null);
     setLetreroExterno(null);
+    setAsignadoLocal(false);
   };
 
   const validate = async (value = input) => {
     setStatus('validating');
     setMessage(null);
     setPayload(null);
+    setAsignadoLocal(false);
     try {
       const resolvedToken = await resolveToken(value);
       const voucherId = voucherIdFromTokenOrCode(resolvedToken);
@@ -565,15 +810,6 @@ export function VoucherValidator() {
               <DataRow icon={<Plane className="h-4 w-4" />} label="Vuelo" value={reserva.vuelo_codigo ?? 'Por confirmar'} />
               <DataRow icon={<MapPin className="h-4 w-4" />} label="Recojo" value={reserva.origen_texto} />
               <DataRow icon={<ArrowRight className="h-4 w-4" />} label="Destino" value={reserva.destino_texto} />
-              <DataRow
-                icon={<UserRound className="h-4 w-4" />}
-                label="Conductor"
-                value={
-                  reserva.conductor
-                    ? `${reserva.conductor.nombre}${reserva.conductor.placa ? ` · ${reserva.conductor.placa}` : ''}`
-                    : 'Falta asignar conductor'
-                }
-              />
               {reserva.pago ? (
                 <DataRow
                   icon={<CreditCard className="h-4 w-4" />}
@@ -590,6 +826,9 @@ export function VoucherValidator() {
               ) : null}
             </div>
 
+            {/* El mostrador ve y gestiona al conductor aquí mismo, sin abrir el panel admin. */}
+            <AsignacionPanel onAsignado={() => setAsignadoLocal(true)} reservaId={reserva.id} />
+
             <button
               className="inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-product px-4 text-base font-semibold text-white disabled:opacity-60"
               type="button"
@@ -597,32 +836,15 @@ export function VoucherValidator() {
               onClick={consume}
             >
               {status === 'consuming' ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-              {reserva.conductor ? 'Confirmar acceso y dar luz verde' : 'Confirmar acceso'}
+              {reserva.conductor || asignadoLocal ? 'Confirmar acceso y dar luz verde' : 'Confirmar acceso'}
             </button>
-            <div className="flex gap-2">
-              <button
-                className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
-                type="button"
-                onClick={reset}
-              >
-                Otro código
-              </button>
-              {reserva.conductor ? (
-                <Link
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
-                  href={`/admin/reservas/${reserva.id}`}
-                >
-                  Cambiar unidad
-                </Link>
-              ) : (
-                <Link
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
-                  href={`/admin/reservas/${reserva.id}`}
-                >
-                  Abrir despacho
-                </Link>
-              )}
-            </div>
+            <button
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-product"
+              type="button"
+              onClick={reset}
+            >
+              Otro código
+            </button>
           </div>
         ) : (
           /* ── Paso 1 — lista de vuelo + escanear o escribir el código ─────── */

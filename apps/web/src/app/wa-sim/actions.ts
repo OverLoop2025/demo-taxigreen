@@ -9,6 +9,7 @@ import {
   PerfilPasajero,
   Prisma,
   ResponsablePago,
+  TipologiaIncidencia,
   TipoPago,
   TipoVehiculo,
   TipoViaje,
@@ -483,5 +484,42 @@ export async function asignarConductorAutomatico(reservaId: string): Promise<Asi
     ok: true,
     conductorNombre: sugerencia.conductor.nombre,
     placa: sugerencia.vehiculo.placa,
+  };
+}
+
+export type IncidenciaObjetoOlvidadoResumen = {
+  id: string;
+  descripcion: string;
+  casoUrl: string;
+};
+
+// Bienestar → WhatsApp: si el pasajero reporta un objeto olvidado desde /p, el chat
+// simulado de /wa-sim lo refleja. Devuelve la última incidencia de objeto olvidado de la
+// reserva (con su enlace de seguimiento), para que el copiloto inserte el aviso en el chat.
+export async function obtenerIncidenciaObjetoOlvidado(
+  reservaId: string,
+): Promise<IncidenciaObjetoOlvidadoResumen | null> {
+  await requireRole(['admin_tenant', 'despachador']);
+  const reserva = await prisma.reservas.findFirst({
+    where: { id: reservaId, deleted_at: null },
+    select: { token_pasajero: true },
+  });
+  if (!reserva?.token_pasajero) return null;
+
+  const incidencia = await prisma.incidencias.findFirst({
+    where: {
+      reserva_id: reservaId,
+      tipologia: TipologiaIncidencia.objeto_olvidado,
+      deleted_at: null,
+    },
+    orderBy: { created_at: 'desc' },
+    select: { id: true, descripcion: true },
+  });
+  if (!incidencia) return null;
+
+  return {
+    id: incidencia.id,
+    descripcion: incidencia.descripcion,
+    casoUrl: `/bienestar/${incidencia.id}?t=${reserva.token_pasajero}`,
   };
 }
