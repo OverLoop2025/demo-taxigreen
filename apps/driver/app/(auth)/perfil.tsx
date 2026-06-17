@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import { AuthorCredit } from '@/components/AuthorCredit';
 import { ThemeControl } from '@/components/ThemeControl';
 import { TouchButton } from '@/components/TouchButton';
 import { getActiveDriverAssignment } from '@/features/assignment/client';
@@ -86,13 +87,7 @@ export default function ProfileScreen() {
       <TouchButton label="Cerrar sesión" tone="danger" className="mt-5" onPress={closeSession} />
 
       {/* Crédito de autoría discreto (espejo del de la web). */}
-      <Pressable
-        className="mt-8 items-center"
-        onPress={() => void Linking.openURL('https://github.com/OverLoop2025')}
-      >
-        <Text className="text-xs font-medium text-foreground-muted">Developed by José Álvarez</Text>
-        <Text className="mt-0.5 text-xs text-foreground-muted">github.com/OverLoop2025 · 959 799 190</Text>
-      </Pressable>
+      <AuthorCredit className="mt-8" />
     </ScrollView>
   );
 }

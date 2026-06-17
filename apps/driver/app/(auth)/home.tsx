@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { AuthorCredit } from '@/components/AuthorCredit';
 import { TouchButton } from '@/components/TouchButton';
 import { getActiveDriverAssignment } from '@/features/assignment/client';
 import type { DriverAssignment } from '@/features/assignment/types';
@@ -190,10 +191,10 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Objeto olvidado (soporte) */}
+      {/* Objeto olvidado: ALERTA destacada (un pasajero reportó algo en tu viaje). */}
       {lastIncident ? (
         <Pressable
-          className="mt-4 flex-row items-center gap-3 rounded-2xl border border-border bg-surface px-5 py-4"
+          className="mt-4 overflow-hidden rounded-3xl border border-purple-500/40 bg-purple-500/10"
           onPress={() =>
             router.push({
               pathname: '/(auth)/incidencia/[id]' as never,
@@ -205,18 +206,27 @@ export default function HomeScreen() {
             })
           }
         >
-          <View className="h-11 w-11 items-center justify-center rounded-2xl bg-purple-500/20">
-            <Ionicons name="bag-handle-outline" size={22} color="#A855F7" />
+          <View className="flex-row items-center gap-2 bg-purple-500 px-5 py-2.5">
+            <Ionicons name="notifications" size={16} color="#FFFFFF" />
+            <Text className="text-xs font-bold uppercase tracking-wide text-white">Aviso de bienestar</Text>
           </View>
-          <View className="flex-1">
-            <Text className="text-sm font-bold text-purple-500">Objeto olvidado</Text>
-            <Text className="text-sm text-foreground-muted" numberOfLines={1}>
-              {lastIncident.descripcion}
-            </Text>
+          <View className="flex-row items-center gap-3 px-5 py-4">
+            <View className="h-11 w-11 items-center justify-center rounded-2xl bg-purple-500/20">
+              <Ionicons name="bag-handle" size={22} color="#A855F7" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-base font-bold text-foreground">Un pasajero olvidó algo</Text>
+              <Text className="text-sm text-foreground-muted" numberOfLines={2}>
+                {lastIncident.descripcion}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#A855F7" />
           </View>
-          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </Pressable>
       ) : null}
+
+      {/* Firma del producto (espejo del crédito de la web). */}
+      <AuthorCredit className="mt-8" />
     </ScrollView>
   );
 }
